@@ -47,10 +47,166 @@ For complex architectural decisions or challenging problems, use **"ultrathink"*
 
 # Implementation Standards
 
+## Design Patterns & Architecture
+**Always Consider Design Patterns** - Choose the right pattern for long-term sustainability and growth:
+
+### Core Patterns We Use
+- **Strategy Pattern**: For interchangeable algorithms (different momentum detection strategies)
+- **Adapter Pattern**: For external API integration (YFinanceAdapter, PolygonAdapter)
+- **Factory Pattern**: For creating providers based on configuration
+- **Repository Pattern**: For data access abstraction
+- **Observer Pattern**: For real-time updates and notifications
+- **Command Pattern**: For trade actions and analysis operations
+- **Decorator Pattern**: For adding features like caching, rate limiting
+- **Flyweight Pattern**: For efficient handling of large datasets
+
+### Pattern Selection Guidelines
+**Before implementing any significant component, ask:**
+1. **Strategy vs Template Method**: Need runtime algorithm switching or compile-time inheritance?
+2. **Factory vs Builder**: Creating simple objects or complex objects with many parameters?
+3. **Observer vs Callback**: One-to-many notifications or simple function calls?
+4. **Decorator vs Inheritance**: Adding behavior dynamically or at class design time?
+
+### Anti-Patterns to Avoid
+- **God Objects**: Keep classes focused on single responsibility
+- **Spaghetti Code**: Use clear interfaces and dependency injection
+- **Copy-Paste Programming**: Extract common patterns into reusable components
+- **Premature Optimization**: Choose patterns for clarity first, performance second
+
+### Examples in Our Codebase
+```python
+# Strategy Pattern for momentum detection
+class MomentumAnalyzer:
+    def __init__(self, strategy: MomentumStrategy):
+        self.strategy = strategy
+    
+    def analyze(self, data):
+        return self.strategy.calculate_momentum(data)
+
+# Factory Pattern for data providers
+class ProviderFactory:
+    @staticmethod
+    def create_market_provider(provider_type: str) -> MarketDataProvider:
+        if provider_type == "yfinance":
+            return YFinanceAdapter()
+        elif provider_type == "polygon":
+            return PolygonAdapter()
+        
+# Decorator Pattern for rate limiting
+class RateLimitedProvider(MarketDataProvider):
+    def __init__(self, provider: MarketDataProvider, rate_limiter: RateLimiter):
+        self.provider = provider
+        self.rate_limiter = rate_limiter
+    
+    def get_current_quote(self, symbol: str):
+        self.rate_limiter.wait_if_needed()
+        return self.provider.get_current_quote(symbol)
+```
+
 ## General Coding Standards (language agnostic):
 - **Delete** old code when replacing it
 - **Meaningful names**: `userID` not `id`
 - **Early returns** to reduce nesting
+
+## Example Data Management
+**Cache Example Data Locally** - When fetching example/demo data:
+
+### Save Example Data for Reuse
+- **When**: Any time we fetch web/API data for examples or demonstrations
+- **Where**: Save to `/data/examples/` directory with descriptive names
+- **Format**: Use clear, timestamped filenames like `nvidia_data_2025-07-20.json`
+- **Purpose**: Avoid repeated API calls for the same example data
+
+### Example Data Guidelines
+```python
+# When fetching example data, always save it locally
+def fetch_and_cache_example_data(symbol: str, save_path: str = None):
+    if save_path is None:
+        save_path = f"data/examples/{symbol.lower()}_data_{datetime.now().strftime('%Y-%m-%d')}.json"
+    
+    # Check if we already have recent data
+    if os.path.exists(save_path):
+        with open(save_path, 'r') as f:
+            return json.load(f)
+    
+    # Fetch new data
+    data = fetch_from_api(symbol)
+    
+    # Save for next time
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+    with open(save_path, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    return data
+```
+
+### Use Cases for Example Data Caching
+- **"Show me NVIDIA data"** → Save to `data/examples/nvidia_data_YYYY-MM-DD.json`
+- **"Demo with Apple stock"** → Save to `data/examples/apple_demo_YYYY-MM-DD.json`
+- **"Test with crypto data"** → Save to `data/examples/crypto_test_YYYY-MM-DD.json`
+- **Market segment examples** → Save to `data/examples/tech_stocks_YYYY-MM-DD.json`
+
+### Benefits
+- **Faster Development**: No repeated API calls for same examples
+- **Consistent Testing**: Same data across development sessions
+- **Offline Capability**: Work with examples without internet
+- **Version Control**: Track how example data changes over time (though don't commit sensitive data)
+
+**Note**: Only cache example/demo data, never real production trading data with sensitive information.
+
+## API Caching for Rate-Limited APIs
+**Always Check Cache Before External API Calls** - Essential for free-tier APIs:
+
+### Intelligent Cache-First Strategy
+```python
+from data_collection.api_cache import cached_api_call, CachePolicy
+
+# Always use cache wrapper for API calls
+def get_stock_quote(symbol: str):
+    return cached_api_call(
+        provider="polygon",
+        endpoint="get_quote", 
+        params={"symbol": symbol},
+        api_function=lambda: polygon_client.get_last_quote(symbol),
+        policy=CachePolicy.REAL_TIME  # 2 minutes TTL
+    )
+```
+
+### Cache Policies by Data Type
+- **REAL_TIME**: 2 minutes (current prices, volume)
+- **INTRADAY**: 15 minutes (technical indicators)  
+- **DAILY**: 4 hours (end-of-day summaries)
+- **FUNDAMENTAL**: 1 week (company info, financials)
+- **HISTORICAL**: 30 days (historical prices - rarely change)
+
+### Cache Management Commands
+```python
+from data_collection.api_cache import cache_stats, clear_cache, cleanup_cache
+
+cache_stats()           # Show hit rates, size, utilization
+clear_cache("polygon")  # Clear specific provider
+clear_cache()          # Clear all cached data
+cleanup_cache()        # Remove expired entries only
+```
+
+### Benefits of API Caching
+- **Rate Limit Protection**: Avoid hitting free-tier limits
+- **Faster Development**: Instant responses for recent data
+- **Cost Savings**: Reduce paid API call usage
+- **Offline Capability**: Work with recently cached data
+- **Smart Expiration**: Different TTLs for different data types
+
+### Cache Locations
+```
+data/cache/
+├── polygon/     # Polygon.io API responses
+├── yfinance/    # Yahoo Finance data  
+├── newsapi/     # News API responses
+├── reddit/      # Reddit sentiment data
+└── general/     # Other API responses
+```
+
+**Important**: Cache is automatically managed with size limits and LRU eviction. Always use the cache wrapper for API calls!
 
 ## Defensive Coding Practices
 **Always Validate:**

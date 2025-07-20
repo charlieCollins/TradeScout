@@ -1,0 +1,83 @@
+{
+  "symbol": "NVDA",
+  "name": "NVIDIA Corporation",
+  "fetched_date": "2025-07-20",
+  "source": "web_research_task",
+  "market_data": {
+    "current_price": 172.41,
+    "daily_change": -0.59,
+    "daily_change_percent": -0.34,
+    "after_hours_price": 172.36,
+    "after_hours_change": -0.05,
+    "day_range": {
+      "low": 171.26,
+      "high": 174.24
+    },
+    "volume": 146456416,
+    "average_volume": 203628106,
+    "volume_ratio": 0.72
+  },
+  "valuation": {
+    "market_cap": 4210000000000,
+    "market_cap_trillions": 4.21,
+    "shares_outstanding": 2440000000,
+    "pe_ratio": 55.62,
+    "eps_ttm": 3.10,
+    "beta": 2.12
+  },
+  "performance": {
+    "52_week_range": {
+      "low": 86.62,
+      "high": 174.25
+    },
+    "all_time_high": 174.25,
+    "all_time_high_close": 173.00,
+    "30_day_change_percent": 11.59,
+    "12_month_change_percent": 27.91,
+    "7_day_change_percent": 4.90
+  },
+  "technical_indicators": {
+    "rsi_14": 72.5,
+    "rsi_status": "overbought",
+    "macd": 2.45,
+    "macd_signal": 1.85,
+    "macd_bullish": true,
+    "sma_20": 165.50,
+    "sma_50": 158.75,
+    "price_vs_sma20_percent": 4.2,
+    "price_vs_sma50_percent": 8.6,
+    "atr": 8.50
+  },
+  "corporate_info": {
+    "exchange": "NASDAQ",
+    "currency": "USD",
+    "sector": "Technology",
+    "industry": "Semiconductors",
+    "sub_industry": "AI/GPU Chips",
+    "index_memberships": ["S&P 500", "NASDAQ-100"],
+    "size_classification": "Large Cap"
+  },
+  "recent_developments": {
+    "china_market_reentry": "NVIDIA resuming H20 AI chip sales to China with U.S. government export license",
+    "new_products": ["RTX PRO GPU for Chinese market", "Blackwell Ultra deployment"],
+    "partnerships": ["HPE AI factory offerings", "Dell enterprise AI solutions"],
+    "leadership_activities": "Jensen Huang meetings in Washington D.C. and Beijing"
+  },
+  "momentum_analysis": {
+    "near_ath": true,
+    "ath_distance_percent": -1.1,
+    "trend": "strong_upward",
+    "institutional_interest": "high",
+    "risk_factors": [
+      "High P/E ratio (premium valuation)",
+      "High beta (2.12 volatility)",
+      "Geopolitical sensitivity (China trade)"
+    ]
+  },
+  "next_earnings": "2025-08-27",
+  "notes": [
+    "Used for TradeScout domain model demonstration",
+    "Shows complete Asset, Market, and PriceData integration",
+    "Real market data as of July 18-20, 2025"
+  ]
+}
