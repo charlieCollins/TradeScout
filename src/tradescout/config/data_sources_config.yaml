@@ -1,0 +1,179 @@
+# TradeScout Data Sources Configuration
+# This file controls which data providers are used for different types of data
+
+# Data Source Definitions
+providers:
+  yfinance:
+    name: "Yahoo Finance"
+    type: "free"
+    rate_limit_per_minute: 60
+    supports_extended_hours: true
+    api_key_required: false
+    priority: 2
+    enabled: true
+    
+  finnhub:
+    name: "Finnhub.io"
+    type: "freemium" 
+    rate_limit_per_minute: 60
+    supports_extended_hours: false
+    api_key_required: true
+    priority: 3
+    enabled: true
+    
+  polygon:
+    name: "Polygon.io"
+    type: "freemium"
+    rate_limit_per_minute: 5
+    supports_extended_hours: true
+    api_key_required: true
+    priority: 1
+    enabled: false  # Disabled by user request
+    
+  alpha_vantage:
+    name: "Alpha Vantage"
+    type: "freemium"
+    rate_limit_per_day: 25  # Free tier: 25 requests per day (very limited)
+    rate_limit_per_minute: 5
+    supports_extended_hours: false
+    api_key_required: true
+    priority: 4
+    enabled: true
+    
+  newsapi:
+    name: "NewsAPI"
+    type: "freemium"
+    rate_limit_per_day: 1000
+    api_key_required: true
+    enabled: true
+    
+  reddit:
+    name: "Reddit API"
+    type: "free"
+    rate_limit_per_minute: 60
+    api_key_required: true
+    enabled: true
+
+# Data Type Configurations
+# Each data type can specify which providers to use, in order of preference
+data_types:
+  
+  # Real-time and current market data
+  current_quotes:
+    description: "Current stock prices and basic market data"
+    providers: ["yfinance", "finnhub", "alpha_vantage"]
+    fallback_strategy: "first_success"  # try providers in order until one succeeds
+    cache_ttl_minutes: 2
+    
+  historical_prices:
+    description: "Historical OHLCV data"
+    providers: ["polygon", "yfinance", "finnhub"]
+    fallback_strategy: "first_success"
+    cache_ttl_hours: 24
+    
+  extended_hours:
+    description: "Pre-market and after-hours trading data"
+    providers: ["polygon", "yfinance"]  # Only providers that support extended hours
+    fallback_strategy: "first_success"
+    cache_ttl_minutes: 5
+    
+  # Company and fundamental data
+  company_fundamentals:
+    description: "Company profile, financials, and basic stats"
+    providers: ["finnhub", "alpha_vantage", "yfinance"]
+    fallback_strategy: "merge_best"  # combine data from multiple sources
+    cache_ttl_days: 7
+    
+  financial_statements:
+    description: "Income statement, balance sheet, cash flow"
+    providers: ["polygon", "alpha_vantage"]
+    fallback_strategy: "first_success"
+    cache_ttl_days: 90
+    
+  earnings_data:
+    description: "Earnings history and estimates"
+    providers: ["finnhub", "polygon"]
+    fallback_strategy: "merge_best"
+    cache_ttl_days: 1
+    
+  # Market analysis data
+  volume_analysis:
+    description: "Volume patterns and unusual volume detection"
+    providers: ["polygon", "yfinance"]
+    fallback_strategy: "first_success"
+    cache_ttl_minutes: 15
+    
+  technical_indicators:
+    description: "RSI, MACD, moving averages, etc."
+    providers: ["polygon", "yfinance"]
+    fallback_strategy: "first_success"
+    cache_ttl_minutes: 15
+    
+  market_movers:
+    description: "Top gainers, losers, most active stocks"
+    providers: ["finnhub", "yfinance"]
+    fallback_strategy: "merge_best"
+    cache_ttl_minutes: 5
+    
+  # News and sentiment data
+  company_news:
+    description: "Company-specific news and press releases"
+    providers: ["newsapi", "finnhub"]
+    fallback_strategy: "merge_all"  # combine news from all sources
+    cache_ttl_minutes: 30
+    
+  market_news:
+    description: "General market and sector news"
+    providers: ["newsapi", "finnhub"]
+    fallback_strategy: "merge_all"
+    cache_ttl_minutes: 15
+    
+  social_sentiment:
+    description: "Social media sentiment and discussion"
+    providers: ["reddit"]
+    fallback_strategy: "merge_all"
+    cache_ttl_minutes: 10
+    
+  analyst_ratings:
+    description: "Analyst recommendations and price targets"
+    providers: ["finnhub", "polygon"]
+    fallback_strategy: "merge_best"
+    cache_ttl_hours: 6
+
+# Fallback Strategies Explained:
+# - first_success: Try providers in order, return first successful result
+# - merge_best: Combine data from multiple providers, preferring higher quality
+# - merge_all: Combine all available data from all providers
+# - round_robin: Rotate between providers to balance load
+
+# Quality Scoring (used in merge_best strategy)
+quality_weights:
+  polygon: 10      # Highest quality, paid API
+  finnhub: 9       # High quality, good free tier
+  yfinance: 7      # Good quality, but free/scraped
+  alpha_vantage: 6 # Decent quality, limited free tier
+  newsapi: 8       # Good news quality
+  reddit: 5        # Variable quality, but good volume
+
+# Rate Limiting Configuration
+rate_limiting:
+  enabled: true
+  burst_allowance: 5  # Allow brief bursts above limit
+  backoff_strategy: "exponential"  # linear, exponential, or fixed
+  max_retry_attempts: 3
+  retry_delay_seconds: 1
+
+# Error Handling
+error_handling:
+  max_failures_before_disable: 5  # Disable provider after N consecutive failures
+  failure_window_minutes: 10      # Reset failure count after this window
+  circuit_breaker_enabled: true   # Temporarily disable failing providers
+  fallback_to_cache: true         # Use cached data if all providers fail
+  max_cache_age_hours: 24         # Maximum age of cached data to use as fallback
+
+# Development and Testing
+development:
+  mock_providers: false           # Use mock data instead of real APIs
+  log_all_requests: false        # Log every API request (verbose)
+  simulate_failures: false       # Randomly fail requests for testing
+  offline_mode: false           # Use only cached data, no API calls

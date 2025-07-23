@@ -1,0 +1,13 @@
+{
+  "saved_at": "2025-07-21T08:39:46.792870",
+  "description": "Example of manually saved analysis data",
+  "data": {
+    "analysis": "Custom market analysis",
+    "recommendations": [
+      "BUY",
+      "HOLD",
+      "SELL"
+    ],
+    "confidence": 0.85
+  }
+}

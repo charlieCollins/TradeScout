@@ -1,232 +1,256 @@
-# TradeScout - TODO & Progress Tracking
+# TradeScout - TODO List
 
-*Active development task list and progress tracking. Updated throughout development to maintain context across sessions.*
+*Last updated: 2025-07-22*
+
+This file tracks active development tasks and provides context for resuming work after session interruptions.
+
+## 🎯 Active Development Tasks
+
+### ✅ Completed - Gap Trading Strategy & Research Framework (July 22, 2025)
+
+- [x] **Analyze and enhance GAP_TRADING_STRATEGY.md** - ✅ Done
+  - Comprehensive strategy assessment with 4-star viability rating
+  - Strategic strengths, limitations, and risk analysis
+  - TradeScout integration opportunities and enhancement roadmap
+  - Strategy validation framework and performance metrics
+  - Advanced considerations for market regime adaptation
+
+- [x] **Create GAP_TRADING_RESEARCH.md** - ✅ Done
+  - Detailed gap classification system (Common, Breakaway, Continuation, Exhaustion)
+  - TradeScout identification criteria for each gap type
+  - Statistical models and empirical research framework
+  - Academic research placeholders and integration protocol
+  - Research session template for ongoing resource integration
+
+### ✅ Completed - Phase 1: Market Gainers/Losers Implementation (July 22, 2025)
+
+- [x] **Implement MarketWideDataProvider interface** - ✅ Done
+  - Core interfaces for market-wide analysis
+  - MarketMover, MarketMoversReport, SectorType, IndexType data structures
+  
+- [x] **Alpha Vantage Market Provider** - ✅ Done  
+  - TOP_GAINERS_LOSERS API integration
+  - Single call gets gainers, losers, and most active
+  - 1-hour aggressive caching for 25 calls/day quota protection
+  
+- [x] **Market Movers Provider with Fallback** - ✅ Done
+  - Primary: Alpha Vantage bulk API
+  - Fallback: YFinance S&P 500 processing
+  - Smart error handling and provider switching
+  
+- [x] **Rich CLI Commands** - ✅ Done
+  - `./tradescout gainers` - Top market gainers
+  - `./tradescout losers` - Top market losers
+  - `./tradescout active` - Most active by volume  
+  - `./tradescout movers` - Complete market report
+  - Beautiful tables with color-coded data
+  
+- [x] **Enhanced Cache Policies** - ✅ Done
+  - Added PREMARKET and AFTERHOURS cache policies
+  - All set to 1-hour TTL for aggressive caching
+  - Rate limit protection for all providers
+
+### ✅ Completed - Interface & Naming Refactor (July 22, 2025)
+
+- [x] **Rename MarketDataProvider interface to AssetDataProvider** - ✅ Done
+  - Interface now properly reflects individual asset focus vs market-wide data
+  
+- [x] **Update all adapter class names to reflect AssetDataProvider naming** - ✅ Done
+  - `YFinanceAdapter` → `AssetDataProviderYFinance`
+  - `FinnhubAdapter` → `AssetDataProviderFinnhub`  
+  - `PolygonAdapter` → `AssetDataProviderPolygon`
+  - `AlphaVantageAdapter` → `AssetDataProviderAlphaVantage`
+
+- [x] **Update all imports and references throughout the codebase** - ✅ Done
+  - Smart Coordinator updated with new class names
+  - All interface references updated
+  - Package imports updated
+
+- [x] **Rename adapter files to match new naming convention** - ✅ Done
+  - `yfinance_adapter.py` → `asset_data_provider_yfinance.py`
+  - `finnhub_adapter.py` → `asset_data_provider_finnhub.py`  
+  - `polygon_adapter.py` → `asset_data_provider_polygon.py`
+  - `alpha_vantage_adapter.py` → `asset_data_provider_alpha_vantage.py`
+
+- [x] **Update all imports after file renaming** - ✅ Done
+  - Smart Coordinator import paths updated
+  - Main package imports updated
+  - Legacy config files updated for consistency
+
+- [x] **Test all functionality after renaming** - ✅ Done
+  - Status command working: 3 providers available (YFinance, Finnhub, Alpha Vantage)
+  - Quote command working: Successfully fetches quotes
+  - Fundamentals command working: Merges data from multiple providers
+
+## 🔮 Future Development - Market-Wide Data Providers
+
+### 🔍 Research Integration Tasks (Next Priority)
+
+- [ ] **Integrate Nasdaq gap trading article** - *Medium Priority*
+  - Manual review of https://www.nasdaq.com/articles/price-gap-trading-deep-dive-common-breakaway-continuation-blow
+  - Add detailed gap type characteristics to GAP_TRADING_RESEARCH.md
+  - Update TradeScout identification criteria based on article insights
+
+- [ ] **Get SSRN paper contents and provide to Claude** - *Medium Priority*  
+  - Paper URL: https://papers.ssrn.com/sol3/Delivery.cfm/SSRN_ID3461283_code2302851.pdf?abstractid=3461283&mirid=1
+  - Manual download/access required (Claude WebFetch blocked with 403 error)
+  - Copy/paste key sections or summarize paper contents for Claude to integrate
+  - Focus on: statistical findings, methodology, success rates, optimal parameters
+  - Update GAP_TRADING_RESEARCH.md empirical research section with academic insights
+
+### 📊 Phase 2: Market Indices Tracking (High Priority)
+
+- [ ] **Implement ETF proxy tracking** - *High Priority*
+  - Track SPY (S&P 500), QQQ (NASDAQ 100), IWM (Russell 2000)
+  - Use existing AssetDataProvider interface for individual ETF quotes
+  - CLI commands: `./tradescout indices`, `./tradescout index SPY`
+
+- [ ] **Add direct index symbol support** - *Medium Priority*
+  - Support ^GSPC (S&P 500), ^IXIC (NASDAQ) direct symbols
+  - Enhanced index comparison and performance tracking
+
+### 📊 Phase 3: Sector Performance Analysis (Lower Priority)
+
+- [ ] **Create sector classification files** - *Medium Priority*
+  - Static mapping files for each sector (data/sectors/*.json)
+  - Technology, Healthcare, Financials, Energy sector constituents
+
+- [ ] **Implement sector aggregation logic** - *Medium Priority*  
+  - Process individual stock data to calculate sector metrics
+  - CLI commands: `./tradescout sectors`, `./tradescout sector TECHNOLOGY`
+
+### 📊 MarketWideDataProvider Interface Design - COMPLETED ✅
+
+- [x] **Design and implement MarketWideDataProvider interface for market-wide data** - ✅ Done
+  - Interface should handle market-level analytics vs individual assets
+  - Methods needed:
+    ```python
+    def get_market_gainers(self, limit: int = 50) -> List[MarketQuote]
+    def get_market_losers(self, limit: int = 50) -> List[MarketQuote]  
+    def get_most_active(self, limit: int = 50) -> List[MarketQuote]
+    def get_sector_performance(self) -> Dict[str, Decimal]
+    def get_market_indices(self) -> Dict[str, Decimal]  # S&P 500, NASDAQ, etc.
+    def scan_entire_market_for_patterns(self) -> List[MarketQuote]
+    ```
+
+### 🚀 Market Analytics Implementation
+
+- [ ] **Implement market gainers/losers functionality** - *Low Priority*
+  - Top gainers/losers across entire market
+  - Sector-specific gainers/losers
+  - Time period filtering (daily, weekly, monthly)
+
+- [ ] **Implement sector performance analysis** - *Low Priority*
+  - Technology, Healthcare, Finance sector tracking
+  - Relative performance vs market indices
+  - Sector rotation analysis
+
+- [ ] **Implement market indices tracking (S&P 500, NASDAQ, etc)** - *Low Priority*  
+  - Real-time index values
+  - Historical performance tracking
+  - Index component analysis
+
+- [ ] **Implement market-wide pattern scanning** - *Low Priority*
+  - Breakout patterns across market
+  - Volume surge detection market-wide
+  - Correlation analysis between assets
+
+## 🏗️ Current System Status
+
+### ✅ Working Components
+
+**AssetDataProvider System:**
+- 3 active providers: YFinance (Priority 2), Finnhub (Priority 3), Alpha Vantage (Priority 4) 
+- 1 disabled provider: Polygon (Priority 1) - disabled by user request
+- Smart Coordinator with intelligent routing and fallback strategies
+- Configuration-driven provider selection via YAML
+- Circuit breaker pattern for automatic error recovery
+
+**MarketWideDataProvider System:** ✅ NEW
+- **Market Movers**: Alpha Vantage TOP_GAINERS_LOSERS API integration
+- **Aggressive Caching**: 1-hour TTL for all rate-limited APIs (REAL_TIME, INTRADAY, PREMARKET, AFTERHOURS)
+- **YFinance Fallback**: S&P 500 processing when Alpha Vantage unavailable
+- **Rich CLI Interface**: 4 new commands with beautiful table output
+
+**Data Type Coverage:**
+- **Current Quotes**: YFinance → Finnhub → Alpha Vantage (first_success strategy)
+- **Company Fundamentals**: YFinance + Finnhub + Alpha Vantage (merge_best strategy)
+- **Financial Statements**: Alpha Vantage only (their specialty)
+- **Extended Hours**: YFinance only
+- **Historical Prices**: YFinance → Finnhub (first_success strategy)
+- **Market Movers**: Alpha Vantage → YFinance fallback (first_success strategy) ✅ NEW
+
+**Architecture:**
+- Clean separation: `data_models/` (pure domain models), `caches/` (API caching), `data_sources/` (providers)
+- **NEW**: `market_wide/` module for market-wide analysis
+- Professional Python project structure with modern tooling
+- Comprehensive test coverage
+- Rich CLI interface with status monitoring and market analysis
+
+### 🔧 Infrastructure
+
+**API Keys Configured:**
+- ✅ Finnhub: `d1vutchr01qmbi8q9u50d1vutchr01qmbi8q9u5g`
+- ✅ Alpha Vantage: `V5C72WX2LRXC8QK2` (25 requests/day limit)
+- ⚪ Polygon: Disabled (free tier limitations)
+
+**Rate Limits:**
+- YFinance: 60/min (estimated)
+- Finnhub: 60/min (free tier)
+- Alpha Vantage: 25/day (very limited - use sparingly)
+
+## 📋 Development Workflow Notes
+
+### Session Management Protocol
+
+**Session End Automation:**
+- [ ] **Create Claude session end macro** - *Medium Priority*
+  - Trigger phrase: "goodbye", "end session", "wrap up", etc.
+  - Automatically save recent conversation context to CLAUDE_STOP_CONTEXT.txt
+  - Automatically sync current TodoWrite list to docs/TODO.md
+  - Provide session summary with key accomplishments and next priorities
+  - Ensure seamless session continuity for multi-day development
+
+### Session Resumption Checklist
+1. Check current provider status: `./tradescout status`
+2. Review this TODO.md for active tasks
+3. Check CLAUDE_STOP_CONTEXT.txt for any interrupted work
+4. See all available commands: `./tradescout --help`
+5. Verify test suite passes: `pytest`
+6. Update this TODO.md with any changes
+
+### Key Commands
+```bash
+# System status
+./tradescout status
+
+# Individual asset data
+./tradescout quote AAPL MSFT TSLA
+./tradescout fundamentals IBM
+
+# Market-wide analysis ✅ NEW
+./tradescout gainers --limit 10           # Top market gainers
+./tradescout losers --limit 10            # Top market losers
+./tradescout active --limit 10            # Most active stocks
+./tradescout movers --limit 5             # Complete market report
+./tradescout gainers --force              # Force refresh (bypass cache)
+
+# Development
+pytest                                    # Run tests
+black . && isort . && mypy src          # Code quality
+```
+
+### Important Files
+- **Asset Interface**: `src/tradescout/data_models/interfaces.py` 
+- **Smart Coordinator**: `src/tradescout/data_sources/smart_coordinator.py`
+- **Configuration**: `src/tradescout/config/data_sources_config.yaml`
+- **Asset Providers**: `src/tradescout/data_sources/asset_data_provider_*.py`
+- **Market-Wide Interface**: `src/tradescout/market_wide/interfaces.py` ✅ NEW
+- **Market Movers**: `src/tradescout/market_wide/market_movers.py` ✅ NEW  
+- **Alpha Vantage Market**: `src/tradescout/market_wide/providers/alpha_vantage_market.py` ✅ NEW
+- **CLI Interface**: `src/tradescout/scripts/cli.py`
+- **Environment**: `.env` (API keys)
 
 ---
 
-## 🎯 Current Status: **Architecture & Design Complete**
-
-**Last Updated**: July 20, 2025  
-**Current Phase**: Phase 1 - MVP Foundation  
-**Next Session Priority**: Begin implementing core data collection adapters
-
-### Documentation & Model Reorganization (July 20, 2025)
-- [x] **Plan refinement** - Streamlined original 1400+ line plan into concise 400-line TRADE_SCOUT_PLAN.md
-- [x] **Documentation cleanup** - Moved all docs to /docs directory, updated references
-- [x] **Lessons learned tracking** - Added LESSONS_LEARNED.md for development insights
-- [x] **Domain model redesign** - Proper Asset, Market, MarketSegment entities instead of loose data structures
-- [x] **Model file organization** - Separated into domain_models_core.py (core entities) and analysis_models.py (trading logic)
-- [x] **Factory pattern implementation** - Moved creation logic to dedicated factories.py module
-- [x] **Import cleanup** - Removed redundant models.py, updated all imports across project
-
----
-
-## ✅ Completed Tasks
-
-### Project Foundation (July 20, 2025)
-- [x] **Project structure created** - Clean directory layout with proper package structure
-- [x] **Requirements.txt defined** - All dependencies identified for MVP and future phases
-- [x] **Configuration system** - Environment variables, local config, API key management
-- [x] **Data models designed** - Complete models for MarketQuote, TradeSuggestion, ActualTrade, etc.
-- [x] **Interface architecture** - Abstract interfaces for all major components
-- [x] **Documentation structure** - README, ARCHITECTURE.md, original plan in /docs
-- [x] **API keys configured** - Polygon.io API key and S3 flat files credentials added
-- [x] **Git setup** - .gitignore configured to protect sensitive data
-- [x] **Development workflow** - CLAUDE.md guidelines and LESSONS_LEARNED.md tracking
-
-### Architecture Design (July 20, 2025)
-- [x] **Data collection interfaces** - MarketDataProvider, NewsProvider, SentimentProvider
-- [x] **Analysis interfaces** - MomentumDetector, TechnicalAnalyzer, SuggestionEngine
-- [x] **Storage interfaces** - Repository pattern for all data types
-- [x] **Rate limiting design** - RateLimiter class for API management
-- [x] **Caching strategy** - DataCache interface for performance
-- [x] **Transformation layer** - External API → Internal model adapters
-
----
-
-## 🔄 In Progress
-
-*No tasks currently in progress*
-
----
-
-## 📋 High Priority - Next Session
-
-### 1. Implement Basic Data Collection (Start Here Next Session)
-- [ ] **YFinanceAdapter implementation**
-  - Implement MarketDataProvider interface
-  - Transform Yahoo Finance data to MarketQuote model
-  - Add rate limiting and error handling
-  - Create unit tests with mocked yfinance calls
-
-- [ ] **PolygonAdapter implementation**
-  - Implement MarketDataProvider interface
-  - Handle both REST API and S3 flat files
-  - Respect free tier rate limits (5 calls/minute)
-  - Create fallback mechanisms
-
-- [ ] **Basic data validation**
-  - Implement DataValidator protocol
-  - Add data quality checks
-  - Handle malformed API responses
-
-### 2. Storage Implementation
-- [ ] **SQLite repository implementations**
-  - QuoteRepository with SQLite backend
-  - Basic CRUD operations
-  - Database schema creation
-  - Connection management
-
-- [ ] **Database manager**
-  - Initialize database schema
-  - Handle migrations
-  - Backup capabilities
-
----
-
-## 📋 Medium Priority
-
-### 3. Core Analysis Engine
-- [ ] **Basic momentum detector**
-  - Gap analysis implementation
-  - Volume surge detection
-  - Simple scoring algorithm
-
-- [ ] **Simple suggestion engine**
-  - Basic trade suggestion generation
-  - Risk/reward calculations
-  - Entry/exit point determination
-
-### 4. Basic Interface
-- [ ] **Command-line interface**
-  - Manual analysis triggers
-  - Status checking
-  - Basic reporting
-
-- [ ] **Simple morning report**
-  - Text-based suggestion output
-  - Basic formatting
-
----
-
-## 📋 Lower Priority
-
-### 5. Enhanced Features
-- [ ] **News provider implementations**
-  - NewsAPI adapter
-  - RSS feed parser
-  - Sentiment analysis
-
-- [ ] **Technical analysis**
-  - TA-Lib integration
-  - Technical indicators
-  - Pattern detection
-
-- [ ] **Performance tracking**
-  - Suggestion outcome tracking
-  - Trade performance analysis
-  - Metrics calculation
-
-### 6. User Interface
-- [ ] **Web dashboard (Flask)**
-  - Real-time quotes display
-  - Suggestion management
-  - Performance charts
-
-- [ ] **Email notifications**
-  - Morning report email
-  - Trade alerts
-  - Performance summaries
-
----
-
-## 🚧 Blocked/Waiting
-
-*No blocked tasks currently*
-
----
-
-## 💡 Ideas for Future Consideration
-
-### Feature Ideas
-- [ ] **Machine learning integration**
-  - Pattern recognition
-  - Prediction models
-  - Strategy optimization
-
-- [ ] **Advanced risk management**
-  - Portfolio heat calculation
-  - Correlation analysis
-  - Position sizing optimization
-
-- [ ] **Multi-timeframe analysis**
-  - Intraday momentum
-  - Swing trading setups
-  - Long-term trend analysis
-
-### Technical Improvements
-- [ ] **Performance optimizations**
-  - Async data collection
-  - Database query optimization
-  - Caching strategies
-
-- [ ] **Cloud migration features**
-  - Docker containerization
-  - CI/CD pipeline
-  - Monitoring and alerting
-
----
-
-## 🔍 Decision Points Needed
-
-### Next Session Decisions
-1. **Data collection priority**: Start with YFinance (unlimited) or Polygon (more features)?
-   - **Recommendation**: Start with YFinance for basic functionality, add Polygon for enhanced data
-
-2. **Testing approach**: Unit tests first or integration tests?
-   - **Recommendation**: Unit tests with mocked interfaces for data adapters
-
-3. **Database schema**: Start simple or build complete schema?
-   - **Recommendation**: Start with quotes table, add others as needed
-
----
-
-## 📊 Development Metrics
-
-### Code Quality Targets
-- [ ] Unit test coverage >80%
-- [ ] All interfaces properly implemented
-- [ ] No hardcoded API dependencies
-- [ ] Proper error handling throughout
-
-### Performance Targets  
-- [ ] Morning analysis completes <60 seconds
-- [ ] Real-time quotes <5 second latency
-- [ ] Database queries <100ms average
-
----
-
-## 🐛 Known Issues/Technical Debt
-
-*No technical debt yet - track issues as they arise*
-
----
-
-## 📅 Session Planning
-
-### Estimated Next Session Tasks (2-3 hours)
-1. Implement YFinanceAdapter (45 minutes)
-2. Create basic SQLite repository (30 minutes)
-3. Build simple CLI interface (30 minutes)
-4. Add unit tests (30 minutes)
-5. Integration testing (15 minutes)
-
-### Dependencies for Next Session
-- Python virtual environment setup
-- API keys configured in .env
-- SQLite available (comes with Python)
-- pytest for testing
-
----
-
-*This TODO will be updated at the end of each session with progress and new tasks discovered during implementation.*
+*Keep this file updated with each development session to maintain context continuity.*

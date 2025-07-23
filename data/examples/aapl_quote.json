@@ -1,0 +1,11 @@
+{
+  "saved_at": "2025-07-21T08:39:44.678144",
+  "description": "AAPL quote data",
+  "data": {
+    "symbol": "AAPL",
+    "price": 172.41,
+    "volume": 146456416,
+    "timestamp": "2025-07-20T16:00:00Z",
+    "source": "polygon_api"
+  }
+}

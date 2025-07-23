@@ -1,0 +1,11 @@
+{
+  "saved_at": "2025-07-21T08:39:46.790714",
+  "description": "GOOGL quote data",
+  "data": {
+    "symbol": "GOOGL",
+    "price": 172.41,
+    "volume": 146456416,
+    "timestamp": "2025-07-20T16:00:00Z",
+    "source": "polygon_api"
+  }
+}

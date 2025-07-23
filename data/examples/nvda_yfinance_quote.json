@@ -1,0 +1,11 @@
+{
+  "saved_at": "2025-07-21T08:39:43.654878",
+  "description": "NVIDIA quote from Yahoo Finance",
+  "data": {
+    "symbol": "NVDA",
+    "price": 172.45,
+    "volume": 146500000,
+    "after_hours": true,
+    "source": "yfinance"
+  }
+}
