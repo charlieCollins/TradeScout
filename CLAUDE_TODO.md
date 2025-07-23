@@ -1,10 +1,30 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-07-22*
+*Last updated: 2025-07-23*
 
 This file tracks active development tasks and provides context for resuming work after session interruptions.
 
 ## 🎯 Active Development Tasks
+
+### ✅ Completed - Research Integration & Workflow Automation (July 23, 2025)
+
+- [x] **Integrated SSRN research paper findings** - ✅ Done
+  - Added comprehensive "Day Trading Stock Price Volatility" paper findings
+  - Documented overnight vs intraday volatility patterns
+  - TradeScout implementation considerations for volatility-based strategies
+  - Statistical insights on trader profitability by strategy type
+
+- [x] **Added StockCharts gap trading strategies** - ✅ Done
+  - Gap and Go Strategy (momentum continuation)
+  - Gap Fill Strategy (mean reversion)
+  - Multi-timeframe analysis techniques
+  - Volume and market context considerations
+
+- [x] **Reorganized Claude workflow files** - ✅ Done
+  - Renamed CLAUDE_STOP_CONTEXT.txt to CLAUDE_CONTEXT.md
+  - Created .claude/ directory structure
+  - Implemented /start and /goodbye slash commands
+  - Established automated session management workflow
 
 ### ✅ Completed - Gap Trading Strategy & Research Framework (July 22, 2025)
 
@@ -86,7 +106,7 @@ This file tracks active development tasks and provides context for resuming work
 
 ### 🔍 Research Integration Tasks (Next Priority)
 
-- [ ] **Integrate Nasdaq gap trading article** - *Medium Priority*
+- [ ] **Integrate Nasdaq gap trading article when accessible** - *Medium Priority*
   - Manual review of https://www.nasdaq.com/articles/price-gap-trading-deep-dive-common-breakaway-continuation-blow
   - Add detailed gap type characteristics to GAP_TRADING_RESEARCH.md
   - Update TradeScout identification criteria based on article insights
@@ -100,18 +120,18 @@ This file tracks active development tasks and provides context for resuming work
 
 ### 📊 Phase 2: Market Indices Tracking (High Priority)
 
-- [ ] **Implement ETF proxy tracking** - *High Priority*
+- [ ] **Implement ETF proxy tracking for market indices (SPY, QQQ, IWM)** - *High Priority*
   - Track SPY (S&P 500), QQQ (NASDAQ 100), IWM (Russell 2000)
   - Use existing AssetDataProvider interface for individual ETF quotes
   - CLI commands: `./tradescout indices`, `./tradescout index SPY`
 
-- [ ] **Add direct index symbol support** - *Medium Priority*
+- [ ] **Add direct index symbol support (^GSPC, ^IXIC)** - *Medium Priority*
   - Support ^GSPC (S&P 500), ^IXIC (NASDAQ) direct symbols
   - Enhanced index comparison and performance tracking
 
 ### 📊 Phase 3: Sector Performance Analysis (Lower Priority)
 
-- [ ] **Create sector classification files** - *Medium Priority*
+- [ ] **Create sector classification files for sector analysis** - *Medium Priority*
   - Static mapping files for each sector (data/sectors/*.json)
   - Technology, Healthcare, Financials, Energy sector constituents
 
@@ -203,21 +223,32 @@ This file tracks active development tasks and provides context for resuming work
 
 ### Session Management Protocol
 
-**Session End Automation:**
-- [ ] **Create Claude session end macro** - *Medium Priority*
-  - Trigger phrase: "goodbye", "end session", "wrap up", etc.
-  - Automatically save recent conversation context to CLAUDE_STOP_CONTEXT.txt
-  - Automatically sync current TodoWrite list to docs/TODO.md
-  - Provide session summary with key accomplishments and next priorities
-  - Ensure seamless session continuity for multi-day development
+**Session Automation:** ✅ COMPLETED
+- [x] **Created Claude session start workflow** - ✅ Done
+  - Created `.claude/start.md` with automated instructions
+  - Reads CLAUDE_TODO.md and CLAUDE_CONTEXT.md on session start
+  - Provides session summary of current state and priorities
+  - Usage: `/start` slash command
+  
+- [x] **Created Claude session end workflow** - ✅ Done
+  - Created `.claude/goodbye.md` with detailed instructions
+  - Saves conversation context to CLAUDE_CONTEXT.md
+  - Syncs current TodoWrite list to CLAUDE_TODO.md
+  - Provides session summary with accomplishments and priorities
+  - Usage: `/goodbye` slash command
+
+**Pending Automation Enhancement:**
+- [ ] **Create session start automation** - *High Priority*
+  - Automatically read TODO.md and CLAUDE_CONTEXT.md when user says 'good morning', 'let's start', etc.
+  - No manual slash command needed for common greetings
 
 ### Session Resumption Checklist
 1. Check current provider status: `./tradescout status`
-2. Review this TODO.md for active tasks
-3. Check CLAUDE_STOP_CONTEXT.txt for any interrupted work
+2. Review this CLAUDE_TODO.md for active tasks
+3. Check CLAUDE_CONTEXT.md for any interrupted work
 4. See all available commands: `./tradescout --help`
 5. Verify test suite passes: `pytest`
-6. Update this TODO.md with any changes
+6. Update this CLAUDE_TODO.md with any changes
 
 ### Key Commands
 ```bash

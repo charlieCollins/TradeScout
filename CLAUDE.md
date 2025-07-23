@@ -2,7 +2,8 @@
 
 **Project:** Personal Market Research Assistant - TradeScout  
 **Developer:** Charlie Collins  
-**Start Date:** July 20, 2025
+**Start Date:** July 20, 2025  
+**Repository:** https://github.com/charlieCollins/TradeScout (Private)
 
 ## Core Principles
 - Feature branch development - no backwards compatibility needed
@@ -155,7 +156,7 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 
 ## Key Reminders
 - Always use TodoWrite for task management
-- **Sync TODOs to docs/TODO.md every hour** - For session continuity
+- **Sync TODOs to CLAUDE_TODO.md every hour** - For session continuity
 - Run lint/typecheck before declaring done
 - Never commit unless explicitly asked
 - Cache API calls to avoid rate limits

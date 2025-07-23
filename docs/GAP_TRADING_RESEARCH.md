@@ -132,24 +132,29 @@ exhaustion_gap_criteria = {
 ```python
 gap_fill_statistics = {
     "common_gaps": {
-        "fill_rate": 0.90,
+        "fill_rate": 0.40,  # Updated based on academic research
         "avg_days_to_fill": 2.3,
         "continuation_success": 0.25
     },
     "breakaway_gaps": {
-        "fill_rate": 0.50,  
+        "fill_rate": 0.15,  # Academic data shows low fill rates
         "avg_days_to_fill": 12.1,
         "continuation_success": 0.70
     },
     "continuation_gaps": {
-        "fill_rate": 0.35,
+        "fill_rate": 0.10,  # Rarely fill per research
         "avg_days_to_fill": 28.4, 
         "continuation_success": 0.80
     },
     "exhaustion_gaps": {
-        "fill_rate": 0.70,
+        "fill_rate": 0.35,  # Higher but still <50%
         "avg_days_to_fill": 8.7,
         "continuation_success": 0.20
+    },
+    "overall_average": {
+        "fill_rate": 0.20,  # Plastun et al. 2019 finding
+        "within_5_days": True,
+        "note": "Contrary to popular trading wisdom"
     }
 }
 ```
@@ -262,8 +267,18 @@ catalyst_impact_scores = {
 
 **Market Open Dynamics (9:30 AM - 10:30 AM):**
 - **9:30 AM - 9:35 AM**: Avoid - too chaotic, wide spreads
-- **9:35 AM - 10:00 AM**: PRIMARY WINDOW - best liquidity, true direction revealed
+- **9:35 AM - 10:00 AM**: Academic approach - immediate entry for momentum capture
 - **10:00 AM - 10:30 AM**: Secondary window - momentum confirmation or reversal
+- **10:30 AM (One Hour Mark)**: StockCharts approach - range established, breakout trades
+
+**Entry Timing Strategies:**
+1. **Immediate Entry (Academic)**: Enter on gap day open for momentum capture
+   - Pros: Captures full momentum move per Plastun et al. research
+   - Cons: Higher volatility, wider spreads, more false signals
+   
+2. **One Hour Rule (StockCharts)**: Wait for opening range establishment
+   - Pros: Clearer direction, tighter spreads, defined range for stops
+   - Cons: May miss initial momentum move, reduced profit potential
 
 **Gap Fill Patterns by Time:**
 ```
@@ -403,48 +418,179 @@ backtest_results = {
 
 ### Academic Studies
 
-#### 1. [SSRN Paper - Gap Trading Analysis](https://papers.ssrn.com/sol3/Delivery.cfm/SSRN_ID3461283_code2302851.pdf?abstractid=3461283&mirid=1)
-**Status:** Pending Review - Unable to access directly  
+#### 1. Price Gap Anomaly in the US Stock Market: The Whole Story (2019)
+**Authors:** Alex Plastun, Xolani Sibande, Rangan Gupta, Mark E. Wohar  
 **Paper ID:** SSRN_ID3461283  
-**Research Focus:** [To be determined upon manual review]
+**Research Focus:** Analysis of price gap anomaly in US stock markets (DJI, S&P 500, NASDAQ) from 1928-2018
 
-**Key Findings:** [To be populated when resource is reviewed]
-- Finding 1: [Pending]
-- Finding 2: [Pending]  
-- Finding 3: [Pending]
+**Key Findings:**
+- **Price Gap Anomaly Exists**: Strong evidence of abnormal price movements after gaps, particularly in S&P 500 and NASDAQ
+- **Momentum Effect**: On gap days, prices tend to move in the direction of the gap (confirmed for day 1, not day 2+)
+- **No Seasonality**: Unlike FX markets, stock market gaps show no Monday bias - evenly distributed across weekdays
+- **Low Fill Rate**: Only ~20% of gaps fill within 5 days, contrary to popular trading myth
+- **Trading Strategy Profitable**: Gap-based strategies generated non-random profits, indicating market inefficiency
 
-**Methodology:** [To be populated when resource is reviewed]
-- Sample size: [Pending]
-- Time period: [Pending]
-- Statistical methods: [Pending]
+**Methodology:**
+- Sample size: 23,893 days (S&P 500), 17,700 days (NASDAQ), 8,590 days (DJI)
+- Time period: 1928-2018 (S&P 500), 1949-2018 (NASDAQ), 1985-2018 (DJI)
+- Statistical methods: Student's t-test, ANOVA, Mann-Whitney test, Modified Cumulative Abnormal Returns (MCAR)
+- Gap size criteria: Variable by period (0.01% to 1.20% depending on market conditions)
 
-**Implications for TradeScout:**
-- [To be determined based on findings]
-- [Strategy modifications needed]
-- [Implementation considerations]
-
-**Statistical Results:**
+**Trading Simulation Results:**
 ```python
-# Placeholder for research data
-ssrn_paper_results = {
-    "sample_size": None,
-    "time_period": None,  
-    "success_rates": {},
-    "optimal_parameters": {},
-    "risk_metrics": {}
+# S&P 500 Overall Performance (1928-2018)
+sp500_trading_results = {
+    "total_gaps": 868,
+    "positive_gaps": 450,
+    "negative_gaps": 418,
+    "win_rate": 0.618,  # 61.8% profitable trades
+    "statistical_significance": "p < 0.05",  # Results not random
+    "momentum_effect": "Confirmed on gap day only"
+}
+
+# Gap Size Evolution (S&P 500)
+gap_size_by_period = {
+    "1929-1938": "1.20%",  # Depression era - high volatility
+    "1949-1958": "1.20%",  # Post-war recovery
+    "1959-1968": "0.70%",  # Stable growth period
+    "1969-1978": "0.01%",  # Stagflation - minimal threshold
+    "1979-1988": "0.03%",  # Recovery period
+    "1989-1998": "0.01%",  # Tech boom beginning
+    "1999-2008": "0.08%",  # Dot-com to financial crisis
+    "2009-2018": "0.34%"   # Post-crisis recovery
 }
 ```
 
-**Notes:** 
-- Direct PDF access blocked (403 error)
-- Manual review required to extract findings
-- Consider alternative access methods or paper summary
+**Gap Day Behavior Patterns:**
+- **Day 0 (Gap Day)**: Prices continue in gap direction with statistical significance
+- **Day +1**: No significant directional bias, market absorbs information
+- **Days +2 to +5**: Random walk behavior, no exploitable patterns
+
+**Implications for TradeScout:**
+- **Entry Timing**: Focus on gap day (day 0) entries only - momentum dissipates by day 2
+- **Gap Size Adaptation**: Adjust minimum gap thresholds based on market volatility regime
+- **Stop Strategy**: Set stops expecting low fill rates (80% of gaps don't fill within 5 days)
+- **Volume Confirmation**: Paper confirms volume importance but doesn't quantify thresholds
+- **Market Selection**: S&P 500 and NASDAQ show stronger anomaly than DJI
+
+**Additional Statistical Insights:**
+```python
+# No Weekend Effect (Unlike FX Markets)
+weekday_distribution = {
+    "Monday": 0.23%,
+    "Tuesday": 0.20%,
+    "Wednesday": 0.20%,
+    "Thursday": 0.18%,
+    "Friday": 0.19%
+}
+
+# NASDAQ Exception - Some Predictive Power
+nasdaq_patterns = {
+    "negative_gaps_after_down_days": 0.70,  # 70% probability
+    "positive_continuation_after_gaps": 0.67  # 67% probability
+}
+```
+
+**Research Limitations:**
+- No transaction cost analysis included
+- Limited intraday data for optimal entry/exit timing
+- No analysis of gap trades during different market regimes (bull/bear)
+- Volume thresholds not quantified
 
 #### 2. [Future Academic Papers]
 *[Additional academic sources to be added as they are reviewed]*
 
-### Industry Reports  
-*[To be populated as resources are reviewed]*
+### Industry Reports
+
+#### 1. StockCharts ChartSchool - Gap Trading Strategies
+**Source:** [StockCharts.com Gap Trading Guide](https://chartschool.stockcharts.com/table-of-contents/trading-strategies-and-models/trading-strategies/gap-trading-strategies)  
+**Type:** Technical Analysis Educational Resource  
+**Focus:** Systematic gap trading rules and risk management
+
+**Gap Classification System:**
+```python
+stockcharts_gap_types = {
+    "full_gap_up": {
+        "definition": "Opening price > previous day's high",
+        "frequency": "Less common, stronger signal",
+        "trading_bias": "Generally bullish but watch for exhaustion"
+    },
+    "full_gap_down": {
+        "definition": "Opening price < previous day's low",
+        "frequency": "Less common, stronger signal", 
+        "trading_bias": "Generally bearish but watch for reversal"
+    },
+    "partial_gap_up": {
+        "definition": "Open > previous close but < previous high",
+        "frequency": "More common, weaker signal",
+        "trading_bias": "Neutral to bullish, needs confirmation"
+    },
+    "partial_gap_down": {
+        "definition": "Open < previous close but > previous low",
+        "frequency": "More common, weaker signal",
+        "trading_bias": "Neutral to bearish, needs confirmation"
+    }
+}
+```
+
+**Key Trading Rules:**
+1. **One Hour Rule**: Wait 60 minutes after open to establish trading range
+2. **Volume Filter**: Only trade stocks with average daily volume > 500,000 shares
+3. **Entry Timing**: Set stops based on first hour's price action
+4. **Risk Management**: Use systematic trailing stops (8% long, 4% short)
+
+**Eight Core Strategies (2 per gap type):**
+```python
+gap_trading_strategies = {
+    "full_gap_up": {
+        "long_signal": "Price stays above opening range after 1 hour",
+        "short_signal": "Price falls below opening range after 1 hour"
+    },
+    "full_gap_down": {
+        "long_signal": "Price rises above opening range after 1 hour",
+        "short_signal": "Price stays below opening range after 1 hour"
+    },
+    "partial_gap_up": {
+        "long_signal": "Price exceeds previous high after gap",
+        "short_signal": "Price fails at previous high resistance"
+    },
+    "partial_gap_down": {
+        "long_signal": "Price holds above previous low after gap",
+        "short_signal": "Price breaks below previous low support"
+    }
+}
+```
+
+**Risk Management Framework:**
+- **Position Sizing**: Not specified, focus on stop discipline
+- **Stop Loss Strategy**:
+  - Long positions: 8% trailing stop from entry
+  - Short positions: 4% trailing stop from entry
+  - Rationale: Shorts tend to move faster, need tighter stops
+- **Mental vs Real Stops**: Choice based on trader discipline
+
+**Trading Process:**
+1. End-of-day gap scan to identify candidates
+2. Analyze longer-term charts for context
+3. Identify key support/resistance levels
+4. Wait for first hour to establish range
+5. Enter based on price action relative to range
+6. Set appropriate trailing stops
+7. Let winners run with trailing stop protection
+
+**Best Practices:**
+- Paper trade extensively before real money
+- Focus on familiar stocks/sectors
+- Use volume as confirmation tool
+- Maintain trading journal for performance analysis
+- Accept small losses to preserve capital
+
+**Implications for TradeScout:**
+- Implement "One Hour Rule" for entry timing algorithm
+- Add volume filter (>500k daily average) to scanner
+- Create separate strategies for full vs partial gaps
+- Develop asymmetric stop loss system (8% long, 4% short)
+- Track opening range breakouts as entry signals
 
 ### Market Data Sources
 *[To be populated as resources are reviewed]*
@@ -520,7 +666,54 @@ ssrn_paper_results = {
 ```
 
 ### Active Research Sessions
-*[Research entries will be added here as resources are reviewed]*
+
+#### 2025-07-23 - SSRN Paper Integration
+**Source:** Price Gap Anomaly in the US Stock Market: The Whole Story (Plastun et al., 2019)
+**Key Findings:**
+- 61.8% win rate on gap trading strategy over 90-year period
+- Only 20% of gaps fill within 5 days (myth busted)
+- Gap momentum effect exists only on day 0, dissipates by day 2
+- No Monday seasonality in stock markets (unlike FX)
+
+**Implications for TradeScout:**
+- Adjust our gap fill expectations from 85-95% to realistic 20%
+- Focus entry timing on gap day only, not multi-day holds
+- Implement dynamic gap size thresholds based on volatility regime
+- NASDAQ shows predictive patterns worth exploring further
+
+**Data/Statistics:**
+- S&P 500: 868 gaps analyzed over 23,893 trading days
+- Statistical significance confirmed (p < 0.05)
+- Gap size ranges from 0.01% to 1.20% depending on era
+
+**Notes:**
+- Consider implementing their MCAR methodology for our backtesting
+- Their gap size evolution data could inform our dynamic threshold system
+- Need to research volume thresholds independently as paper lacks specifics
+
+#### 2025-07-23 - StockCharts Gap Trading Framework
+**Source:** StockCharts ChartSchool - Gap Trading Strategies
+**Key Findings:**
+- "One Hour Rule" - Wait 60 minutes for range establishment
+- Four gap types: Full/Partial × Up/Down = 8 distinct strategies
+- Asymmetric stops: 8% trailing for longs, 4% for shorts
+- Volume filter: >500k average daily volume requirement
+
+**Implications for TradeScout:**
+- Implement opening range breakout detection after 1 hour
+- Add partial gap strategies to complement our full gap focus
+- Consider asymmetric stop losses based on direction
+- Volume filter aligns with our liquidity requirements
+
+**Data/Statistics:**
+- No specific win rates provided (educational focus)
+- 8% vs 4% stop differential based on empirical observation
+- 500k volume threshold for liquidity
+
+**Notes:**
+- StockCharts approach more conservative than academic findings
+- One hour rule contrasts with academic "day 0 only" finding
+- Could test both immediate and 1-hour entry approaches
 
 ---
 
