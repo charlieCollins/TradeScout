@@ -497,8 +497,390 @@ nasdaq_patterns = {
 - No analysis of gap trades during different market regimes (bull/bear)
 - Volume thresholds not quantified
 
-#### 2. [Future Academic Papers]
-*[Additional academic sources to be added as they are reviewed]*
+#### 2. Investopedia - Playing the Gaps (2024)
+**Source:** [Investopedia Gap Trading Guide](https://www.investopedia.com/articles/trading/05/playinggaps.asp)  
+**Type:** Educational Trading Resource  
+**Focus:** Fundamental gap trading concepts and practical applications
+
+**Core Gap Trading Principles:**
+- **Gap Definition**: Areas where price moves sharply with little/no trading between levels
+- **Gap Causes**: Earnings surprises, news events, technical breakouts, algorithmic trading
+- **Gap Filling Concept**: Price returns to pre-gap level (contrary to academic 20% fill rate finding)
+
+**Investopedia Gap Classification:**
+```python
+investopedia_gap_types = {
+    "breakaway_gaps": {
+        "timing": "End of price pattern", 
+        "signal": "Beginning of new trend",
+        "characteristics": "High volume, strong momentum",
+        "fill_probability": "Lower - trend confirmation"
+    },
+    "exhaustion_gaps": {
+        "timing": "Near end of price pattern",
+        "signal": "Final attempt at new highs/lows", 
+        "characteristics": "Extreme volume, sentiment climax",
+        "fill_probability": "Higher - reversal signal"
+    },
+    "common_gaps": {
+        "timing": "No specific pattern position",
+        "signal": "Random price movement",
+        "characteristics": "Normal volume, no clear catalyst", 
+        "fill_probability": "Highest - noise trading"
+    },
+    "continuation_gaps": {
+        "timing": "Middle of price pattern",
+        "signal": "Rush of buyers/sellers with shared belief",
+        "characteristics": "Above average volume, trend acceleration",
+        "fill_probability": "Lowest - momentum confirmation"
+    }
+}
+```
+
+**Gap Fill Analysis (Investopedia Perspective):**
+- **Irrational Exuberance**: Initial gap may be overdone, inviting correction
+- **Technical Resistance**: Sharp moves leave no support/resistance levels
+- **Price Pattern Context**: Pattern type predicts fill probability
+- **Fading Concept**: Gaps filled same day due to emotional trading
+
+**Practical Trading Strategies:**
+1. **Pre-Position Strategy**: Buy after-hours on positive earnings for gap-up
+2. **Momentum Strategy**: Buy into liquid positions at movement start  
+3. **Gap Fade Strategy**: Short/buy against gap direction after exhaustion signals
+4. **Fill Trade Strategy**: Enter when price returns to pre-gap support/resistance
+
+**Key Trading Guidelines:**
+- **Volume Analysis**: High volume breakaway gaps, low volume exhaustion gaps
+- **Resistance Consideration**: Gaps rarely stop filling once started (no immediate S/R)
+- **Classification Accuracy**: Proper gap type identification crucial for direction
+- **Institutional Awareness**: Algos may amplify retail irrational exuberance
+
+**Risk Management Insights:**
+- **Gap Continuation Risk**: Once gap starts filling, limited natural stopping points
+- **Volume Confirmation**: Breakaway gaps need high volume, exhaustion gaps show volume climax
+- **Market Structure**: Retail exuberance vs institutional/algorithmic participation
+
+**Contrasts with Academic Research:**
+```python
+investopedia_vs_academic = {
+    "gap_fill_expectation": {
+        "investopedia": "Common occurrence, tradeable pattern",
+        "academic": "Only 20% fill within 5 days, myth-based belief"
+    },
+    "trading_approach": {
+        "investopedia": "Multiple strategies including fill trades",
+        "academic": "Focus on day 0 momentum only"
+    },
+    "gap_classification": {
+        "investopedia": "Pattern-based, subjective interpretation", 
+        "academic": "Size-based, statistical thresholds"
+    },
+    "time_horizon": {
+        "investopedia": "Multiple day holds, pattern completion",
+        "academic": "Single day focus, momentum dissipates quickly"
+    }
+}
+```
+
+**Integration Implications for TradeScout:**
+- **Dual Strategy Approach**: Implement both momentum (academic) and pattern-based (Investopedia) strategies
+- **Gap Classification Hybrid**: Combine size thresholds with pattern context analysis
+- **Time-Based Strategy Selection**: Use academic approach for day trades, Investopedia for swing trades
+- **Volume Analysis Enhancement**: Implement Investopedia's volume interpretation rules
+
+#### 3. After-Hours Trading: How It Works, Advantages, Risks, and Example (2025)
+**Source:** [Investopedia After-Hours Trading Guide](https://www.investopedia.com/terms/a/afterhourstrading.asp)  
+**Author:** James Chen, Reviewed by Michael J Boyle  
+**Type:** Educational Trading Resource  
+**Focus:** Extended-hours trading mechanics and implications for gap formation
+
+**Core After-Hours Trading Principles:**
+- **Definition**: Trading activity from 4:00 PM to 8:00 PM ET after major exchanges close
+- **Mechanism**: Conducted through Electronic Communication Networks (ECNs)
+- **Volume Pattern**: Initial spike on news, then rapid decline by 6:00 PM
+- **Price Discovery**: Process where after-hours activity affects next-day opening prices
+
+**Extended Hours Schedule:**
+```python
+extended_hours_schedule = {
+    "premarket": {
+        "start_time": "4:00 AM ET",
+        "end_time": "9:30 AM ET", 
+        "peak_activity": "7:00 AM - 9:25 AM ET"
+    },
+    "regular_session": {
+        "start_time": "9:30 AM ET",
+        "end_time": "4:00 PM ET",
+        "characteristics": "High liquidity, tight spreads"
+    },
+    "after_hours": {
+        "start_time": "4:00 PM ET",
+        "end_time": "8:00 PM ET",
+        "peak_activity": "4:00 PM - 6:00 PM ET"
+    }
+}
+```
+
+**Key After-Hours Characteristics:**
+- **Volume Decay**: Heavy volume first 10 minutes, rapid decline after 4:30 PM
+- **Liquidity Issues**: Substantially lower liquidity than regular session
+- **Wide Spreads**: Bid-ask spreads significantly wider due to fewer participants
+- **Order Restrictions**: Usually limited to limit orders only
+- **Price Volatility**: Easier to move prices with fewer shares
+
+**Gap Formation Mechanics:**
+- **Price Discovery Process**: After-hours trading establishes price expectations for next day
+- **News Impact**: Earnings releases, FDA approvals, economic data drive significant moves
+- **Institutional Behavior**: Many institutions avoid after-hours, creating retail-dominated environment
+- **Opening Gap Creation**: After-hours price ≠ previous close = opening gap
+
+**After-Hours Trading Risks (Critical for Gap Strategy):**
+```python
+after_hours_risks = {
+    "liquidity_risk": {
+        "impact": "Difficulty executing trades at desired prices",
+        "gap_implication": "Gaps may be artificial due to low volume"
+    },
+    "volatility_risk": {
+        "impact": "Extreme price swings on minimal volume", 
+        "gap_implication": "False gaps that reverse at market open"
+    },
+    "participation_risk": {
+        "impact": "Limited to retail traders, professionals often absent",
+        "gap_implication": "Institutional rebalancing at open can reverse gaps"
+    },
+    "information_risk": {
+        "impact": "Limited price discovery with fewer participants",
+        "gap_implication": "Gaps may not reflect true price discovery"
+    }
+}
+```
+
+**Nvidia Example Analysis (Real Case Study):**
+- **After-Hours Move**: Stock jumped from $154.50 to $169 (+$14.50, +9.4%) on earnings
+- **Volume Pattern**: 700k shares first 5 minutes, dropped to 100k by 5:00 PM
+- **Next Day Reality**: Opened at $164, closed at $157.20 (+$3 vs previous close)
+- **Gap Fill**: Nearly all after-hours gains evaporated during regular session
+
+**Implications for TradeScout Gap Trading:**
+- **Gap Validation**: After-hours moves create gaps, but sustainability depends on regular session volume
+- **Entry Timing**: Academic "day 0" approach aligns with capturing initial momentum before reversal
+- **Risk Assessment**: After-hours gaps without institutional participation have higher reversal risk
+- **Volume Confirmation**: Strong regular session volume needed to sustain after-hours initiated gaps
+
+**Gap Classification Enhancement:**
+```python
+after_hours_gap_factors = {
+    "high_sustainability_signals": [
+        "Institutional earnings beats with guidance raises",
+        "FDA approvals or major regulatory news", 
+        "M&A announcements with premium pricing",
+        "Volume >1M shares in first 30 minutes after-hours"
+    ],
+    "low_sustainability_signals": [
+        "Retail-driven social media hype",
+        "Minor earnings beats without guidance",
+        "Technical breakouts on low volume",
+        "Volume <100k shares after 5:00 PM"
+    ]
+}
+```
+
+**Trading Session Quality Matrix:**
+```python
+session_quality_comparison = {
+    "regular_session": {
+        "liquidity": "HIGH",
+        "spread_quality": "TIGHT", 
+        "price_discovery": "EFFICIENT",
+        "gap_reliability": "N/A"
+    },
+    "after_hours": {
+        "liquidity": "LOW",
+        "spread_quality": "WIDE",
+        "price_discovery": "LIMITED", 
+        "gap_reliability": "MODERATE - depends on catalyst"
+    },
+    "premarket": {
+        "liquidity": "MEDIUM",
+        "spread_quality": "MODERATE",
+        "price_discovery": "IMPROVING",
+        "gap_reliability": "HIGH - institutional participation"
+    }
+}
+```
+
+**Integration with Academic Research:**
+- **Complements Plastun Study**: After-hours activity creates the gaps that academic study analyzed
+- **Supports 20% Fill Rate**: After-hours gaps often artificial, explaining low fill rates
+- **Validates Day 0 Strategy**: Momentum must be captured before institutional rebalancing occurs
+- **Reinforces Volume Importance**: After-hours volume patterns predict gap sustainability
+
+#### 4. Pre-Market Trading: Mechanics, Benefits, and Risks (2025)
+**Source:** [Investopedia Pre-Market Trading Guide](https://www.investopedia.com/terms/p/premarket.asp)  
+**Type:** Educational Trading Resource  
+**Focus:** Pre-market trading session analysis and gap formation implications
+
+**Core Pre-Market Trading Principles:**
+- **Definition**: Trading activity from 4:00 AM to 9:30 AM EST before regular session
+- **Peak Activity**: Most trading occurs between 8:00 AM - 9:30 AM EST
+- **Execution**: Limited to electronic markets (ATS/ECN), no market makers until 9:30 AM
+- **Order Types**: Typically restricted to limit orders only
+
+**Pre-Market Session Breakdown:**
+```python
+premarket_schedule = {
+    "early_premarket": {
+        "time_range": "4:00 AM - 7:00 AM EST",
+        "activity_level": "MINIMAL",
+        "participants": "Institutional, overnight news reactions",
+        "characteristics": "Stub quotes, very thin liquidity"
+    },
+    "active_premarket": {
+        "time_range": "7:00 AM - 9:30 AM EST", 
+        "activity_level": "MODERATE",
+        "participants": "Retail + institutional traders",
+        "characteristics": "Real price discovery, gap formation"
+    },
+    "pre_open": {
+        "time_range": "9:25 AM - 9:30 AM EST",
+        "activity_level": "HIGH",
+        "participants": "Market makers prepare, institutional positioning",
+        "characteristics": "Final gap confirmation before open"
+    }
+}
+```
+
+**Pre-Market vs After-Hours Comparison:**
+```python
+extended_hours_comparison = {
+    "premarket": {
+        "timing": "4:00 AM - 9:30 AM EST",
+        "liquidity": "BETTER than after-hours",
+        "price_discovery": "MORE RELIABLE",
+        "institutional_participation": "HIGHER",
+        "gap_reliability": "HIGH - institutional validation",
+        "news_reaction": "More measured, institutional influence"
+    },
+    "after_hours": {
+        "timing": "4:00 PM - 8:00 PM EST", 
+        "liquidity": "LOWER",
+        "price_discovery": "LIMITED",
+        "institutional_participation": "MINIMAL",
+        "gap_reliability": "MODERATE - retail dominated",
+        "news_reaction": "More volatile, emotional responses"
+    }
+}
+```
+
+**Key Pre-Market Characteristics:**
+- **Limited Liquidity**: Still thin but better than after-hours
+- **Wide Spreads**: Bid-ask spreads wider than regular session but narrower than after-hours
+- **Stub Quotes**: Most stocks show minimal activity without news
+- **ETF Movement**: Index ETFs (SPY) move due to futures trading
+- **News Sensitivity**: Strong reaction to overnight developments
+
+**Pre-Market Gap Formation Process:**
+1. **Overnight News**: Earnings, geopolitical events, overseas market moves
+2. **Futures Impact**: S&P 500 futures influence broad market ETFs and large caps
+3. **Institutional Positioning**: Professional traders establish positions before retail access
+4. **Price Discovery**: More reliable than after-hours due to institutional participation
+5. **Gap Establishment**: Pre-market price vs previous close = morning gap
+
+**Pre-Market Trading Risks (Gap Strategy Implications):**
+```python
+premarket_risks = {
+    "liquidity_risk": {
+        "severity": "MODERATE",
+        "impact": "Better than after-hours but still limited",
+        "gap_implication": "Gaps more sustainable than after-hours gaps"
+    },
+    "price_uncertainty": {
+        "severity": "MODERATE", 
+        "impact": "Single ECN pricing vs consolidated regular hours",
+        "gap_implication": "Gap size may not reflect true market consensus"
+    },
+    "execution_risk": {
+        "severity": "HIGH",
+        "impact": "Limit orders may not execute if market moves away",
+        "gap_implication": "May miss gap entries if price moves quickly"
+    },
+    "institutional_competition": {
+        "severity": "HIGH",
+        "impact": "Professional traders have information/speed advantages",
+        "gap_implication": "Best gap opportunities taken before retail access"
+    }
+}
+```
+
+**Broker Pre-Market Hours (As of 2021):**
+```python
+broker_premarket_hours = {
+    "charles_schwab": "7:00 AM - 9:25 AM EST",
+    "etrade": "7:00 AM - 9:30 AM EST", 
+    "interactive_brokers_pro": "4:00 AM - 9:30 AM EST",
+    "interactive_brokers_lite": "7:00 AM - 9:30 AM EST",
+    "robinhood": "7:00 AM - 9:30 AM EST",
+    "webull": "4:00 AM - 9:30 AM EST"
+}
+```
+
+**Pre-Market Gap Sustainability Factors:**
+```python
+premarket_sustainability_indicators = {
+    "high_sustainability": [
+        "Institutional participation evident (tight spreads)",
+        "Consistent gap direction across futures and ETFs",
+        "Volume building throughout pre-market session",
+        "Gap confirmed across multiple ECNs",
+        "News catalyst with clear fundamental impact"
+    ],
+    "low_sustainability": [
+        "Only single ECN showing gap",
+        "Futures contradicting individual stock movement", 
+        "Volume declining during pre-market",
+        "Wide, inconsistent bid-ask spreads",
+        "News already fully reflected in overnight futures"
+    ]
+}
+```
+
+**Integration with Gap Trading Strategy:**
+- **Two-Phase Gap Formation**: After-hours creates initial gap, pre-market validates/refines it
+- **Quality Filter**: Pre-market institutional participation indicates higher-quality gaps
+- **Entry Timing Enhancement**: Pre-market activity provides additional confirmation layer
+- **Risk Assessment**: Gaps with both after-hours AND pre-market support show higher continuation rates
+
+**Pre-Market Volume Analysis Framework:**
+```python
+premarket_volume_analysis = {
+    "volume_progression": {
+        "healthy_pattern": "Steady increase from 7 AM to 9:30 AM",
+        "warning_pattern": "High early spike then rapid decline",
+        "institutional_confirmation": "Volume builds in final 30 minutes"
+    },
+    "relative_volume_metrics": {
+        "strong_signal": ">3x average pre-market volume",
+        "moderate_signal": "1.5x - 3x average pre-market volume", 
+        "weak_signal": "<1.5x average pre-market volume"
+    }
+}
+```
+
+**Enhanced Gap Classification with Pre-Market Data:**
+- **Validated Gaps**: Show consistent direction in both after-hours AND pre-market
+- **Artificial Gaps**: After-hours movement not confirmed by pre-market activity
+- **Institutional Gaps**: Strong pre-market volume with institutional participation
+- **Retail Gaps**: After-hours driven without pre-market institutional validation
+
+**Implications for TradeScout Implementation:**
+- **Dual-Session Analysis**: Monitor both after-hours and pre-market for gap confirmation
+- **Quality Scoring**: Weight pre-market validation higher than after-hours only gaps
+- **Entry Strategy**: Use pre-market activity to refine entry timing and position sizing
+- **Risk Management**: Higher confidence in gaps showing institutional pre-market support
+
+#### 5. [Future Academic Papers]
+*[Additional academic sources to be reviewed]*
 
 ### Industry Reports
 
@@ -714,6 +1096,31 @@ gap_trading_strategies = {
 - StockCharts approach more conservative than academic findings
 - One hour rule contrasts with academic "day 0 only" finding
 - Could test both immediate and 1-hour entry approaches
+
+#### 2025-07-23 - Investopedia Gap Trading Integration
+**Source:** Investopedia - Playing the Gaps (2024)
+**Key Findings:**
+- Four gap types: Breakaway, Exhaustion, Common, Continuation (pattern-based)
+- Gap fill concept widely accepted but conflicts with academic 20% fill rate
+- Multiple strategies: pre-position, momentum, fade, fill trades
+- Volume interpretation: high volume breakaways, low volume exhaustion
+
+**Implications for TradeScout:**
+- Create hybrid classification system (size + pattern context)
+- Implement dual strategy approach: momentum vs pattern-based
+- Add volume analysis rules for gap type confirmation
+- Consider both day trading and swing trading timeframes
+
+**Data/Statistics:**
+- No specific performance metrics provided
+- Focus on concept education rather than backtested results
+- Emphasizes gap fill probability by type but no quantification
+
+**Notes:**
+- Traditional retail trading wisdom conflicts with academic research
+- Useful for understanding market participant behavior patterns
+- Gap classification more subjective than academic size-based approach
+- Integration creates comprehensive framework covering both academic and practitioner perspectives
 
 ---
 

@@ -51,7 +51,8 @@ Generate a concise briefing including:
 - **Ready to Start**: Confirm readiness to begin work
 
 ## 3. Set Up Working Memory
-- Load current TODO items into working memory and TodoWrite list
+- **CRITICAL**: Use TodoWrite tool to sync all pending tasks from CLAUDE_TODO.md
+- Extract all incomplete tasks and add them to TodoWrite with appropriate priority levels
 - Note any blockers from previous session
 - Prepare for the first task
 

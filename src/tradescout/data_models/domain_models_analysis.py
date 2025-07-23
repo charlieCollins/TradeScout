@@ -40,6 +40,34 @@ class ConfidenceLevel(Enum):
     VERY_HIGH = "very_high"  # 95%+
 
 
+class GapType(Enum):
+    """Gap classification types based on academic research"""
+
+    COMMON = "common"  # <1.5% size, noise trading
+    BREAKAWAY = "breakaway"  # 2-5% size, trend initiation
+    CONTINUATION = "continuation"  # 2-7% size, trend acceleration
+    EXHAUSTION = "exhaustion"  # >5% size, trend termination
+    UNKNOWN = "unknown"  # Insufficient data to classify
+
+
+class GapStrength(Enum):
+    """Gap strength assessment"""
+
+    WEAK = "weak"  # Low probability setup
+    MODERATE = "moderate"  # Decent probability setup
+    STRONG = "strong"  # High probability setup
+    VERY_STRONG = "very_strong"  # Exceptional setup
+
+
+class GapRiskLevel(Enum):
+    """Risk assessment for gap trades"""
+
+    LOW = "low"  # High-confidence, well-defined setups
+    MEDIUM = "medium"  # Standard gap trading risk
+    HIGH = "high"  # Higher uncertainty or volatility
+    EXTREME = "extreme"  # Avoid - manipulation/thin volume risk
+
+
 @dataclass
 class TechnicalIndicators:
     """Technical analysis indicators for an asset"""
@@ -244,3 +272,143 @@ class MarketEvent:
     # Impact assessment
     historical_impact_percent: Optional[Decimal] = None
     volume_impact_multiplier: Optional[Decimal] = None
+
+
+@dataclass
+class GapClassification:
+    """Gap type classification with confidence metrics"""
+
+    asset: Asset
+    timestamp: datetime
+    gap_type: GapType
+    confidence_score: Decimal  # 0.0 to 1.0
+
+    # Gap characteristics
+    gap_percent: Decimal
+    gap_amount: Decimal
+    size_category: str  # "small", "medium", "large", "extreme"
+
+    # Research-based probabilities
+    expected_fill_probability: Decimal
+    expected_continuation_probability: Decimal
+
+    # Classification context
+    classification_reason: str = ""
+    supporting_factors: List[str] = field(default_factory=list)
+    warning_flags: List[str] = field(default_factory=list)
+
+    @property
+    def is_tradeable(self) -> bool:
+        """Quick check if gap meets minimum tradeable criteria"""
+        return (
+            self.gap_type != GapType.COMMON
+            and self.confidence_score >= Decimal("0.6")
+            and abs(self.gap_percent) >= Decimal("2.0")
+        )
+
+    @property
+    def risk_level(self) -> GapRiskLevel:
+        """Assess risk level based on gap characteristics"""
+        if self.gap_type == GapType.CONTINUATION and self.confidence_score >= Decimal("0.8"):
+            return GapRiskLevel.LOW
+        elif self.gap_type == GapType.BREAKAWAY and self.confidence_score >= Decimal("0.7"):
+            return GapRiskLevel.MEDIUM
+        elif self.gap_type == GapType.EXHAUSTION:
+            return GapRiskLevel.HIGH
+        else:
+            return GapRiskLevel.EXTREME
+
+
+@dataclass
+class GapStrengthMetrics:
+    """Comprehensive gap strength assessment"""
+
+    asset: Asset
+    timestamp: datetime
+
+    # Volume confirmation
+    volume_ratio: Decimal  # Current vs average volume
+    volume_confirmation: bool
+    premarket_volume_surge: bool
+
+    # Technical context
+    technical_breakout: bool
+    trend_alignment: bool
+    support_resistance_break: bool
+
+    # Catalyst assessment
+    news_catalyst_present: bool
+    catalyst_quality_score: Decimal  # 0.0 to 1.0
+    
+    # Market context
+    market_alignment: bool
+    sector_momentum: bool
+    
+    # Composite strength
+    overall_strength: GapStrength
+    strength_score: Decimal  # 0.0 to 1.0
+    
+    # Optional string fields with defaults (must come last)
+    catalyst_type: str = ""  # "earnings", "fda", "merger", etc.
+    overall_market_trend: str = ""  # "bullish", "bearish", "neutral"
+
+    @property
+    def has_strong_volume(self) -> bool:
+        """Check if volume supports the gap"""
+        return self.volume_ratio >= Decimal("2.0") and self.volume_confirmation
+
+    @property
+    def has_catalyst_support(self) -> bool:
+        """Check if news catalyst supports the gap"""
+        return self.news_catalyst_present and self.catalyst_quality_score >= Decimal("0.6")
+
+
+@dataclass
+class GapTradabilityAssessment:
+    """Final assessment of gap trading opportunity"""
+
+    asset: Asset
+    timestamp: datetime
+    gap_classification: GapClassification
+    strength_metrics: GapStrengthMetrics
+
+    # Trading assessment
+    is_tradeable: bool
+    recommended_strategy: str  # "momentum", "reversal", "avoid"
+    recommended_side: TradeSide
+    risk_level: GapRiskLevel
+
+    # Timing recommendations
+    optimal_entry_timing: str  # "immediate", "1hour_rule", "avoid"
+    suggested_hold_time: str  # "intraday", "swing", "position"
+    max_hold_hours: int = 4
+
+    # Risk management
+    suggested_position_size_percent: Decimal = Decimal("1.0")
+    stop_loss_percent: Decimal = Decimal("2.0")
+    take_profit_percent: Decimal = Decimal("3.0")
+
+    # Rationale
+    trading_rationale: str = ""
+    key_success_factors: List[str] = field(default_factory=list)
+    primary_risks: List[str] = field(default_factory=list)
+
+    @property
+    def risk_reward_ratio(self) -> Decimal:
+        """Calculate expected risk/reward ratio"""
+        if self.stop_loss_percent > 0:
+            return self.take_profit_percent / self.stop_loss_percent
+        return Decimal("0")
+
+    @property
+    def trade_quality_score(self) -> Decimal:
+        """Overall trade quality score (0.0 to 1.0)"""
+        if not self.is_tradeable:
+            return Decimal("0")
+
+        score = (
+            self.gap_classification.confidence_score * Decimal("0.4") +
+            self.strength_metrics.strength_score * Decimal("0.4") +
+            (Decimal("1.0") if self.risk_level in [GapRiskLevel.LOW, GapRiskLevel.MEDIUM] else Decimal("0.2")) * Decimal("0.2")
+        )
+        return min(Decimal("1.0"), score)

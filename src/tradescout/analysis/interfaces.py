@@ -11,14 +11,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 from decimal import Decimal
 
-from data_collection.domain_models_core import (
+from ..data_models.domain_models_core import (
     Asset,
     MarketQuote,
     ExtendedHoursData,
     NewsItem,
     SocialSentiment,
 )
-from data_collection.domain_models_analysis import (
+from ..data_models.domain_models_analysis import (
     TechnicalIndicators,
     TradeSuggestion,
     ActualTrade,
@@ -26,6 +26,10 @@ from data_collection.domain_models_analysis import (
     MarketEvent,
     ConfidenceLevel,
     TradeSide,
+    GapClassification,
+    GapStrengthMetrics,
+    GapTradabilityAssessment,
+    GapType,
 )
 
 
@@ -588,5 +592,137 @@ class AnalysisOrchestrator(ABC):
 
         Returns:
             Trade suggestion if opportunity found
+        """
+        pass
+
+
+class CandidateGapTypeAnalyzer(ABC):
+    """
+    Abstract interface for analyzing and classifying gap trading candidates
+    
+    Based on academic research from GAP_TRADING_RESEARCH.md, this analyzer
+    classifies gaps into types (Common, Breakaway, Continuation, Exhaustion)
+    and assesses their trading viability.
+    """
+
+    @abstractmethod
+    def classify_gap_type(
+        self, 
+        quote: MarketQuote, 
+        extended_data: ExtendedHoursData,
+        historical_context: Optional[Dict[str, any]] = None
+    ) -> GapClassification:
+        """
+        Classify gap into specific type with confidence metrics
+        
+        Based on research criteria:
+        - Common: <1.5% size, noise trading (25% continuation rate)
+        - Breakaway: 2-5% size, trend initiation (70% continuation rate)  
+        - Continuation: 2-7% size, trend acceleration (80% continuation rate)
+        - Exhaustion: >5% size, trend termination (20% continuation rate)
+
+        Args:
+            quote: Current market quote with gap information
+            extended_data: Pre-market/after-hours data for context
+            historical_context: Optional trend/pattern context
+
+        Returns:
+            GapClassification with type, confidence, and probabilities
+        """
+        pass
+        
+    @abstractmethod  
+    def analyze_gap_strength(
+        self,
+        gap_classification: GapClassification,
+        volume_data: Dict[str, Decimal],
+        market_context: Dict[str, any]
+    ) -> GapStrengthMetrics:
+        """
+        Analyze gap strength and quality indicators
+        
+        Evaluates:
+        - Volume confirmation (2x+ average for breakaways)
+        - Technical breakout context
+        - News catalyst presence and quality
+        - Market/sector alignment
+        - Overall strength assessment
+
+        Args:
+            gap_classification: Classified gap from classify_gap_type()
+            volume_data: Volume ratios and surge indicators
+            market_context: Market conditions and catalyst information
+
+        Returns:
+            GapStrengthMetrics with comprehensive strength assessment
+        """
+        pass
+        
+    @abstractmethod
+    def assess_tradability(
+        self,
+        gap_classification: GapClassification,
+        strength_metrics: GapStrengthMetrics,
+        risk_parameters: Optional[Dict[str, any]] = None
+    ) -> GapTradabilityAssessment:
+        """
+        Final assessment of gap trading opportunity
+        
+        Combines classification and strength analysis to determine:
+        - Whether gap is tradeable 
+        - Recommended strategy (momentum/reversal/avoid)
+        - Risk level and position sizing
+        - Entry timing and hold duration
+        - Key success factors and risks
+
+        Args:
+            gap_classification: Gap type classification
+            strength_metrics: Gap strength analysis
+            risk_parameters: Optional risk management overrides
+
+        Returns:
+            GapTradabilityAssessment with trading recommendations
+        """
+        pass
+
+    @abstractmethod
+    def batch_analyze_candidates(
+        self,
+        candidates: List[MarketQuote]
+    ) -> List[GapTradabilityAssessment]:
+        """
+        Analyze multiple gap candidates efficiently
+        
+        Processes a list of gap candidates (e.g., from market scanner)
+        and returns ranked trading assessments. Useful for morning
+        gap screening workflows.
+
+        Args:
+            candidates: List of market quotes with potential gaps
+
+        Returns:
+            List of assessments sorted by trade quality score
+        """
+        pass
+
+    @abstractmethod
+    def get_gap_statistics(
+        self,
+        lookback_days: int = 30
+    ) -> Dict[str, any]:
+        """
+        Get historical gap classification and performance statistics
+        
+        Provides insights into:
+        - Gap type frequency and accuracy
+        - Success rates by gap type and strength
+        - Model performance metrics
+        - Calibration statistics
+
+        Args:
+            lookback_days: Days of history to analyze
+
+        Returns:
+            Dictionary with comprehensive gap trading statistics
         """
         pass

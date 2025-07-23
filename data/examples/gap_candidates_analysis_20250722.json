@@ -1,0 +1,115 @@
+{
+  "date": "2025-07-22",
+  "analysis_type": "gap_candidate_exploration",
+  "data_source": "alpha_vantage_top_gainers_losers",
+  "note": "Market closed data - exploring large movers as potential gap candidates for strategy development",
+  
+  "top_gainers": [
+    {"rank": 1, "symbol": "HTOOW", "price": 0.03, "change": 0.02, "change_percent": 228.24, "volume": 2244573},
+    {"rank": 2, "symbol": "DFLI", "price": 0.52, "change": 0.25, "change_percent": 95.12, "volume": 683669935},
+    {"rank": 3, "symbol": "SMXWW", "price": 0.03, "change": 0.01, "change_percent": 74.59, "volume": 99277},
+    {"rank": 4, "symbol": "ABPWW", "price": 0.05, "change": 0.02, "change_percent": 68.67, "volume": 50},
+    {"rank": 5, "symbol": "BGLWW", "price": 0.60, "change": 0.24, "change_percent": 67.01, "volume": 206814},
+    {"rank": 6, "symbol": "GIBOW", "price": 0.03, "change": 0.01, "change_percent": 66.19, "volume": 455},
+    {"rank": 7, "symbol": "ASBPW", "price": 0.08, "change": 0.03, "change_percent": 63.27, "volume": 104317},
+    {"rank": 8, "symbol": "PLRZ", "price": 1.45, "change": 0.54, "change_percent": 59.73, "volume": 109404528},
+    {"rank": 9, "symbol": "HTOO", "price": 6.71, "change": 2.43, "change_percent": 56.78, "volume": 29696451},
+    {"rank": 10, "symbol": "BLNE", "price": 2.59, "change": 0.93, "change_percent": 56.02, "volume": 17347154},
+    {"rank": 11, "symbol": "MEDP", "price": 477.73, "change": 168.85, "change_percent": 54.67, "volume": 4463534},
+    {"rank": 12, "symbol": "ZOOZ", "price": 2.13, "change": 0.74, "change_percent": 53.24, "volume": 28678348},
+    {"rank": 13, "symbol": "MAPSW", "price": 0.03, "change": 0.01, "change_percent": 52.78, "volume": 7412},
+    {"rank": 14, "symbol": "IBACR", "price": 0.09, "change": 0.03, "change_percent": 49.83, "volume": 58},
+    {"rank": 15, "symbol": "LIMNW", "price": 0.22, "change": 0.07, "change_percent": 49.15, "volume": 157094},
+    {"rank": 16, "symbol": "ARKOW", "price": 0.01, "change": 0.00, "change_percent": 48.48, "volume": 154956},
+    {"rank": 17, "symbol": "MSPRW", "price": 0.00, "change": 0.00, "change_percent": 47.37, "volume": 350908},
+    {"rank": 18, "symbol": "FFAI", "price": 2.94, "change": 0.89, "change_percent": 43.41, "volume": 115853853},
+    {"rank": 19, "symbol": "TLIH", "price": 6.01, "change": 1.79, "change_percent": 42.42, "volume": 555938},
+    {"rank": 20, "symbol": "ORGNW", "price": 0.04, "change": 0.01, "change_percent": 41.18, "volume": 54243}
+  ],
+  
+  "top_losers": [
+    {"rank": 1, "symbol": "REPL", "price": 2.80, "change": -9.52, "change_percent": -77.24, "volume": 84861780},
+    {"rank": 2, "symbol": "ORIS", "price": 0.16, "change": -0.31, "change_percent": -65.82, "volume": 23590872},
+    {"rank": 3, "symbol": "AIRE", "price": 0.45, "change": -0.40, "change_percent": -46.80, "volume": 61686968},
+    {"rank": 4, "symbol": "SAIHW", "price": 0.13, "change": -0.11, "change_percent": -45.33, "volume": 23574},
+    {"rank": 5, "symbol": "SBEV+", "price": 0.01, "change": -0.01, "change_percent": -43.75, "volume": 330756},
+    {"rank": 6, "symbol": "EJH", "price": 1.51, "change": -1.00, "change_percent": -39.84, "volume": 1806514},
+    {"rank": 7, "symbol": "COLAR", "price": 0.13, "change": -0.09, "change_percent": -39.80, "volume": 703},
+    {"rank": 8, "symbol": "COCHW", "price": 0.04, "change": -0.03, "change_percent": -38.66, "volume": 32090},
+    {"rank": 9, "symbol": "PCLA", "price": 0.48, "change": -0.30, "change_percent": -38.29, "volume": 4705872},
+    {"rank": 10, "symbol": "CDTTW", "price": 0.01, "change": -0.00, "change_percent": -37.01, "volume": 80863},
+    {"rank": 11, "symbol": "NEHCW", "price": 0.07, "change": -0.04, "change_percent": -36.19, "volume": 147474},
+    {"rank": 12, "symbol": "SVIIW", "price": 0.14, "change": -0.07, "change_percent": -33.76, "volume": 41224},
+    {"rank": 13, "symbol": "OXBRW", "price": 0.30, "change": -0.15, "change_percent": -32.44, "volume": 38710},
+    {"rank": 14, "symbol": "BDMDW", "price": 0.07, "change": -0.03, "change_percent": -30.86, "volume": 54141},
+    {"rank": 15, "symbol": "RELIW", "price": 0.03, "change": -0.01, "change_percent": -30.62, "volume": 2395},
+    {"rank": 16, "symbol": "SABSW", "price": 0.03, "change": -0.01, "change_percent": -30.40, "volume": 142473},
+    {"rank": 17, "symbol": "GOVXW", "price": 0.02, "change": -0.01, "change_percent": -29.25, "volume": 2049},
+    {"rank": 18, "symbol": "BDMD", "price": 2.17, "change": -0.89, "change_percent": -29.08, "volume": 1085038},
+    {"rank": 19, "symbol": "PXSAW", "price": 0.01, "change": -0.01, "change_percent": -28.72, "volume": 4000},
+    {"rank": 20, "symbol": "CURIW", "price": 0.03, "change": -0.01, "change_percent": -27.55, "volume": 6295}
+  ],
+  
+  "gap_candidate_analysis": {
+    "potential_good_candidates": {
+      "note": "Based on Phase 1 criteria from GAP_TRADING_STRATEGY.md",
+      "candidates": [
+        {
+          "symbol": "DFLI", 
+          "change_percent": 95.12, 
+          "volume": 683669935,
+          "assessment": "Potential breakaway gap - large move with massive volume",
+          "risk_factors": ["Need catalyst verification", "Low price stock risk"]
+        },
+        {
+          "symbol": "PLRZ", 
+          "change_percent": 59.73, 
+          "volume": 109404528,
+          "assessment": "Strong volume with significant move",
+          "risk_factors": ["Need catalyst verification", "Trending context unknown"]
+        },
+        {
+          "symbol": "HTOO", 
+          "change_percent": 56.78, 
+          "volume": 29696451,
+          "assessment": "Good size move with reasonable volume",
+          "risk_factors": ["Need catalyst verification", "Higher price reduces manipulation risk"]
+        },
+        {
+          "symbol": "MEDP", 
+          "change_percent": 54.67, 
+          "volume": 4463534,
+          "assessment": "High-price stock ($477) with large absolute move ($168)",
+          "risk_factors": ["Lower relative volume", "Biotech/healthcare volatility"]
+        },
+        {
+          "symbol": "FFAI", 
+          "change_percent": 43.41, 
+          "volume": 115853853,
+          "assessment": "Massive volume with good percentage move",
+          "risk_factors": ["Need catalyst verification"]
+        }
+      ]
+    },
+    "bad_candidates": {
+      "note": "Based on Phase 1 red flags",
+      "reasons": [
+        {
+          "category": "Thin Volume Gaps",
+          "symbols": ["ABPWW", "GIBOW", "IBACR", "COLAR"],
+          "reason": "Volume too low (<100k) - manipulation risk"
+        },
+        {
+          "category": "Warrant/Rights Trading",
+          "symbols": ["HTOOW", "SMXWW", "ABPWW", "BGLWW", "ASBPW", "MAPSW", "LIMNW", "ARKOW", "MSPRW", "ORGNW"],
+          "reason": "Warrant symbols (ending in W) - different risk profile from common stock"
+        },
+        {
+          "category": "Penny Stock Risk",
+          "symbols": ["HTOOW", "SMXWW", "ABPWW", "GIBOW", "ASBPW", "MAPSW", "ARKOW", "MSPRW", "ORGNW"],
+          "reason": "Price <$1 - high manipulation risk, wide spreads"
+        }
+      ]
+    }
+  }
+}
