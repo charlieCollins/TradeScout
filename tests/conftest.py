@@ -2,20 +2,21 @@
 Pytest configuration and fixtures for TradeScout tests
 """
 
-import pytest
-from decimal import Decimal
 from datetime import datetime, time
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
+import pytest
+
+from tradescout.caches.api_cache import APICache
 from tradescout.data_models.domain_models_core import (
     Asset,
+    AssetType,
     Market,
     MarketSegment,
-    AssetType,
-    MarketType,
     MarketStatus,
+    MarketType,
 )
-from tradescout.caches.api_cache import APICache
 
 
 @pytest.fixture
@@ -61,7 +62,9 @@ def sample_asset(sample_market, sample_market_segment):
 @pytest.fixture
 def mock_yfinance_ticker():
     """Mock yfinance Ticker for testing"""
-    with patch("tradescout.data_sources.yfinance_adapter.yf.Ticker") as mock_ticker:
+    with patch(
+        "tradescout.data_sources.asset_data_provider_yfinance.yf.Ticker"
+    ) as mock_ticker:
         # Configure mock ticker with realistic data
         mock_instance = Mock()
         mock_instance.info = {

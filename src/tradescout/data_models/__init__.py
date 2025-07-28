@@ -8,51 +8,51 @@ Handles all external data sources:
 - External API adapters (Polygon.io, yfinance, NewsAPI, Reddit)
 """
 
-# Core domain models
-from .domain_models_core import (
-    Asset,
-    Market,
-    MarketSegment,
-    PriceData,
-    MarketQuote,
-    ExtendedHoursData,
-    NewsItem,
-    SocialSentiment,
-    AssetType,
-    MarketType,
-    MarketStatus,
-)
-
 # Analysis models
 from .domain_models_analysis import (
-    TradeSuggestion,
     ActualTrade,
-    PerformanceMetrics,
+    ConfidenceLevel,
     MarketEvent,
+    PerformanceMetrics,
     TechnicalIndicators,
     TradeSide,
     TradeStatus,
-    ConfidenceLevel,
+    TradeSuggestion,
+)
+
+# Core domain models
+from .domain_models_core import (
+    Asset,
+    AssetType,
+    ExtendedHoursData,
+    Market,
+    MarketQuote,
+    MarketSegment,
+    MarketStatus,
+    MarketType,
+    NewsItem,
+    PriceData,
+    SocialSentiment,
 )
 
 # Factory classes
 from .factories import (
+    AssetFactory,
     MarketFactory,
     MarketSegmentFactory,
-    AssetFactory,
-    get_us_stock_market,
     get_common_assets,
     get_tech_segments,
+    get_us_stock_market,
 )
 
 # Abstract interfaces
 from .interfaces import (
     AssetDataProvider,
-    NewsProvider,
-    SentimentProvider,
-    DataCollectionCoordinator,
-    RateLimiter,
     DataCache,
+    DataCollectionCoordinator,
+    NewsProvider,
+    RateLimiter,
+    SentimentProvider,
 )
 
 # Future adapter implementations will be imported here:

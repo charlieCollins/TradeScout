@@ -10,12 +10,13 @@ Uses Yahoo Finance (via yfinance) for:
 Free and unlimited API calls.
 """
 
-import yfinance as yf
-import pandas as pd
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
 import time
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
+
+import pandas as pd
+import yfinance as yf
 
 logger = logging.getLogger(__name__)
 

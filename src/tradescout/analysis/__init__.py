@@ -8,7 +8,7 @@ Core analysis modules:
 - Performance tracking
 """
 
-from .technical_analysis import TechnicalAnalyzer
 from .gap_scanner import GapScanner
-from .suggestion_engine import SuggestionEngine
 from .performance_tracker import PerformanceTracker
+from .suggestion_engine import SuggestionEngine
+from .technical_analysis import TechnicalAnalyzer

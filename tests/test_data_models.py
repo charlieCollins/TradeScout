@@ -2,19 +2,20 @@
 Tests for TradeScout data models
 """
 
-import pytest
 from datetime import datetime, time
 from decimal import Decimal
 
+import pytest
+
 from tradescout.data_models.domain_models_core import (
     Asset,
-    Market,
-    MarketSegment,
-    PriceData,
-    MarketQuote,
     AssetType,
-    MarketType,
+    Market,
+    MarketQuote,
+    MarketSegment,
     MarketStatus,
+    MarketType,
+    PriceData,
 )
 
 

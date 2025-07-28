@@ -8,22 +8,22 @@ with seamless migration capability.
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
-from ..data_models.domain_models_core import (
-    Asset,
-    MarketQuote,
-    ExtendedHoursData,
-    NewsItem,
-    SocialSentiment,
-)
 from ..data_models.domain_models_analysis import (
+    ActualTrade,
+    MarketEvent,
+    PerformanceMetrics,
     TechnicalIndicators,
     TradeSuggestion,
-    ActualTrade,
-    PerformanceMetrics,
-    MarketEvent,
+)
+from ..data_models.domain_models_core import (
+    Asset,
+    ExtendedHoursData,
+    MarketQuote,
+    NewsItem,
+    SocialSentiment,
 )
 
 

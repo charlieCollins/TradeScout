@@ -5,21 +5,22 @@ Uses yfinance library for market data with intelligent caching to protect
 against rate limits and improve performance.
 """
 
-import yfinance as yf
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
 from decimal import Decimal
+from typing import Any, Dict, List, Optional
 
-from ..data_models.interfaces import AssetDataProvider
+import yfinance as yf
+
+from ..caches.api_cache import APICache, CachePolicy, cached_api_call
 from ..data_models.domain_models_core import (
     Asset,
-    MarketQuote,
-    PriceData,
     ExtendedHoursData,
+    MarketQuote,
     MarketStatus,
+    PriceData,
 )
-from ..caches.api_cache import APICache, CachePolicy, cached_api_call
+from ..data_models.interfaces import AssetDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -489,7 +490,9 @@ class AssetDataProviderYFinance(AssetDataProvider):
 
 
 # Convenience function for creating adapter
-def create_asset_data_provider_yfinance(cache: Optional[APICache] = None) -> AssetDataProviderYFinance:
+def create_asset_data_provider_yfinance(
+    cache: Optional[APICache] = None,
+) -> AssetDataProviderYFinance:
     """
     Create a YFinance adapter with default settings
 

@@ -5,12 +5,12 @@ Models for trading analysis, suggestions, and performance tracking.
 These models handle the business logic of momentum trading.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
 from typing import Dict, List, Optional, Set
-import uuid
 
 from .domain_models_core import Asset
 
@@ -309,9 +309,13 @@ class GapClassification:
     @property
     def risk_level(self) -> GapRiskLevel:
         """Assess risk level based on gap characteristics"""
-        if self.gap_type == GapType.CONTINUATION and self.confidence_score >= Decimal("0.8"):
+        if self.gap_type == GapType.CONTINUATION and self.confidence_score >= Decimal(
+            "0.8"
+        ):
             return GapRiskLevel.LOW
-        elif self.gap_type == GapType.BREAKAWAY and self.confidence_score >= Decimal("0.7"):
+        elif self.gap_type == GapType.BREAKAWAY and self.confidence_score >= Decimal(
+            "0.7"
+        ):
             return GapRiskLevel.MEDIUM
         elif self.gap_type == GapType.EXHAUSTION:
             return GapRiskLevel.HIGH
@@ -339,15 +343,15 @@ class GapStrengthMetrics:
     # Catalyst assessment
     news_catalyst_present: bool
     catalyst_quality_score: Decimal  # 0.0 to 1.0
-    
+
     # Market context
     market_alignment: bool
     sector_momentum: bool
-    
+
     # Composite strength
     overall_strength: GapStrength
     strength_score: Decimal  # 0.0 to 1.0
-    
+
     # Optional string fields with defaults (must come last)
     catalyst_type: str = ""  # "earnings", "fda", "merger", etc.
     overall_market_trend: str = ""  # "bullish", "bearish", "neutral"
@@ -360,7 +364,9 @@ class GapStrengthMetrics:
     @property
     def has_catalyst_support(self) -> bool:
         """Check if news catalyst supports the gap"""
-        return self.news_catalyst_present and self.catalyst_quality_score >= Decimal("0.6")
+        return self.news_catalyst_present and self.catalyst_quality_score >= Decimal(
+            "0.6"
+        )
 
 
 @dataclass
@@ -407,8 +413,13 @@ class GapTradabilityAssessment:
             return Decimal("0")
 
         score = (
-            self.gap_classification.confidence_score * Decimal("0.4") +
-            self.strength_metrics.strength_score * Decimal("0.4") +
-            (Decimal("1.0") if self.risk_level in [GapRiskLevel.LOW, GapRiskLevel.MEDIUM] else Decimal("0.2")) * Decimal("0.2")
+            self.gap_classification.confidence_score * Decimal("0.4")
+            + self.strength_metrics.strength_score * Decimal("0.4")
+            + (
+                Decimal("1.0")
+                if self.risk_level in [GapRiskLevel.LOW, GapRiskLevel.MEDIUM]
+                else Decimal("0.2")
+            )
+            * Decimal("0.2")
         )
         return min(Decimal("1.0"), score)

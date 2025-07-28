@@ -2,13 +2,16 @@
 Tests for YFinance Adapter
 """
 
-import pytest
-from unittest.mock import Mock, patch
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
+from unittest.mock import Mock, patch
 
-from tradescout.data_sources.yfinance_adapter import YFinanceAdapter
+import pytest
+
 from tradescout.data_models.domain_models_core import MarketStatus
+from tradescout.data_sources.asset_data_provider_yfinance import (
+    AssetDataProviderYFinance as YFinanceAdapter,
+)
 
 
 @pytest.mark.unit
@@ -31,7 +34,7 @@ class TestYFinanceAdapter:
         assert adapter.cache is not None
         assert adapter.provider_name == "yfinance"
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_current_quote_success(
         self, mock_cached_call, sample_asset, sample_quote_data
     ):
@@ -48,7 +51,7 @@ class TestYFinanceAdapter:
         assert quote.price_data.volume == 50000000
         assert quote.price_change == Decimal("1.50")
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_current_quote_cache_miss_with_real_fetch(
         self, mock_cached_call, sample_asset, mock_yfinance_ticker
     ):
@@ -73,7 +76,7 @@ class TestYFinanceAdapter:
         assert call_kwargs["endpoint"] == "get_current_quote"
         assert call_kwargs["params"]["symbol"] == sample_asset.symbol
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_current_quote_no_data(self, mock_cached_call, sample_asset):
         """Test current quote when no data is available"""
         mock_cached_call.return_value = None
@@ -83,7 +86,7 @@ class TestYFinanceAdapter:
 
         assert quote is None
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_extended_hours_data(self, mock_cached_call, sample_asset):
         """Test extended hours data retrieval"""
         # Mock extended hours data
@@ -108,7 +111,7 @@ class TestYFinanceAdapter:
         assert result.price_data.volume == 5000000
         assert result.price_data.high_price == Decimal("152.50")
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_historical_quotes(self, mock_cached_call, sample_asset):
         """Test historical quotes retrieval"""
         # Mock historical data
@@ -180,7 +183,7 @@ class TestYFinanceAdapter:
             assert hasattr(result[0], "volume_ratio")
             assert result[0].volume_ratio == Decimal("2.0")
 
-    @patch("tradescout.data_sources.yfinance_adapter.cached_api_call")
+    @patch("tradescout.data_sources.asset_data_provider_yfinance.cached_api_call")
     def test_get_fundamental_data(self, mock_cached_call, sample_asset):
         """Test fundamental data retrieval"""
         # Mock fundamental data
@@ -213,21 +216,21 @@ class TestYFinanceAdapter:
 
         # Test during pre-market hours (6 AM)
         with patch(
-            "tradescout.data_sources.yfinance_adapter.datetime"
+            "tradescout.data_sources.asset_data_provider_yfinance.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value.hour = 6
             assert adapter._is_extended_hours_time() is True
 
         # Test during after-hours (5 PM)
         with patch(
-            "tradescout.data_sources.yfinance_adapter.datetime"
+            "tradescout.data_sources.asset_data_provider_yfinance.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value.hour = 17
             assert adapter._is_extended_hours_time() is True
 
         # Test during regular hours (11 AM)
         with patch(
-            "tradescout.data_sources.yfinance_adapter.datetime"
+            "tradescout.data_sources.asset_data_provider_yfinance.datetime"
         ) as mock_datetime:
             mock_datetime.now.return_value.hour = 11
             assert adapter._is_extended_hours_time() is False
@@ -252,10 +255,12 @@ class TestYFinanceAdapterIntegration:
 
 
 def test_create_yfinance_adapter():
-    """Test convenience function for creating adapter"""
-    from tradescout.data_sources.yfinance_adapter import create_yfinance_adapter
+    """Test creating yfinance provider"""
+    from tradescout.data_sources.asset_data_provider_yfinance import (
+        AssetDataProviderYFinance,
+    )
 
-    adapter = create_yfinance_adapter()
+    adapter = AssetDataProviderYFinance()
 
-    assert isinstance(adapter, YFinanceAdapter)
+    assert isinstance(adapter, AssetDataProviderYFinance)
     assert adapter.cache is not None

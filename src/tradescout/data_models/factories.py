@@ -9,7 +9,7 @@ from datetime import time
 from decimal import Decimal
 from typing import Dict, Set
 
-from .domain_models_core import Asset, Market, MarketSegment, AssetType, MarketType
+from .domain_models_core import Asset, AssetType, Market, MarketSegment, MarketType
 
 
 class MarketFactory:

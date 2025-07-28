@@ -5,26 +5,26 @@ Implements storage interfaces using SQLite database for local development
 and production use.
 """
 
-import sqlite3
-import logging
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional, Any
-from decimal import Decimal
 import json
+import logging
+import sqlite3
+from datetime import datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from .interfaces import (
-    QuoteRepository,
-    ExtendedHoursRepository,
-    DatabaseManager,
-)
 from ..data_models.domain_models_core import (
     Asset,
-    MarketQuote,
-    ExtendedHoursData,
-    PriceData,
     AssetType,
+    ExtendedHoursData,
+    MarketQuote,
     MarketStatus,
+    PriceData,
+)
+from .interfaces import (
+    DatabaseManager,
+    ExtendedHoursRepository,
+    QuoteRepository,
 )
 
 logger = logging.getLogger(__name__)
@@ -545,9 +545,9 @@ def create_sqlite_database_manager(
 
 if __name__ == "__main__":
     # Simple test of the repository
-    from ..data_sources.yfinance_adapter import YFinanceAdapter
     from ..data_models.domain_models_core import Asset, AssetType
     from ..data_models.factories import MarketFactory
+    from ..data_sources.yfinance_adapter import YFinanceAdapter
 
     print("🧪 Testing SQLite Repository...")
 

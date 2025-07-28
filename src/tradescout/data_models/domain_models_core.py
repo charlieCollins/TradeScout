@@ -5,12 +5,12 @@ Core domain entities that properly model the financial markets.
 These represent the real-world concepts we're working with.
 """
 
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Dict, List, Optional, Set
-import uuid
 
 
 class MarketType(Enum):

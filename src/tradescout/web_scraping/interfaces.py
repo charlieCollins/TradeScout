@@ -5,15 +5,15 @@ Focused interface for scraping after-hours market movers from web sources.
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Dict, Optional
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
+from typing import Dict, List, Optional
 
 
 class AfterHoursWebScraper(ABC):
     """
     Abstract interface for scraping after-hours gainers and losers from web sources
-    
+
     Specifically designed to capture extended-hours trading data (4 PM - 8 PM ET)
     for gap trading candidate identification.
     """
@@ -22,10 +22,10 @@ class AfterHoursWebScraper(ABC):
     def get_after_hours_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
         """
         Get top after-hours gaining stocks from the web source
-        
+
         Args:
             limit: Number of top after-hours gainers to return (default: 10)
-            
+
         Returns:
             List of dictionaries with after-hours gainer data:
             [
@@ -45,14 +45,14 @@ class AfterHoursWebScraper(ABC):
         """
         pass
 
-    @abstractmethod  
+    @abstractmethod
     def get_after_hours_losers(self, limit: int = 10) -> List[Dict[str, any]]:
         """
         Get top after-hours losing stocks from the web source
-        
+
         Args:
             limit: Number of top after-hours losers to return (default: 10)
-            
+
         Returns:
             List of dictionaries with after-hours loser data (same format as gainers)
         """
@@ -62,7 +62,7 @@ class AfterHoursWebScraper(ABC):
     def is_after_hours_session(self) -> bool:
         """
         Check if we're currently in after-hours trading session (4 PM - 8 PM ET)
-        
+
         Returns:
             True if currently in after-hours trading period
         """
@@ -72,13 +72,13 @@ class AfterHoursWebScraper(ABC):
     def get_session_info(self) -> Dict[str, any]:
         """
         Get information about the current trading session and data source
-        
+
         Returns:
             Dictionary with session and source metadata:
             {
                 "current_session": "after_hours",  # or "regular", "premarket", "closed"
                 "session_start": "4:00 PM ET",
-                "session_end": "8:00 PM ET", 
+                "session_end": "8:00 PM ET",
                 "source_name": "Yahoo Finance After Hours",
                 "data_delay": "real_time",
                 "last_updated": datetime.now()

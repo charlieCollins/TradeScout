@@ -12,13 +12,13 @@ __description__ = "Personal Market Research Assistant for Momentum Trading"
 # Core public API exports
 from .data_models.domain_models_core import (
     Asset,
-    Market,
-    MarketSegment,
-    PriceData,
-    MarketQuote,
     AssetType,
-    MarketType,
+    Market,
+    MarketQuote,
+    MarketSegment,
     MarketStatus,
+    MarketType,
+    PriceData,
 )
 from .data_models.interfaces import AssetDataProvider
 from .data_sources.asset_data_provider_yfinance import AssetDataProviderYFinance

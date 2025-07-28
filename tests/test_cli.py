@@ -2,9 +2,10 @@
 Tests for CLI Interface
 """
 
-import pytest
-import tempfile
 import os
+import tempfile
+
+import pytest
 from click.testing import CliRunner
 
 from src.tradescout.scripts.cli import main

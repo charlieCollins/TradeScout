@@ -8,26 +8,26 @@ ensuring clean separation and easy testing/mocking.
 
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Protocol
 from decimal import Decimal
+from typing import Dict, List, Optional, Protocol
 
+from .domain_models_analysis import (
+    ActualTrade,
+    MarketEvent,
+    PerformanceMetrics,
+    TechnicalIndicators,
+    TradeSuggestion,
+)
 from .domain_models_core import (
     Asset,
-    Market,
-    MarketSegment,
-    PriceData,
-    MarketQuote,
     ExtendedHoursData,
-    NewsItem,
-    SocialSentiment,
+    Market,
+    MarketQuote,
+    MarketSegment,
     MarketStatus,
-)
-from .domain_models_analysis import (
-    TradeSuggestion,
-    ActualTrade,
-    PerformanceMetrics,
-    MarketEvent,
-    TechnicalIndicators,
+    NewsItem,
+    PriceData,
+    SocialSentiment,
 )
 
 

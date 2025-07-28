@@ -6,27 +6,27 @@ Command-line interface for TradeScout market research assistant.
 Provides commands for data collection, analysis, and market research.
 """
 
-import click
-import logging
 import json
+import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import List, Optional
 from pathlib import Path
+from typing import List, Optional
 
+import click
+from rich import box
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.progress import track
-from rich import box
+from rich.table import Table
 
-from ..storage.sqlite_repository import create_sqlite_database_manager
+from ..config.data_sources_manager import get_data_sources_manager
+from ..config.local_config import DATABASE_CONFIG
 from ..data_models.domain_models_core import Asset, AssetType
 from ..data_models.factories import MarketFactory
-from ..config.local_config import DATABASE_CONFIG
 from ..data_sources.smart_coordinator import create_smart_coordinator
-from ..config.data_sources_manager import get_data_sources_manager
 from ..market_wide import create_market_movers_provider
+from ..storage.sqlite_repository import create_sqlite_database_manager
 
 # Setup rich console for beautiful output
 console = Console()
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 @click.group()
-@click.version_option()
+@click.version_option(version="0.1.0", package_name="tradescout")
 @click.option(
     "--db-path",
     default=None,
@@ -70,14 +70,20 @@ def main(ctx, db_path: Optional[str], verbose: bool):
     try:
         coordinator = create_smart_coordinator()
         provider_count = len(coordinator._provider_instances)
-        console.print(f"[green]✅ Initialized Smart Coordinator with {provider_count} data providers[/green]")
-        
+        console.print(
+            f"[green]✅ Initialized Smart Coordinator with {provider_count} data providers[/green]"
+        )
+
         # Show provider status if verbose
         if verbose:
             data_manager = get_data_sources_manager()
             status = data_manager.get_provider_status()
-            console.print(f"[dim]Available providers: {status['summary']['available']}/{status['summary']['total_configured']}[/dim]")
-            console.print(f"[dim]Data types configured: {len(coordinator.get_available_data_types())}[/dim]")
+            console.print(
+                f"[dim]Available providers: {status['summary']['available']}/{status['summary']['total_configured']}[/dim]"
+            )
+            console.print(
+                f"[dim]Data types configured: {len(coordinator.get_available_data_types())}[/dim]"
+            )
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize Smart Coordinator: {e}[/red]")
         ctx.exit(1)
@@ -278,7 +284,9 @@ def volume_leaders(ctx, min_volume_ratio: float, symbols: str):
 
     # Scan for volume leaders using smart coordinator
     symbol_list = [asset.symbol for asset in assets]
-    volume_leaders = coordinator.get_volume_leaders(symbol_list, min_volume_ratio=Decimal(str(min_volume_ratio)))
+    volume_leaders = coordinator.get_volume_leaders(
+        symbol_list, min_volume_ratio=Decimal(str(min_volume_ratio))
+    )
 
     if not volume_leaders:
         console.print("[yellow]⚠️  No volume leaders found[/yellow]")
@@ -410,7 +418,7 @@ def status(ctx):
 
     # Show provider status
     provider_status = coordinator.get_provider_status()
-    
+
     provider_table = Table(title="Smart Coordinator - Data Providers", box=box.ROUNDED)
     provider_table.add_column("Provider", style="cyan")
     provider_table.add_column("Type", justify="center")
@@ -425,7 +433,7 @@ def status(ctx):
         priority = str(provider_info["priority"])
         quality = str(provider_info["quality_weight"])
         rate_limit = f"{provider_info['rate_limit_per_minute']}/min"
-        
+
         # Format status with colors
         if provider_info["available"]:
             status_text = "[green]✅ Available[/green]"
@@ -437,28 +445,30 @@ def status(ctx):
             status_text = "[dim]⚪ Disabled[/dim]"
         else:
             status_text = "[red]❌ Error[/red]"
-        
-        provider_table.add_row(name, provider_type, priority, quality, rate_limit, status_text)
+
+        provider_table.add_row(
+            name, provider_type, priority, quality, rate_limit, status_text
+        )
 
     console.print(provider_table)
-    
+
     # Show data type configurations
     data_types_table = Table(title="Data Type Configurations", box=box.ROUNDED)
     data_types_table.add_column("Data Type", style="cyan")
     data_types_table.add_column("Strategy", justify="center")
     data_types_table.add_column("Providers", style="dim")
     data_types_table.add_column("Cache TTL", justify="right")
-    
+
     data_manager = get_data_sources_manager()
     for data_type in sorted(coordinator.get_available_data_types())[:8]:  # Show first 8
         config = data_manager.get_data_type_config(data_type)
         if config:
             providers = data_manager.get_providers_for_data_type(data_type)
             provider_names = [p[0] for p in providers]
-            
-            strategy = config.fallback_strategy.value.replace('_', ' ').title()
-            providers_str = ', '.join(provider_names) if provider_names else "None"
-            
+
+            strategy = config.fallback_strategy.value.replace("_", " ").title()
+            providers_str = ", ".join(provider_names) if provider_names else "None"
+
             # Format cache TTL
             if config.cache_ttl_minutes:
                 cache_ttl = f"{config.cache_ttl_minutes}m"
@@ -468,14 +478,11 @@ def status(ctx):
                 cache_ttl = f"{config.cache_ttl_days}d"
             else:
                 cache_ttl = "5m"
-            
+
             data_types_table.add_row(
-                data_type.replace('_', ' ').title(),
-                strategy,
-                providers_str,
-                cache_ttl
+                data_type.replace("_", " ").title(), strategy, providers_str, cache_ttl
             )
-    
+
     console.print(data_types_table)
     console.print()
 
@@ -590,27 +597,27 @@ def backup(ctx, backup_path: str):
 def gainers(ctx, limit: int, force_refresh: bool):
     """
     Show top market gainers.
-    
+
     Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
     Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
-    
+
     Example:
         tradescout gainers --limit 20
     """
     console.print("[green]🟢 Top Market Gainers[/green]")
-    
+
     try:
         # Create market movers provider
         movers_provider = create_market_movers_provider()
-        
+
         # Get gainers
         with console.status("[bold green]Fetching market gainers...", spinner="dots"):
             gainers_list = movers_provider.get_market_gainers(limit, force_refresh)
-        
+
         if not gainers_list:
             console.print("[yellow]⚠️  No gainers data available[/yellow]")
             return
-        
+
         # Create table
         table = Table(title=f"Top {len(gainers_list)} Market Gainers", box=box.ROUNDED)
         table.add_column("Rank", justify="center", style="dim", width=4)
@@ -619,29 +626,35 @@ def gainers(ctx, limit: int, force_refresh: bool):
         table.add_column("Change", justify="right")
         table.add_column("Change %", justify="right", style="bold green")
         table.add_column("Volume", justify="right", style="dim")
-        
+
         # Add rows
         for gainer in gainers_list:
             change_color = "green" if gainer.price_change >= 0 else "red"
-            price_change_str = f"+{gainer.price_change:.2f}" if gainer.price_change >= 0 else f"{gainer.price_change:.2f}"
-            
+            price_change_str = (
+                f"+{gainer.price_change:.2f}"
+                if gainer.price_change >= 0
+                else f"{gainer.price_change:.2f}"
+            )
+
             table.add_row(
                 str(gainer.rank),
                 gainer.asset.symbol,
                 f"${gainer.current_price:.2f}",
                 f"[{change_color}]{price_change_str}[/{change_color}]",
                 f"+{gainer.price_change_percent:.2f}%",
-                f"{gainer.volume:,}" if gainer.volume > 0 else "N/A"
+                f"{gainer.volume:,}" if gainer.volume > 0 else "N/A",
             )
-        
+
         console.print(table)
-        
+
         # Show cache status more prominently
         if force_refresh:
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
-            console.print(f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]")
-        
+            console.print(
+                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+            )
+
     except Exception as e:
         console.print(f"[red]❌ Error fetching gainers: {e}[/red]")
 
@@ -649,31 +662,31 @@ def gainers(ctx, limit: int, force_refresh: bool):
 @main.command()
 @click.option("--limit", default=10, help="Number of losers to show (default: 10)")
 @click.option("--force-refresh", "--force", is_flag=True, help="Force refresh cache")
-@click.pass_context  
+@click.pass_context
 def losers(ctx, limit: int, force_refresh: bool):
     """
     Show top market losers.
-    
+
     Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
     Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
-    
+
     Example:
         tradescout losers --limit 20
     """
     console.print("[red]🔴 Top Market Losers[/red]")
-    
+
     try:
         # Create market movers provider
         movers_provider = create_market_movers_provider()
-        
+
         # Get losers
         with console.status("[bold red]Fetching market losers...", spinner="dots"):
             losers_list = movers_provider.get_market_losers(limit, force_refresh)
-        
+
         if not losers_list:
             console.print("[yellow]⚠️  No losers data available[/yellow]")
             return
-        
+
         # Create table
         table = Table(title=f"Top {len(losers_list)} Market Losers", box=box.ROUNDED)
         table.add_column("Rank", justify="center", style="dim", width=4)
@@ -682,29 +695,35 @@ def losers(ctx, limit: int, force_refresh: bool):
         table.add_column("Change", justify="right")
         table.add_column("Change %", justify="right", style="bold red")
         table.add_column("Volume", justify="right", style="dim")
-        
+
         # Add rows
         for loser in losers_list:
             change_color = "green" if loser.price_change >= 0 else "red"
-            price_change_str = f"+{loser.price_change:.2f}" if loser.price_change >= 0 else f"{loser.price_change:.2f}"
-            
+            price_change_str = (
+                f"+{loser.price_change:.2f}"
+                if loser.price_change >= 0
+                else f"{loser.price_change:.2f}"
+            )
+
             table.add_row(
                 str(loser.rank),
                 loser.asset.symbol,
                 f"${loser.current_price:.2f}",
                 f"[{change_color}]{price_change_str}[/{change_color}]",
                 f"{loser.price_change_percent:.2f}%",
-                f"{loser.volume:,}" if loser.volume > 0 else "N/A"
+                f"{loser.volume:,}" if loser.volume > 0 else "N/A",
             )
-        
+
         console.print(table)
-        
+
         # Show cache status more prominently
         if force_refresh:
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
-            console.print(f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]")
-        
+            console.print(
+                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+            )
+
     except Exception as e:
         console.print(f"[red]❌ Error fetching losers: {e}[/red]")
 
@@ -716,56 +735,62 @@ def losers(ctx, limit: int, force_refresh: bool):
 def active(ctx, limit: int, force_refresh: bool):
     """
     Show most active stocks by volume.
-    
+
     Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
     Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
-    
+
     Example:
         tradescout active --limit 20
     """
     console.print("[blue]📊 Most Active Stocks[/blue]")
-    
+
     try:
         # Create market movers provider
         movers_provider = create_market_movers_provider()
-        
+
         # Get most active
-        with console.status("[bold blue]Fetching most active stocks...", spinner="dots"):
+        with console.status(
+            "[bold blue]Fetching most active stocks...", spinner="dots"
+        ):
             active_list = movers_provider.get_most_active(limit, force_refresh)
-        
+
         if not active_list:
             console.print("[yellow]⚠️  No active stocks data available[/yellow]")
             return
-        
+
         # Create table
-        table = Table(title=f"Top {len(active_list)} Most Active Stocks", box=box.ROUNDED)
+        table = Table(
+            title=f"Top {len(active_list)} Most Active Stocks", box=box.ROUNDED
+        )
         table.add_column("Rank", justify="center", style="dim", width=4)
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Price", justify="right")
         table.add_column("Change %", justify="right")
         table.add_column("Volume", justify="right", style="bold blue")
-        
+
         # Add rows
         for active_stock in active_list:
             change_color = "green" if active_stock.price_change_percent >= 0 else "red"
             change_prefix = "+" if active_stock.price_change_percent >= 0 else ""
-            
+
             table.add_row(
                 str(active_stock.rank),
                 active_stock.asset.symbol,
                 f"${active_stock.current_price:.2f}",
                 f"[{change_color}]{change_prefix}{active_stock.price_change_percent:.2f}%[/{change_color}]",
-                f"{active_stock.volume:,}" if active_stock.volume > 0 else "N/A"
+                f"{active_stock.volume:,}" if active_stock.volume > 0 else "N/A",
             )
-        
+
         console.print(table)
-        
+
         # Show cache status more prominently
         if force_refresh:
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
-            console.print(f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]")
-        
+            console.print(
+                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+            )
+
     except Exception as e:
         console.print(f"[red]❌ Error fetching most active: {e}[/red]")
 
@@ -777,32 +802,36 @@ def active(ctx, limit: int, force_refresh: bool):
 def movers(ctx, limit: int, force_refresh: bool):
     """
     Show comprehensive market movers report (gainers, losers, most active).
-    
+
     Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
     Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
-    
+
     Example:
         tradescout movers --limit 10
     """
     console.print("[bold]📈 Market Movers Report[/bold]")
-    
+
     try:
         # Create market movers provider
         movers_provider = create_market_movers_provider()
-        
+
         # Get complete report
-        with console.status("[bold]Fetching complete market movers report...", spinner="dots"):
+        with console.status(
+            "[bold]Fetching complete market movers report...", spinner="dots"
+        ):
             report = movers_provider.get_market_movers_report(limit, force_refresh)
-        
+
         # Show report header
-        console.print(Panel(
-            f"[bold]Market Status:[/bold] {report.market_status.value}\n"
-            f"[bold]Report Time:[/bold] {report.timestamp.strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"[bold]Data Source:[/bold] {'Alpha Vantage' if len(report.gainers) >= limit else 'YFinance Fallback'}",
-            title="📊 Report Info",
-            box=box.ROUNDED
-        ))
-        
+        console.print(
+            Panel(
+                f"[bold]Market Status:[/bold] {report.market_status.value}\n"
+                f"[bold]Report Time:[/bold] {report.timestamp.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"[bold]Data Source:[/bold] {'Alpha Vantage' if len(report.gainers) >= limit else 'YFinance Fallback'}",
+                title="📊 Report Info",
+                box=box.ROUNDED,
+            )
+        )
+
         # Gainers table
         if report.gainers:
             console.print("\n[green]🟢 Top Gainers[/green]")
@@ -810,15 +839,15 @@ def movers(ctx, limit: int, force_refresh: bool):
             gainers_table.add_column("Symbol", style="cyan")
             gainers_table.add_column("Price", justify="right")
             gainers_table.add_column("Change %", justify="right", style="bold green")
-            
+
             for gainer in report.gainers:
                 gainers_table.add_row(
                     gainer.asset.symbol,
                     f"${gainer.current_price:.2f}",
-                    f"+{gainer.price_change_percent:.2f}%"
+                    f"+{gainer.price_change_percent:.2f}%",
                 )
             console.print(gainers_table)
-        
+
         # Losers table
         if report.losers:
             console.print("\n[red]🔴 Top Losers[/red]")
@@ -826,15 +855,15 @@ def movers(ctx, limit: int, force_refresh: bool):
             losers_table.add_column("Symbol", style="cyan")
             losers_table.add_column("Price", justify="right")
             losers_table.add_column("Change %", justify="right", style="bold red")
-            
+
             for loser in report.losers:
                 losers_table.add_row(
                     loser.asset.symbol,
                     f"${loser.current_price:.2f}",
-                    f"{loser.price_change_percent:.2f}%"
+                    f"{loser.price_change_percent:.2f}%",
                 )
             console.print(losers_table)
-        
+
         # Most active table
         if report.most_active:
             console.print("\n[blue]📊 Most Active[/blue]")
@@ -842,21 +871,25 @@ def movers(ctx, limit: int, force_refresh: bool):
             active_table.add_column("Symbol", style="cyan")
             active_table.add_column("Price", justify="right")
             active_table.add_column("Volume", justify="right", style="bold blue")
-            
+
             for active_stock in report.most_active:
                 active_table.add_row(
                     active_stock.asset.symbol,
                     f"${active_stock.current_price:.2f}",
-                    f"{active_stock.volume:,}" if active_stock.volume > 0 else "N/A"
+                    f"{active_stock.volume:,}" if active_stock.volume > 0 else "N/A",
                 )
             console.print(active_table)
-        
-        # Show cache status more prominently  
+
+        # Show cache status more prominently
         if force_refresh:
-            console.print(f"\n[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
+            console.print(
+                f"\n[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]"
+            )
         else:
-            console.print(f"\n[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]")
-        
+            console.print(
+                f"\n[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+            )
+
     except Exception as e:
         console.print(f"[red]❌ Error fetching market movers report: {e}[/red]")
 
