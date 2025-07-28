@@ -66,6 +66,7 @@ Thumbs.db
 data/*.csv
 data/*.json
 data/historical/
+data/chrome_session/
 
 # API Cache (contains potentially sensitive API responses)
 data/cache/
