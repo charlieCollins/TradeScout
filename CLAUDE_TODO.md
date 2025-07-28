@@ -1,10 +1,34 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-07-22 22:40*
+*Last updated: 2025-07-28 23:17*
 
 This file tracks active development tasks and provides context for resuming work after session interruptions.
 
 ## 🎯 Active Development Tasks
+
+### ✅ Completed - Web Scraping Infrastructure (July 28, 2025)
+
+- [x] **CNN Markets after-hours scraper fully operational** - ✅ Done
+  - Resolved popup dismissal using persistent Chrome session approach
+  - Successfully bypassed Legal Terms popup after first run using session storage
+  - Extracted live 11 gainers with full details: symbol, company, price, volume, change %
+  - Documented CNN's methodology: "Trade volume is from Nasdaq, NYSE, and NYSE American and includes stocks with a prior close of $2 or higher"
+
+- [x] **MarketWatch after-hours scraper working** - ✅ Done
+  - Enhanced table parser with proper column mapping and K/M/B volume notation support
+  - Successfully extracting 40+ stocks from multiple tables (gainers, losers, most active)
+  - Real-time data validation showing dynamic content updates
+
+- [x] **Web scrapers documentation reorganized** - ✅ Done
+  - Renamed to docs/WEB_SCRAPERS.md with structured sections
+  - Added after-hours, pre-market, news & sentiment, regular session placeholder sections
+  - Created scraper capabilities matrix comparing features across sources
+  - Documented CNN's transparent methodology vs MarketWatch's undisclosed criteria
+
+- [x] **Removed non-working scrapers** - ✅ Done
+  - Yahoo Finance: 404 redirects, no dedicated after-hours pages
+  - Nasdaq.com: Data structure incompatibility
+  - CNBC: Limited data availability confirmed
 
 ### ✅ Completed - Research Integration & Workflow Automation (July 23, 2025)
 
@@ -23,7 +47,7 @@ This file tracks active development tasks and provides context for resuming work
 - [x] **Reorganized Claude workflow files** - ✅ Done
   - Renamed CLAUDE_STOP_CONTEXT.txt to CLAUDE_CONTEXT.md
   - Created .claude/ directory structure
-  - Implemented /start and /goodbye slash commands
+  - Implemented /hello and /goodbye slash commands
   - Established automated session management workflow
 
 ### ✅ Completed - Gap Trading Strategy & Research Framework (July 22, 2025)
@@ -70,68 +94,52 @@ This file tracks active development tasks and provides context for resuming work
   - All set to 1-hour TTL for aggressive caching
   - Rate limit protection for all providers
 
-### ✅ Completed - Interface & Naming Refactor (July 22, 2025)
-
-- [x] **Rename MarketDataProvider interface to AssetDataProvider** - ✅ Done
-  - Interface now properly reflects individual asset focus vs market-wide data
-  
-- [x] **Update all adapter class names to reflect AssetDataProvider naming** - ✅ Done
-  - `YFinanceAdapter` → `AssetDataProviderYFinance`
-  - `FinnhubAdapter` → `AssetDataProviderFinnhub`  
-  - `PolygonAdapter` → `AssetDataProviderPolygon`
-  - `AlphaVantageAdapter` → `AssetDataProviderAlphaVantage`
-
-- [x] **Update all imports and references throughout the codebase** - ✅ Done
-  - Smart Coordinator updated with new class names
-  - All interface references updated
-  - Package imports updated
-
-- [x] **Rename adapter files to match new naming convention** - ✅ Done
-  - `yfinance_adapter.py` → `asset_data_provider_yfinance.py`
-  - `finnhub_adapter.py` → `asset_data_provider_finnhub.py`  
-  - `polygon_adapter.py` → `asset_data_provider_polygon.py`
-  - `alpha_vantage_adapter.py` → `asset_data_provider_alpha_vantage.py`
-
-- [x] **Update all imports after file renaming** - ✅ Done
-  - Smart Coordinator import paths updated
-  - Main package imports updated
-  - Legacy config files updated for consistency
-
-- [x] **Test all functionality after renaming** - ✅ Done
-  - Status command working: 3 providers available (YFinance, Finnhub, Alpha Vantage)
-  - Quote command working: Successfully fetches quotes
-  - Fundamentals command working: Merges data from multiple providers
-
-### ✅ Completed - Gap Trading Implementation Phase 1 (July 22, 2025)
-
-- [x] **Integrate Investopedia gap trading article into research documentation** - ✅ Done
-- [x] **Update GAP_TRADING_STRATEGY.md with Phase 1 concise gap identification approach** - ✅ Done
-- [x] **Get top 1000 gainers/losers data and save for gap candidate exploration** - ✅ Done
-- [x] **Write code to categorize gap candidates by research-based gap types** - ✅ Done
-- [x] **Verify accuracy of Alpha Vantage top 20 gainers/losers against web sources** - ✅ Done
-- [x] **Create web scraper interface for market data verification across multiple sources** - ✅ Done
-- [x] **Get top 10 after-hours gainers and losers data** - ✅ Done
-- [x] **CNN Markets web scraper implementation with Selenium bypass** - ✅ Done
-
 ## 🔮 Current Active Tasks (High Priority)
 
-### 🚨 Critical Issues - Web Scraping
+### 🚀 Web Scraping Expansion
 
-- [ ] **Complete CNN Markets after-hours scraper popup dismissal** - *URGENT*
-  - **Status**: 90% complete - successfully bypassed 451 geo-blocking with Selenium
-  - **Blocker**: "Agree" popup for Terms of Use/Privacy Policy consent still preventing data access
-  - **User Feedback**: Popup text is "By clicking 'Agree', you have read and agree to the Terms of Use..."
-  - **Current Approach**: Added specific "Agree" button selectors but still not successful
-  - **Files**: `src/tradescout/web_scraping/cnn_after_hours_scraper.py`
-  - **Tests**: `data/examples/test_cnn_direct.py`, `test_cnn_scraper.py`
-
-- [ ] **Implement multiple working after-hours and premarket web scrapers for verification** - *High Priority*
-  - **Goal**: Need multiple sources beyond CNN for cross-verification of gap candidate data
-  - **Sources to consider**: MarketWatch, Yahoo Finance After Hours, CNBC, etc.
+- [ ] **Implement Investing.com after-hours scraper** - *High Priority*
+  - **Source**: https://www.investing.com/equities/after-hours
+  - **Expected Features**: Global markets coverage, comprehensive filtering options
   - **Architecture**: Use existing `AfterHoursWebScraper` interface
-  - **Location**: `src/tradescout/web_scraping/`
+  - **Location**: `src/tradescout/web_scraping/investing_after_hours_scraper.py`
 
-### 📊 Gap Trading Implementation
+- [ ] **Implement TipRanks after-hours scraper** - *High Priority*
+  - **Source**: https://www.tipranks.com/markets/after-hours/gainers
+  - **Unique Features**: Analyst ratings integration, Smart score metrics, Institutional activity data
+  - **Architecture**: Use existing `AfterHoursWebScraper` interface
+  - **Location**: `src/tradescout/web_scraping/tipranks_after_hours_scraper.py`
+
+- [ ] **Implement TradingView after-hours scraper** - *High Priority*
+  - **Source**: https://www.tradingview.com/markets/stocks-usa/market-movers-after-hours-gainers/
+  - **Expected Features**: Professional trading platform data, Advanced charting integration, Technical indicators
+  - **Architecture**: Use existing `AfterHoursWebScraper` interface
+  - **Location**: `src/tradescout/web_scraping/tradingview_after_hours_scraper.py`
+
+- [ ] **Implement ADVFN after-hours scraper with exchange-specific URLs** - *High Priority*
+  - **Sources**: 
+    - NASDAQ: https://www.advfn.com/markets/nasdaq/afterhours
+    - NYSE: https://www.advfn.com/markets/nyse/afterhours
+    - AMEX: https://www.advfn.com/markets/amex/afterhours
+  - **Features**: Exchange selection capability, potentially more comprehensive data per exchange
+  - **Architecture**: Use existing `AfterHoursWebScraper` interface
+  - **Location**: `src/tradescout/web_scraping/advfn_after_hours_scraper.py`
+
+### 📊 Scraper Infrastructure & Organization
+
+- [ ] **Organize scrapers by capabilities matrix** - *High Priority*
+  - **Goal**: Understand scraper capabilities after implementation (exchange selection, methodology transparency, filtering)
+  - **Features to categorize**: Index/exchange selection, methodology transparency, data filtering, global markets, price thresholds
+  - **Documentation**: Update docs/WEB_SCRAPERS.md capabilities matrix with real data
+  - **Implementation**: Create capability-based routing for requests
+
+- [ ] **Create scraper aggregation logic for cross-validation and conflict resolution** - *High Priority*
+  - **Goal**: Intelligent aggregation based on scraper capabilities
+  - **Strategy**: Exchange-specific requests → Use ADVFN, Methodology-transparent data → Use CNN, Broadest coverage → Combine all sources
+  - **Features**: Cross-validation, Compare overlapping symbols, Data quality scoring
+  - **Location**: `src/tradescout/web_scraping/aggregator.py`
+
+### 📈 Gap Trading Implementation
 
 - [ ] **Implement ETF proxy tracking for market indices (SPY, QQQ, IWM)** - *High Priority*
   - Track SPY (S&P 500), QQQ (NASDAQ 100), IWM (Russell 2000)
@@ -153,13 +161,16 @@ This file tracks active development tasks and provides context for resuming work
   - Support ^GSPC (S&P 500), ^IXIC (NASDAQ) direct symbols
   - Enhanced index comparison and performance tracking
 
-- [ ] **Research why different online sources have different top gainers/losers** - *Low Priority*
-  - Different criteria/thresholds for selection
-  - Document findings for data source selection decisions
-
 ## 🏗️ Current System Status
 
 ### ✅ Working Components
+
+**Web Scraping Infrastructure:** ✅ OPERATIONAL
+- **CNN Markets Scraper**: 11 curated stocks with transparent methodology
+- **MarketWatch Scraper**: 40+ stocks across multiple categories (gainers, losers, most active)
+- **Selenium + BeautifulSoup**: Headless and visible browser modes
+- **Persistent Chrome Sessions**: Popup/consent management solved
+- **Documentation**: Comprehensive docs/WEB_SCRAPERS.md with capabilities matrix
 
 **AssetDataProvider System:**
 - 3 active providers: YFinance (Priority 2), Finnhub (Priority 3), Alpha Vantage (Priority 4) 
@@ -180,12 +191,6 @@ This file tracks active development tasks and provides context for resuming work
 - **Domain Models**: Complete gap analysis domain models in `src/tradescout/data_models/domain_models_analysis.py`
 - **Interfaces**: Gap analysis interfaces defined in `src/tradescout/analysis/interfaces.py`
 
-**Web Scraping Infrastructure:** ✅ 90% COMPLETE
-- **Selenium Setup**: Chrome WebDriver configured for headless and non-headless operation
-- **CNN Scraper**: 90% complete - bypasses geo-blocking, needs popup handling
-- **Interface Design**: `AfterHoursWebScraper` interface for multiple provider support
-- **Test Scripts**: Comprehensive testing scripts in `data/examples/`
-
 ### 🔧 Infrastructure
 
 **API Keys Configured:**
@@ -201,10 +206,11 @@ This file tracks active development tasks and provides context for resuming work
 ## 📋 Development Workflow Notes
 
 ### Session Resumption Priority Order
-1. **Fix CNN scraper popup dismissal** - Critical blocker for gap trading data verification
-2. **Implement additional after-hours scrapers** - Need multiple sources for reliability
-3. **Complete CandidateGapTypeAnalyzer implementation** - Core gap trading logic
-4. **Add ETF index tracking** - Market context for gap analysis
+1. **Implement additional after-hours scrapers** - Investing.com, TipRanks, TradingView, ADVFN
+2. **Organize scrapers by capabilities** - Exchange selection, methodology transparency, filtering
+3. **Create scraper aggregation logic** - Cross-validation and conflict resolution
+4. **Complete CandidateGapTypeAnalyzer implementation** - Core gap trading logic
+5. **Add ETF index tracking** - Market context for gap analysis
 
 ### Key Commands
 ```bash
@@ -221,9 +227,9 @@ This file tracks active development tasks and provides context for resuming work
 ./tradescout active --limit 10            # Most active stocks
 ./tradescout movers --limit 5             # Complete market report
 
-# Web scraper testing
-./venv/bin/python data/examples/test_cnn_direct.py
-./venv/bin/python data/examples/test_cnn_scraper.py
+# Web scraper testing (with venv activation)
+source ./venv/bin/activate && python3 test_marketwatch_standalone.py
+source ./venv/bin/activate && python3 -c "from src.tradescout.web_scraping.cnn_after_hours_scraper import CNNAfterHoursScraper; scraper = CNNAfterHoursScraper(); print(scraper.get_after_hours_gainers(10))"
 
 # Development
 pytest                                    # Run tests
@@ -240,7 +246,8 @@ black . && isort . && mypy src          # Code quality
 - **Alpha Vantage Market**: `src/tradescout/market_wide/providers/alpha_vantage_market.py`
 - **Gap Analysis Domain**: `src/tradescout/data_models/domain_models_analysis.py`
 - **Gap Analysis Interfaces**: `src/tradescout/analysis/interfaces.py`
-- **Web Scraping**: `src/tradescout/web_scraping/cnn_after_hours_scraper.py`
+- **Web Scraping**: `src/tradescout/web_scraping/` (CNN, MarketWatch scrapers operational)
+- **Web Scraping Documentation**: `docs/WEB_SCRAPERS.md`
 - **CLI Interface**: `src/tradescout/scripts/cli.py`
 - **Environment**: `.env` (API keys)
 

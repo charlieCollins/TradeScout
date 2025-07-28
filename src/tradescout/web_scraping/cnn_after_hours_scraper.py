@@ -68,6 +68,13 @@ class CNNAfterHoursScraper(AfterHoursWebScraper):
         # Set window size to mimic desktop browser
         chrome_options.add_argument("--window-size=1920,1080")
 
+        # Use persistent user data directory to maintain cookies/session
+        import os
+        user_data_dir = "/home/ccollins/projects/TradeScout/data/chrome_session"
+        os.makedirs(user_data_dir, exist_ok=True)
+        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        chrome_options.add_argument("--profile-directory=CNN_Scraper")
+
         # Ad blocking and popup prevention
         chrome_options.add_argument("--block-new-web-contents")  # Block popups
         chrome_options.add_argument("--disable-notifications")
@@ -141,13 +148,26 @@ class CNNAfterHoursScraper(AfterHoursWebScraper):
             # Wait for page to load and check if we got blocked
             time_module.sleep(3)
 
-            # Check for common blocking indicators
+            # Check for actual blocking (more specific detection)
             page_source = self.driver.page_source.lower()
-            if "451" in page_source and (
-                "unavailable" in page_source or "blocked" in page_source
-            ):
+            page_title = self.driver.title.lower()
+            
+            # Look for specific blocking indicators in title or prominent text
+            blocking_indicators = [
+                ("error 451" in page_title),
+                ("unavailable" in page_title),
+                ("access denied" in page_title or "access denied" in page_source[:2000]),
+                ("blocked" in page_title),
+                # Check for error page content in first 2000 characters
+                ("this content is not available" in page_source[:2000]),
+                ("451 unavailable" in page_source[:2000]),
+            ]
+            
+            if any(blocking_indicators):
                 logger.warning("CNN page appears to be blocked or unavailable")
                 return []
+            else:
+                logger.info("Page loaded successfully, proceeding with scraping")
 
             # Wait for content to load (adjust selector as needed)
             try:
@@ -160,8 +180,23 @@ class CNNAfterHoursScraper(AfterHoursWebScraper):
 
             # Aggressively dismiss any popups/overlays
             try:
-                # Wait longer for consent/cookie popups to appear
-                time_module.sleep(4)
+                # Wait for Legal Terms and Privacy popup to appear
+                time_module.sleep(3)
+                logger.info("Waiting for Legal Terms and Privacy popup to appear...")
+                
+                # Wait specifically for the popup to be visible
+                try:
+                    popup_present = WebDriverWait(self.driver, 10).until(
+                        EC.any_of(
+                            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")),
+                            EC.presence_of_element_located((By.XPATH, "//button[text()='Agree']")),
+                            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Terms of Use')]"))
+                        )
+                    )
+                    logger.info("Found Legal Terms/Privacy popup, proceeding with dismissal...")
+                except TimeoutException:
+                    logger.info("No Legal Terms/Privacy popup detected, continuing...")
+                
                 logger.info("Attempting to dismiss popups/consent dialogs...")
 
                 # Remove overlay divs with high z-index (likely popups/ads)
@@ -193,67 +228,129 @@ class CNNAfterHoursScraper(AfterHoursWebScraper):
                 """
                 )
 
-                # Try common close button selectors including consent/terms popups
-                popup_dismissers = [
-                    # CNN specific "Agree" button (user confirmed this is the exact text)
-                    "//button[text()='Agree']",
-                    "//button[contains(text(), 'Agree')]",
-                    "//*[text()='Agree']",
-                    "//*[contains(text(), 'Agree') and (@role='button' or name()='button')]",
-                    # Legal terms and privacy specific selectors
-                    "//button[contains(text(), 'legal terms and privacy')]",
-                    "//button[contains(text(), 'Legal Terms and Privacy')]",
-                    "//button[contains(text(), 'Terms of Use')]",
-                    "//button[contains(text(), 'Privacy Policy')]",
-                    "//button[contains(text(), 'I Understand')]",
-                    "//button[contains(text(), 'I Accept')]",
-                    "//button[contains(text(), 'Proceed')]",
-                    "//button[contains(text(), 'Enter Site')]",
-                    # Cookie/consent popup buttons
-                    "//button[contains(text(), 'Accept')]",
-                    "//button[contains(text(), 'Accept All')]",
-                    "//button[contains(text(), 'Continue')]",
-                    "//button[contains(text(), 'OK')]",
-                    "//button[contains(text(), 'Got it')]",
-                    "//button[contains(@class, 'accept')]",
-                    "//button[contains(@class, 'agree')]",
-                    "//button[contains(@class, 'consent')]",
-                    "//button[contains(@id, 'accept')]",
-                    "//button[contains(@id, 'consent')]",
-                    # Generic close buttons
-                    "//button[contains(@class, 'close')]",
-                    "//div[@class='close']",
-                    "//span[contains(@class, 'close')]",
-                    "//button[contains(text(), '×')]",
-                    "//button[contains(text(), 'Close')]",
-                    "//button[contains(@aria-label, 'close')]",
-                    "//div[contains(@class, 'modal')]//button",
-                    "//div[contains(@class, 'overlay')]//button",
-                    # CNN specific selectors
-                    "//button[contains(@class, 'btn')]",
-                    "//*[contains(@class, 'cmp')]//button",
-                ]
+                # Find and click the Agree button (it's an <a> tag, not <button>)
+                agree_button_found = False
+                
+                # First, find the Legal Terms and Privacy popup
+                legal_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")
+                for legal_elem in legal_elements:
+                    if legal_elem.is_displayed():
+                        logger.info("Found displayed Legal Terms popup, looking for Agree button...")
+                        
+                        # The Agree button is an <a> tag based on HTML analysis
+                        agree_selectors = [
+                            "//a[text()='Agree']",  # Direct match for <a> tag
+                            "//a[contains(text(), 'Agree')]",
+                            "//*[contains(text(), 'Legal Terms and Privacy')]/following::a[text()='Agree']",
+                            "//*[contains(text(), 'Legal Terms and Privacy')]/following::a[contains(text(), 'Agree')]",
+                            "//*[contains(text(), 'Legal Terms and Privacy')]//following-sibling::a[text()='Agree']",
+                            # Fallback button selectors in case structure changes
+                            "//button[text()='Agree']",
+                            "//button[contains(text(), 'Agree')]",
+                            "//*[text()='Agree' and (@role='button' or name()='button' or name()='a')]",
+                        ]
+                        
+                        for selector in agree_selectors:
+                            try:
+                                agree_elements = self.driver.find_elements(By.XPATH, selector)
+                                for agree_elem in agree_elements:
+                                    if agree_elem.is_displayed() and agree_elem.is_enabled():
+                                        logger.info(f"Found Agree element: {agree_elem.tag_name} with text '{agree_elem.text}'")
+                                        
+                                        # Scroll into view and click
+                                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", agree_elem)
+                                        time_module.sleep(0.5)
+                                        self.driver.execute_script("arguments[0].click();", agree_elem)
+                                        time_module.sleep(3)  # Wait for popup to disappear
+                                        
+                                        # Check if popup is gone
+                                        remaining_legal = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")
+                                        visible_legal = [e for e in remaining_legal if e.is_displayed()]
+                                        
+                                        if len(visible_legal) == 0:
+                                            logger.info("SUCCESS: Agree button clicked and popup dismissed!")
+                                            agree_button_found = True
+                                            break
+                                        else:
+                                            logger.debug(f"Agree button clicked but popup still visible")
+                                            
+                            except Exception as e:
+                                logger.debug(f"Failed with selector {selector}: {e}")
+                            
+                            if agree_button_found:
+                                break
+                        
+                        if agree_button_found:
+                            break
+                
+                if not agree_button_found:
+                    logger.warning("Could not find or click Agree button, but continuing...")
+                    popup_dismissers = []  # Skip fallback since we have persistent session now
+                else:
+                    popup_dismissers = []  # Skip fallback if we already succeeded
 
                 buttons_found = 0
                 for dismisser in popup_dismissers:
                     try:
                         close_buttons = self.driver.find_elements(By.XPATH, dismisser)
                         for close_button in close_buttons:
-                            if close_button.is_displayed():
+                            if close_button.is_displayed() and close_button.is_enabled():
                                 try:
                                     button_text = close_button.text.strip()
                                     logger.info(
-                                        f"Clicking button: '{button_text}' with selector: {dismisser}"
+                                        f"Found clickable button: '{button_text}' with selector: {dismisser}"
                                     )
+                                    
+                                    # Scroll the button into view first
                                     self.driver.execute_script(
-                                        "arguments[0].click();", close_button
+                                        "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", 
+                                        close_button
                                     )
-                                    buttons_found += 1
-                                    time_module.sleep(1)
+                                    time_module.sleep(0.5)
+                                    
+                                    # Try different click methods
+                                    success = False
+                                    
+                                    # Method 1: JavaScript click (most reliable)
+                                    try:
+                                        self.driver.execute_script("arguments[0].click();", close_button)
+                                        logger.info(f"Successfully clicked button '{button_text}' with JavaScript")
+                                        success = True
+                                    except Exception as e:
+                                        logger.debug(f"JavaScript click failed: {e}")
+                                    
+                                    # Method 2: WebDriver click as fallback
+                                    if not success:
+                                        try:
+                                            close_button.click()
+                                            logger.info(f"Successfully clicked button '{button_text}' with WebDriver")
+                                            success = True
+                                        except Exception as e:
+                                            logger.debug(f"WebDriver click failed: {e}")
+                                    
+                                    if success:
+                                        buttons_found += 1
+                                        time_module.sleep(2)  # Wait longer after successful click
+                                        
+                                        # Check if popup is gone
+                                        try:
+                                            popup_still_present = self.driver.find_elements(
+                                                By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]"
+                                            )
+                                            if not popup_still_present:
+                                                logger.info("Popup successfully dismissed!")
+                                                break
+                                        except:
+                                            pass
+                                    
                                 except Exception as e:
                                     logger.debug(f"Failed to click button: {e}")
                     except:
                         continue
+                    
+                    # Break if we successfully clicked an agree button
+                    if buttons_found > 0 and "agree" in dismisser.lower():
+                        break
 
                 logger.info(f"Dismissed {buttons_found} popup button(s)")
 
@@ -339,13 +436,26 @@ class CNNAfterHoursScraper(AfterHoursWebScraper):
             # Wait for page to load and check if we got blocked
             time_module.sleep(3)
 
-            # Check for common blocking indicators
+            # Check for actual blocking (more specific detection)
             page_source = self.driver.page_source.lower()
-            if "451" in page_source and (
-                "unavailable" in page_source or "blocked" in page_source
-            ):
+            page_title = self.driver.title.lower()
+            
+            # Look for specific blocking indicators in title or prominent text
+            blocking_indicators = [
+                ("error 451" in page_title),
+                ("unavailable" in page_title),
+                ("access denied" in page_title or "access denied" in page_source[:2000]),
+                ("blocked" in page_title),
+                # Check for error page content in first 2000 characters
+                ("this content is not available" in page_source[:2000]),
+                ("451 unavailable" in page_source[:2000]),
+            ]
+            
+            if any(blocking_indicators):
                 logger.warning("CNN page appears to be blocked or unavailable")
                 return []
+            else:
+                logger.info("Page loaded successfully, proceeding with scraping")
 
             # Wait for content to load
             try:
