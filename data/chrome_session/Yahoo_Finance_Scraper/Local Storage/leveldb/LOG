@@ -1,6 +1,0 @@
-2025/07/27-22:50:30.101 2e0c Reusing MANIFEST /home/ccollins/projects/TradeScout/data/chrome_session/Yahoo_Finance_Scraper/Local Storage/leveldb/MANIFEST-000001
-2025/07/27-22:50:30.104 2e0c Recovering log #4
-2025/07/27-22:50:30.104 2e0c Reusing old log /home/ccollins/projects/TradeScout/data/chrome_session/Yahoo_Finance_Scraper/Local Storage/leveldb/000004.log 
-2025/07/27-22:50:35.676 2e0d Level-0 table #8: started
-2025/07/27-22:50:35.681 2e0d Level-0 table #8: 51108 bytes OK
-2025/07/27-22:50:35.684 2e0d Delete type=0 #4
