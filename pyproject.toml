@@ -49,6 +49,8 @@ dev = [
     "pre-commit>=3.3.0",
     "tox>=4.6.0",
     "coverage>=7.2.0",
+    "selenium>=4.0.0",
+    "pytz>=2023.3",
 ]
 test = [
     "pytest>=7.4.0",
