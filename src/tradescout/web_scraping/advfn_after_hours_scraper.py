@@ -30,13 +30,14 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
     ADVFN after-hours data scraper implementation using Selenium
     """
 
-    def __init__(self, delay_seconds: float = 1.0, headless: bool = True):
+    def __init__(self, exchange: str = "nasdaq", delay_seconds: float = 1.0, headless: bool = True):
         """
         Initialize ADVFN after-hours scraper with Selenium
 
         Args:
-            delay_seconds: Delay between requests to be respectful
-            headless: Run browser in headless mode (default: True)
+            exchange: The stock exchange to scrape ('nasdaq', 'nyse', 'amex').
+            delay_seconds: Delay between requests to be respectful.
+            headless: Run browser in headless mode (default: True).
         """
         # ADVFN after-hours URLs for different exchanges
         self.urls = {
@@ -44,6 +45,9 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             "nyse": "https://www.advfn.com/markets/nyse/afterhours",
             "amex": "https://www.advfn.com/markets/amex/afterhours",
         }
+        if exchange.lower() not in self.urls:
+            raise ValueError(f"Unsupported exchange: '{exchange}'. Supported exchanges are: {list(self.urls.keys())}")
+        self.exchange = exchange.lower()
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
@@ -114,13 +118,12 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
                 pass
             self.driver = None
 
-    def get_after_hours_gainers(self, limit: int = 10, exchange: str = "nasdaq") -> List[Dict[str, any]]:
+    def get_after_hours_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
         """
         Get top after-hours gaining stocks from ADVFN
 
         Args:
             limit: Number of top after-hours gainers to return
-            exchange: Exchange to fetch data from (nasdaq, nyse, amex)
 
         Returns:
             List of dictionaries with after-hours gainer data
@@ -129,15 +132,15 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             self._setup_driver()
 
             # Use the appropriate URL for the exchange
-            url = self.urls.get(exchange.lower(), self.urls["nasdaq"])
-            logger.info(f"Loading ADVFN {exchange} after-hours page: {url}")
+            url = self.urls[self.exchange]
+            logger.info(f"Loading ADVFN {self.exchange} after-hours page: {url}")
             
             self.driver.get(url)
             time_module.sleep(5)  # Wait for page to load
 
             # Take screenshot for debugging
             self.driver.save_screenshot(
-                f"/home/ccollins/projects/TradeScout/data/examples/advfn_{exchange}_afterhours.png"
+                f"/home/ccollins/projects/TradeScout/data/examples/advfn_{self.exchange}_afterhours.png"
             )
 
             # Parse the page
@@ -146,7 +149,7 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             # Look for the after-hours data table
             gainers = self._parse_advfn_data(soup, "gainers", limit)
             
-            logger.info(f"Found {len(gainers)} gainers on ADVFN {exchange}")
+            logger.info(f"Found {len(gainers)} gainers on ADVFN {self.exchange}")
             return gainers
 
         except WebDriverException as e:
@@ -158,13 +161,12 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
         finally:
             self._cleanup_driver()
 
-    def get_after_hours_losers(self, limit: int = 10, exchange: str = "nasdaq") -> List[Dict[str, any]]:
+    def get_after_hours_losers(self, limit: int = 10) -> List[Dict[str, any]]:
         """
         Get top after-hours losing stocks from ADVFN
 
         Args:
             limit: Number of top after-hours losers to return
-            exchange: Exchange to fetch data from (nasdaq, nyse, amex)
 
         Returns:
             List of dictionaries with after-hours loser data
@@ -173,8 +175,8 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             self._setup_driver()
 
             # Use the appropriate URL for the exchange
-            url = self.urls.get(exchange.lower(), self.urls["nasdaq"])
-            logger.info(f"Loading ADVFN {exchange} after-hours page: {url}")
+            url = self.urls[self.exchange]
+            logger.info(f"Loading ADVFN {self.exchange} after-hours page: {url}")
             
             self.driver.get(url)
             time_module.sleep(5)  # Wait for page to load
@@ -185,7 +187,7 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             # Look for the after-hours data table
             losers = self._parse_advfn_data(soup, "losers", limit)
             
-            logger.info(f"Found {len(losers)} losers on ADVFN {exchange}")
+            logger.info(f"Found {len(losers)} losers on ADVFN {self.exchange}")
             return losers
 
         except WebDriverException as e:
@@ -198,121 +200,113 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             self._cleanup_driver()
 
     def _parse_advfn_data(self, soup: BeautifulSoup, mover_type: str, limit: int) -> List[Dict[str, any]]:
-        """Parse movers data from ADVFN page"""
+        """
+        Parse movers data from ADVFN page by finding specific headers and their sibling tables.
+        """
         movers = []
         
+        # Determine the header text to search for
+        if mover_type == "gainers":
+            header_text = "Top Gainers"
+        elif mover_type == "losers":
+            header_text = "Top Losers"
+        else:
+            logger.error(f"Invalid mover_type: {mover_type}")
+            return []
+
         try:
-            # Look for tables with stock data
-            tables = soup.find_all("table")
-            logger.info(f"Found {len(tables)} tables on ADVFN page")
-            
-            for table in tables:
-                # Check if this table contains stock data
-                headers = table.find_all("th")
-                header_text = " ".join([h.get_text().lower() for h in headers])
-                
-                # Look for tables with relevant headers
-                if any(word in header_text for word in ["symbol", "stock", "change", "price", "%"]):
-                    logger.info("Found potential stock data table")
+            # Find the header element (h3) containing the specified text
+            header = soup.find(lambda tag: tag.name == 'h3' and header_text in tag.get_text())
+
+            if not header:
+                logger.warning(f"Could not find '{header_text}' header on the page.")
+                return []
+
+            # Find the table that is the sibling of the header
+            table = header.find_next_sibling("table")
+
+            if not table:
+                logger.warning(f"Could not find data table for '{header_text}'.")
+                return []
+
+            rows = table.find_all("tr")[1:]  # Skip header row
+
+            for row in rows:
+                if len(movers) >= limit:
+                    break
+
+                cells = row.find_all("td")
+                if len(cells) < 6:
+                    continue
+
+                try:
+                    # Extract data based on column order: Symbol, Name, Price, Change, Change %, Volume
+                    symbol = cells[0].get_text(strip=True)
+                    company_name = cells[1].get_text(strip=True)
                     
-                    tbody = table.find("tbody")
-                    if tbody:
-                        rows = tbody.find_all("tr")
-                    else:
-                        rows = table.find_all("tr")[1:]  # Skip header row
+                    # Clean and convert numeric values
+                    after_hours_price_text = cells[2].get_text(strip=True).replace(",", "")
+                    after_hours_price = float(after_hours_price_text) if after_hours_price_text else 0.0
+
+                    change_text = cells[3].get_text(strip=True).replace(",", "")
+                    change = float(change_text) if change_text else 0.0
+
+                    change_percent_text = cells[4].get_text(strip=True).replace("%", "").replace(",", "")
+                    change_percent = float(change_percent_text) if change_percent_text else 0.0
                     
-                    for row in rows[:limit * 2]:  # Process more rows than needed
-                        try:
-                            cells = row.find_all(["td", "th"])
-                            if len(cells) < 3:
-                                continue
-                            
-                            # Extract data from cells
-                            symbol = ""
-                            company_name = ""
-                            price = 0.0
-                            change = 0.0
-                            change_percent = 0.0
-                            volume = 0
-                            
-                            for i, cell in enumerate(cells):
-                                text = cell.get_text().strip()
-                                
-                                # Symbol is usually in first cell or a link
-                                if i == 0 or (not symbol and text.isupper() and len(text) <= 6):
-                                    symbol = text
-                                
-                                # Company name might be in second cell
-                                elif i == 1 and not text.replace(".", "").replace("-", "").isdigit():
-                                    company_name = text
-                                
-                                # Look for percentage
-                                elif "%" in text:
-                                    try:
-                                        change_percent = float(
-                                            text.replace("%", "").replace("+", "").replace("(", "").replace(")", "")
-                                        )
-                                    except:
-                                        pass
-                                
-                                # Look for price (number with decimal)
-                                elif "." in text and not "%" in text:
-                                    try:
-                                        value = float(text.replace("$", "").replace(",", ""))
-                                        if value > 0 and value < 10000:  # Reasonable price range
-                                            if price == 0:
-                                                price = value
-                                            else:
-                                                change = value - price
-                                    except:
-                                        pass
-                                
-                                # Look for volume
-                                elif text.replace(",", "").isdigit():
-                                    try:
-                                        volume = int(text.replace(",", ""))
-                                    except:
-                                        pass
-                            
-                            # Only add if we have essential data and it matches mover type
-                            if symbol and change_percent != 0:
-                                if (mover_type == "gainers" and change_percent > 0) or \
-                                   (mover_type == "losers" and change_percent < 0):
-                                    
-                                    mover_data = {
-                                        "symbol": symbol,
-                                        "company_name": company_name,
-                                        "regular_close": price * (1 - change_percent/100) if price > 0 else 0.0,
-                                        "after_hours_price": price,
-                                        "after_hours_change": change,
-                                        "after_hours_change_percent": abs(change_percent),
-                                        "after_hours_volume": volume,
-                                        "source": "advfn_after_hours",
-                                        "timestamp": datetime.now(),
-                                        "session": "after_hours",
-                                    }
-                                    movers.append(mover_data)
-                                    
-                                    if len(movers) >= limit:
-                                        return movers
-                        
-                        except Exception as e:
-                            logger.debug(f"Error parsing row: {e}")
-                            continue
-            
-            # If no tables found, try looking for div-based layouts
-            if not movers:
-                logger.info("No table data found, looking for div-based structures")
-                stock_divs = soup.find_all("div", {"class": lambda x: x and any(
-                    word in str(x).lower() for word in ["stock", "symbol", "quote", "ticker"]
-                )})
-                
-                logger.info(f"Found {len(stock_divs)} potential stock divs")
-                
-        except Exception as e:
-            logger.error(f"Error parsing ADVFN data: {e}")
+                    volume_text = cells[5].get_text(strip=True)
+                    volume = self._parse_volume(volume_text)
+
+                    # Skip if there's no movement
+                    if change == 0 and change_percent == 0 and volume == 0:
+                        continue
+
+                    # Calculate regular close price
+                    regular_close = after_hours_price - change
+
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "regular_close": round(regular_close, 4),
+                        "after_hours_price": after_hours_price,
+                        "after_hours_change": change,
+                        "after_hours_change_percent": change_percent,
+                        "after_hours_volume": volume,
+                        "source": f"advfn_{self.exchange}_after_hours",
+                        "timestamp": datetime.now(),
+                        "session": "after_hours",
+                    }
+                    movers.append(mover_data)
+                    logger.debug(f"Parsed {mover_type}: {symbol} at {after_hours_price}")
+
+                except (ValueError, IndexError) as e:
+                    logger.warning(f"Could not parse row: {row.get_text().strip()}. Error: {e}")
+                    continue
         
-        return movers[:limit]
+        except Exception as e:
+            logger.error(f"An unexpected error occurred while parsing ADVFN {mover_type} data: {e}")
+
+        return movers
+
+    def _parse_volume(self, volume_text: str) -> int:
+        """
+        Parse volume string like "1.2M", "850K", or "1.5B" to integer.
+        """
+        volume_text = volume_text.upper().replace(",", "").strip()
+        if not volume_text or volume_text == 'N/A':
+            return 0
+        try:
+            if "B" in volume_text:
+                return int(float(volume_text.replace("B", "")) * 1_000_000_000)
+            if "M" in volume_text:
+                return int(float(volume_text.replace("M", "")) * 1_000_000)
+            elif "K" in volume_text:
+                return int(float(volume_text.replace("K", "")) * 1_000)
+            else:
+                return int(volume_text)
+        except (ValueError, TypeError):
+            logger.debug(f"Could not parse volume string: '{volume_text}'")
+            return 0
 
     def is_after_hours_session(self) -> bool:
         """Check if we're currently in after-hours trading session (4 PM - 8 PM ET)"""
