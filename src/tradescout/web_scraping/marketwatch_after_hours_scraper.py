@@ -76,9 +76,9 @@ class MarketWatchAfterHoursScraper(AfterHoursWebScraper):
 
         # Use persistent user data directory for MarketWatch
         import os
-        user_data_dir = "/home/ccollins/projects/TradeScout/data/chrome_session"
+        user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
-        chrome_options.add_argument(f"--user-data-dir={user_data_dir}")
+        chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
         chrome_options.add_argument("--profile-directory=MarketWatch_Scraper")
 
         # Standard options

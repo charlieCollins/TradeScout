@@ -1,8 +1,8 @@
 """
-Investing.com After-Hours Scraper Implementation
+TipRanks After-Hours Scraper Implementation
 
-Implements the AfterHoursWebScraper interface for Investing.com after-hours data.
-URL: https://www.investing.com/equities/after-hours
+Implements the AfterHoursWebScraper interface for TipRanks after-hours data.
+URL: https://www.tipranks.com/markets/after-hours/gainers
 """
 
 import logging
@@ -24,21 +24,21 @@ from .interfaces import AfterHoursWebScraper
 logger = logging.getLogger(__name__)
 
 
-class InvestingComAfterHoursScraper(AfterHoursWebScraper):
+class TipRanksAfterHoursScraper(AfterHoursWebScraper):
     """
-    Investing.com after-hours data scraper implementation using Selenium.
+    TipRanks after-hours data scraper implementation using Selenium.
+    This scraper handles dynamically loaded content.
     """
 
-    def __init__(self, delay_seconds: float = 1.0, headless: bool = True):
+    def __init__(self, delay_seconds: float = 2.0, headless: bool = True):
         """
-        Initialize Investing.com after-hours scraper.
+        Initialize TipRanks after-hours scraper.
+        A longer delay is used to accommodate dynamic content loading.
         """
-        self.base_url = "https://www.investing.com/equities/after-hours"
+        self.base_url = "https://www.tipranks.com/markets/after-hours"
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
-        self._all_movers_cache = None
-        self._cache_timestamp = None
 
     def _setup_driver(self):
         """Setup Chrome driver with persistent session."""
@@ -61,7 +61,7 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
-        chrome_options.add_argument("--profile-directory=InvestingCom_Scraper")
+        chrome_options.add_argument("--profile-directory=TipRanks_Scraper")
 
         try:
             self.driver = webdriver.Chrome(options=chrome_options)
@@ -79,98 +79,81 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
                 pass
             self.driver = None
 
-    def _fetch_and_parse_data(self) -> List[Dict[str, any]]:
-        """
-        Fetches the page data and parses the 'Most Active' table.
-        Caches the result for a short period to avoid redundant parsing
-        when get_after_hours_gainers and get_after_hours_losers are called in succession.
-        """
-        # Check cache first
-        if self._all_movers_cache and self._cache_timestamp and (datetime.now() - self._cache_timestamp).total_seconds() < 60:
-            logger.info("Returning cached data from Investing.com.")
-            return self._all_movers_cache
-
+    def _fetch_page(self, mover_type: str) -> Optional[BeautifulSoup]:
+        """Fetches the page and waits for dynamic content to load."""
+        url = f"{self.base_url}/{mover_type}"
         try:
             self._setup_driver()
-            logger.info(f"Loading Investing.com after-hours page: {self.base_url}")
-            self.driver.get(self.base_url)
+            logger.info(f"Loading TipRanks page: {url}")
+            self.driver.get(url)
 
-            # Wait for the table to be present. The table has an id 'afterhours'.
+            # Wait for the table to appear and for the data to load.
+            # We can check if the loading dash '―' is no longer present in a key cell.
             WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.ID, "afterhours"))
+                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'rt-tr-group')]"))
             )
-            time_module.sleep(self.delay_seconds) # Small delay for dynamic content
+            # Additional wait for the dynamic data to populate
+            time_module.sleep(self.delay_seconds)
 
-            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+            return BeautifulSoup(self.driver.page_source, "html.parser")
 
-            # The main data is in the table with id="afterhours"
-            table = soup.find("table", id="afterhours")
-            if not table:
-                logger.warning("Could not find the 'afterhours' data table on the page.")
-                return []
-
-            parsed_data = self._parse_active_movers_table(table)
-
-            # Cache the result
-            self._all_movers_cache = parsed_data
-            self._cache_timestamp = datetime.now()
-
-            return parsed_data
-
+        except TimeoutException:
+            logger.warning(f"Timeout waiting for dynamic content on {url}")
+            return None
         except WebDriverException as e:
-            logger.error(f"Selenium error fetching Investing.com data: {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Error parsing Investing.com data: {e}")
-            return []
+            logger.error(f"Selenium error fetching {url}: {e}")
+            return None
         finally:
             self._cleanup_driver()
 
     def get_after_hours_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get top after-hours gaining stocks from Investing.com."""
-        all_movers = self._fetch_and_parse_data()
+        """Get top after-hours gaining stocks from TipRanks."""
+        soup = self._fetch_page("gainers")
+        if not soup:
+            return []
 
-        # Sort by percentage change (descending)
-        gainers = sorted(all_movers, key=lambda x: x.get('after_hours_change_percent', 0), reverse=True)
-
-        return gainers[:limit]
+        return self._parse_data(soup, limit, "gainers")
 
     def get_after_hours_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get top after-hours losing stocks from Investing.com."""
-        all_movers = self._fetch_and_parse_data()
+        """Get top after-hours losing stocks from TipRanks."""
+        soup = self._fetch_page("losers")
+        if not soup:
+            return []
 
-        # Sort by percentage change (ascending)
-        losers = sorted(all_movers, key=lambda x: x.get('after_hours_change_percent', 0))
+        return self._parse_data(soup, limit, "losers")
 
-        return losers[:limit]
-
-    def _parse_active_movers_table(self, table: BeautifulSoup) -> List[Dict[str, any]]:
-        """Parses the content of the 'Most Active' stocks table."""
+    def _parse_data(self, soup: BeautifulSoup, limit: int, mover_type: str) -> List[Dict[str, any]]:
+        """Parses the data from the TipRanks table."""
         movers = []
-        rows = table.find("tbody").find_all("tr")
+        # TipRanks uses a div-based table structure with role="rowgroup"
+        rows = soup.find_all("div", role="row")
 
-        for row in rows:
-            cells = row.find_all("td")
-            if len(cells) < 7:
+        # The first row is the header
+        for row in rows[1:]:
+            if len(movers) >= limit:
+                break
+
+            cells = row.find_all("div", role="gridcell")
+            if len(cells) < 8:
                 continue
 
             try:
-                # Column order: Name, Symbol, Last, Chg., Chg. %, Vol., Time
-                company_name = cells[0].get_text(strip=True)
+                # Columns: No., Symbol, Name, AI Catalyst, % Change, Stock Price, Volume, Market Cap
                 symbol = cells[1].get_text(strip=True)
-
-                price_text = cells[2].get_text(strip=True).replace(",", "")
-                price = float(price_text) if price_text else 0.0
-
-                change_text = cells[3].get_text(strip=True)
-                change = float(change_text) if change_text else 0.0
+                company_name = cells[2].get_text(strip=True)
 
                 change_percent_text = cells[4].get_text(strip=True).replace("%", "").replace("+", "")
-                change_percent = float(change_percent_text) if change_percent_text else 0.0
+                if "―" in change_percent_text: continue # Skip rows without data
+                change_percent = float(change_percent_text)
 
-                volume_text = cells[5].get_text(strip=True)
+                price_text = cells[5].get_text(strip=True).replace("$", "").replace(",", "")
+                price = float(price_text)
+
+                volume_text = cells[6].get_text(strip=True)
                 volume = self._parse_volume(volume_text)
 
+                # TipRanks provides change percent, so we calculate the change amount
+                change = price * (change_percent / (100 + change_percent)) if change_percent > -100 else 0
                 regular_close = price - change
 
                 mover_data = {
@@ -178,17 +161,17 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
                     "company_name": company_name,
                     "regular_close": round(regular_close, 4),
                     "after_hours_price": price,
-                    "after_hours_change": change,
+                    "after_hours_change": round(change, 4),
                     "after_hours_change_percent": change_percent,
                     "after_hours_volume": volume,
-                    "source": "investing_com_after_hours",
+                    "source": f"tipranks_after_hours_{mover_type}",
                     "timestamp": datetime.now(),
                     "session": "after_hours",
                 }
                 movers.append(mover_data)
 
             except (ValueError, IndexError) as e:
-                logger.warning(f"Could not parse row for Investing.com: {row.get_text().strip()}. Error: {e}")
+                logger.warning(f"Could not parse row for TipRanks: {row.get_text().strip()}. Error: {e}")
                 continue
 
         return movers
@@ -196,7 +179,7 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
     def _parse_volume(self, volume_text: str) -> int:
         """Parse volume string like "1.2M" or "850K" to integer."""
         volume_text = volume_text.upper().strip()
-        if not volume_text or volume_text == 'N/A':
+        if not volume_text or "―" in volume_text:
             return 0
         try:
             if "B" in volume_text:
@@ -237,9 +220,9 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
             "current_session": session,
             "session_start": "4:00 PM ET",
             "session_end": "8:00 PM ET",
-            "source_name": "Investing.com After Hours",
+            "source_name": "TipRanks After Hours",
             "source_url": self.base_url,
-            "data_delay": "real_time",
+            "data_delay": "real_time", # Assumption
             "last_updated": now_et,
             "timezone": "America/New_York",
         }
