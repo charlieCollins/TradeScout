@@ -1,7 +1,8 @@
 """
-ADVFN After-Hours Scraper Implementation
+ADVFN Web Scraper Implementation
 
-Implements the AfterHoursWebScraper interface for ADVFN after-hours data.
+Implements the AfterHoursWebScraper interface for ADVFN extended hours data.
+Currently supports after-hours data, may be extended for pre-market in the future.
 URL: https://www.advfn.com/markets/nasdaq/afterhours
 """
 
@@ -20,19 +21,20 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from .interfaces import AfterHoursWebScraper
+from .interfaces import AfterHoursWebScraper, PreMarketWebScraper
 
 logger = logging.getLogger(__name__)
 
 
-class ADVFNAfterHoursScraper(AfterHoursWebScraper):
+class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
     """
-    ADVFN after-hours data scraper implementation using Selenium
+    ADVFN web scraper implementation using Selenium
+    Currently supports after-hours data, may be extended for pre-market in the future.
     """
 
     def __init__(self, exchange: str = "nasdaq", delay_seconds: float = 1.0, headless: bool = True):
         """
-        Initialize ADVFN after-hours scraper with Selenium
+        Initialize ADVFN web scraper with Selenium
 
         Args:
             exchange: The stock exchange to scrape ('nasdaq', 'nyse', 'amex').
@@ -361,3 +363,32 @@ class ADVFNAfterHoursScraper(AfterHoursWebScraper):
             return False
         finally:
             self._cleanup_driver()
+
+    # PreMarketWebScraper interface implementation (stub methods)
+    def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
+        """Get pre-market gainers - not yet implemented"""
+        logger.warning("Pre-market gainers not yet supported by ADVFN scraper")
+        return []
+
+    def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
+        """Get pre-market losers - not yet implemented"""
+        logger.warning("Pre-market losers not yet supported by ADVFN scraper")
+        return []
+
+    def is_premarket_session(self) -> bool:
+        """Check if currently in pre-market session - not yet implemented"""
+        logger.warning("Pre-market session detection not yet supported by ADVFN scraper")
+        return False
+
+    def get_premarket_session_info(self) -> Dict[str, any]:
+        """Get pre-market session info - not yet implemented"""
+        logger.warning("Pre-market session info not yet supported by ADVFN scraper")
+        return {
+            "current_session": "not_supported",
+            "session_start": "4:00 AM ET",
+            "session_end": "9:30 AM ET",
+            "source_name": "ADVFN Pre-Market (Not Implemented)",
+            "data_delay": "not_supported",
+            "last_updated": datetime.now(),
+            "implementation_status": "stub"
+        }

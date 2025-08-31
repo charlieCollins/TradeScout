@@ -7,7 +7,7 @@ import sys
 import os
 sys.path.append('/home/ccollins/projects/TradeScout/src')
 
-from tradescout.web_scraping.cnn_after_hours_scraper import CNNAfterHoursScraper
+from tradescout.data_sources_scraping.cnn_after_hours_scraper import CNNAfterHoursScraper
 import logging
 
 # Set up logging

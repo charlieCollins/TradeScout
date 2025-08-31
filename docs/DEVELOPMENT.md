@@ -14,12 +14,29 @@ TradeScout/
 │   │   ├── __init__.py
 │   │   ├── domain_models_core.py   # Core entities (Asset, Market, etc.)
 │   │   ├── domain_models_analysis.py  # Trading-specific models
+│   │   ├── market_wide_models.py   # Market movers, reports
 │   │   ├── interfaces.py           # Abstract interfaces
 │   │   └── factories.py            # Object creation patterns
-│   ├── data_sources/               # Infrastructure layer
+│   ├── data_sources/               # Infrastructure layer (coordination)
 │   │   ├── __init__.py
-│   │   ├── yfinance_adapter.py     # Yahoo Finance implementation
+│   │   ├── smart_coordinator.py    # Intelligent data routing
+│   │   ├── multi_provider_coordinator.py  # Legacy coordinator
 │   │   └── yfinance_scanner.py     # Legacy scanner (to be refactored)
+│   ├── data_sources_api/           # API-based data providers
+│   │   ├── __init__.py
+│   │   ├── asset_data_provider_yfinance.py    # Yahoo Finance
+│   │   ├── asset_data_provider_polygon.py     # Polygon.io
+│   │   ├── asset_data_provider_finnhub.py     # Finnhub
+│   │   ├── asset_data_provider_alpha_vantage.py        # Alpha Vantage
+│   │   └── asset_data_provider_alpha_vantage_market.py # Alpha Vantage Market
+│   ├── data_sources_scraping/      # Web scraper implementations
+│   │   ├── __init__.py
+│   │   ├── interfaces.py           # AfterHours & PreMarket interfaces
+│   │   ├── cnn_scraper.py          # CNN Markets scraper
+│   │   ├── marketwatch_scraper.py  # MarketWatch scraper
+│   │   ├── investing_com_scraper.py # Investing.com scraper  
+│   │   ├── tipranks_scraper.py     # TipRanks scraper
+│   │   └── advfn_scraper.py        # ADVFN scraper (disabled)
 │   ├── caches/                     # Caching layer
 │   │   ├── __init__.py
 │   │   └── api_cache.py            # Intelligent API caching
@@ -28,12 +45,16 @@ TradeScout/
 │   │   └── interfaces.py           # Analysis interfaces
 │   ├── storage/                    # Persistence layer
 │   │   ├── __init__.py
-│   │   └── interfaces.py           # Repository interfaces
+│   │   ├── interfaces.py           # Repository interfaces
+│   │   └── sqlite_repository.py    # SQLite implementation
 │   ├── config/                     # Configuration
 │   │   ├── __init__.py
-│   │   └── local_config.py         # Local settings
+│   │   ├── local_config.py         # Local settings
+│   │   ├── data_sources_config.yaml     # Centralized data sources config
+│   │   └── data_sources_manager.py      # Configuration manager
 │   └── scripts/                    # CLI tools
-│       └── __init__.py
+│       ├── __init__.py
+│       └── cli.py                  # Command-line interface
 ├── tests/                          # Test suite
 │   ├── __init__.py
 │   ├── conftest.py                 # Pytest fixtures

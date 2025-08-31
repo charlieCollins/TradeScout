@@ -25,7 +25,6 @@ from ..config.local_config import DATABASE_CONFIG
 from ..data_models.domain_models_core import Asset, AssetType
 from ..data_models.factories import MarketFactory
 from ..data_sources.smart_coordinator import create_smart_coordinator
-from ..market_wide import create_market_movers_provider
 from ..storage.sqlite_repository import create_sqlite_database_manager
 
 # Setup rich console for beautiful output
@@ -604,15 +603,13 @@ def gainers(ctx, limit: int, force_refresh: bool):
     Example:
         tradescout gainers --limit 20
     """
+    coordinator = ctx.obj["coordinator"]
     console.print("[green]🟢 Top Market Gainers[/green]")
 
     try:
-        # Create market movers provider
-        movers_provider = create_market_movers_provider()
-
-        # Get gainers
+        # Get gainers using smart coordinator
         with console.status("[bold green]Fetching market gainers...", spinner="dots"):
-            gainers_list = movers_provider.get_market_gainers(limit, force_refresh)
+            gainers_list = coordinator.get_market_gainers(limit, force_refresh)
 
         if not gainers_list:
             console.print("[yellow]⚠️  No gainers data available[/yellow]")
@@ -673,15 +670,13 @@ def losers(ctx, limit: int, force_refresh: bool):
     Example:
         tradescout losers --limit 20
     """
+    coordinator = ctx.obj["coordinator"]
     console.print("[red]🔴 Top Market Losers[/red]")
 
     try:
-        # Create market movers provider
-        movers_provider = create_market_movers_provider()
-
-        # Get losers
+        # Get losers using smart coordinator
         with console.status("[bold red]Fetching market losers...", spinner="dots"):
-            losers_list = movers_provider.get_market_losers(limit, force_refresh)
+            losers_list = coordinator.get_market_losers(limit, force_refresh)
 
         if not losers_list:
             console.print("[yellow]⚠️  No losers data available[/yellow]")
@@ -742,17 +737,15 @@ def active(ctx, limit: int, force_refresh: bool):
     Example:
         tradescout active --limit 20
     """
+    coordinator = ctx.obj["coordinator"]
     console.print("[blue]📊 Most Active Stocks[/blue]")
 
     try:
-        # Create market movers provider
-        movers_provider = create_market_movers_provider()
-
-        # Get most active
+        # Get most active using smart coordinator
         with console.status(
             "[bold blue]Fetching most active stocks...", spinner="dots"
         ):
-            active_list = movers_provider.get_most_active(limit, force_refresh)
+            active_list = coordinator.get_most_active(limit, force_refresh)
 
         if not active_list:
             console.print("[yellow]⚠️  No active stocks data available[/yellow]")
@@ -809,17 +802,15 @@ def movers(ctx, limit: int, force_refresh: bool):
     Example:
         tradescout movers --limit 10
     """
+    coordinator = ctx.obj["coordinator"]
     console.print("[bold]📈 Market Movers Report[/bold]")
 
     try:
-        # Create market movers provider
-        movers_provider = create_market_movers_provider()
-
-        # Get complete report
+        # Get complete report using smart coordinator
         with console.status(
             "[bold]Fetching complete market movers report...", spinner="dots"
         ):
-            report = movers_provider.get_market_movers_report(limit, force_refresh)
+            report = coordinator.get_market_movers_report(limit, force_refresh)
 
         # Show report header
         console.print(

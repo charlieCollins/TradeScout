@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.tradescout.web_scraping.marketwatch_after_hours_scraper import MarketWatchAfterHoursScraper
+from src.tradescout.data_sources_scraping.marketwatch_after_hours_scraper import MarketWatchAfterHoursScraper
 import json
 from datetime import datetime
 

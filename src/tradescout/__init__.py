@@ -21,7 +21,7 @@ from .data_models.domain_models_core import (
     PriceData,
 )
 from .data_models.interfaces import AssetDataProvider
-from .data_sources.asset_data_provider_yfinance import AssetDataProviderYFinance
+from .data_sources_api.asset_data_provider_yfinance import AssetDataProviderYFinance
 
 __all__ = [
     "Asset",

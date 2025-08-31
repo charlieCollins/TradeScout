@@ -1,7 +1,8 @@
 """
-Investing.com After-Hours Scraper Implementation
+Investing.com Web Scraper Implementation
 
-Implements the AfterHoursWebScraper interface for Investing.com after-hours data.
+Implements the AfterHoursWebScraper interface for Investing.com extended hours data.
+Currently supports after-hours data, may be extended for pre-market in the future.
 URL: https://www.investing.com/equities/after-hours
 """
 
@@ -19,19 +20,20 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
-from .interfaces import AfterHoursWebScraper
+from .interfaces import AfterHoursWebScraper, PreMarketWebScraper
 
 logger = logging.getLogger(__name__)
 
 
-class InvestingComAfterHoursScraper(AfterHoursWebScraper):
+class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
     """
-    Investing.com after-hours data scraper implementation using Selenium.
+    Investing.com web scraper implementation using Selenium.
+    Currently supports after-hours data, may be extended for pre-market in the future.
     """
 
     def __init__(self, delay_seconds: float = 1.0, headless: bool = True):
         """
-        Initialize Investing.com after-hours scraper.
+        Initialize Investing.com web scraper.
         """
         self.base_url = "https://www.investing.com/equities/after-hours"
         self.delay_seconds = delay_seconds
@@ -242,4 +244,33 @@ class InvestingComAfterHoursScraper(AfterHoursWebScraper):
             "data_delay": "real_time",
             "last_updated": now_et,
             "timezone": "America/New_York",
+        }
+
+    # PreMarketWebScraper interface implementation (stub methods)
+    def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
+        """Get pre-market gainers - not yet implemented"""
+        logger.warning("Pre-market gainers not yet supported by Investing.com scraper")
+        return []
+
+    def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
+        """Get pre-market losers - not yet implemented"""
+        logger.warning("Pre-market losers not yet supported by Investing.com scraper")
+        return []
+
+    def is_premarket_session(self) -> bool:
+        """Check if currently in pre-market session - not yet implemented"""
+        logger.warning("Pre-market session detection not yet supported by Investing.com scraper")
+        return False
+
+    def get_premarket_session_info(self) -> Dict[str, any]:
+        """Get pre-market session info - not yet implemented"""
+        logger.warning("Pre-market session info not yet supported by Investing.com scraper")
+        return {
+            "current_session": "not_supported",
+            "session_start": "4:00 AM ET",
+            "session_end": "9:30 AM ET",
+            "source_name": "Investing.com Pre-Market (Not Implemented)",
+            "data_delay": "not_supported",
+            "last_updated": datetime.now(),
+            "implementation_status": "stub"
         }

@@ -5,9 +5,9 @@ These tests are marked as 'integration' because they perform live web requests.
 """
 
 import pytest
-from tradescout.web_scraping.investing_com_after_hours_scraper import InvestingComAfterHoursScraper
-from tradescout.web_scraping.advfn_after_hours_scraper import ADVFNAfterHoursScraper
-from tradescout.web_scraping.tipranks_after_hours_scraper import TipRanksAfterHoursScraper
+from tradescout.data_sources_scraping.investing_com_after_hours_scraper import InvestingComAfterHoursScraper
+from tradescout.data_sources_scraping.advfn_after_hours_scraper import ADVFNAfterHoursScraper
+from tradescout.data_sources_scraping.tipranks_after_hours_scraper import TipRanksAfterHoursScraper
 
 @pytest.mark.integration
 class TestInvestingComAfterHoursScraper:

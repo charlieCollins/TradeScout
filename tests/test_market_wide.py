@@ -13,17 +13,17 @@ import pytest
 
 from src.tradescout.data_models.domain_models_core import Asset, AssetType, MarketStatus
 from src.tradescout.data_models.factories import MarketFactory
-from src.tradescout.market_wide.interfaces import (
+from src.tradescout.data_models.market_wide_models import (
     IndexType,
     MarketMover,
     MarketMoversReport,
     MarketWideDataProvider,
     SectorType,
 )
-from src.tradescout.market_wide.market_movers import MarketMoversProvider
 from src.tradescout.market_wide.providers.alpha_vantage_market import (
     AlphaVantageMarketProvider,
 )
+from src.tradescout.data_sources.smart_coordinator import SmartCoordinator
 
 
 class TestMarketMover:

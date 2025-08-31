@@ -92,14 +92,57 @@ TradeScout uses a clean, interface-driven architecture that separates concerns a
 
 ### Data Collection Interfaces
 
+#### API-Based Data Collection
 ```python
-MarketDataProvider (ABC)
+AssetDataProvider (ABC) [src/tradescout/data_models/interfaces.py]
 ├── get_current_quote()
 ├── get_extended_hours_data()
 ├── get_historical_quotes()
 ├── scan_volume_leaders()
 └── get_fundamental_data()
 
+# Implementations in src/tradescout/data_sources_api/
+├── AssetDataProviderYFinance
+├── AssetDataProviderPolygon  
+├── AssetDataProviderFinnhub
+├── AssetDataProviderAlphaVantage
+└── AssetDataProviderAlphaVantageMarket
+```
+
+#### Web Scraper-Based Data Collection
+```python
+AfterHoursWebScraper (ABC) [src/tradescout/data_sources_scraping/interfaces.py]
+├── get_after_hours_gainers()
+├── get_after_hours_losers()
+├── is_after_hours_session()
+└── get_session_info()
+
+PreMarketWebScraper (ABC) [src/tradescout/data_sources_scraping/interfaces.py]
+├── get_premarket_gainers()
+├── get_premarket_losers()  
+├── is_premarket_session()
+└── get_premarket_session_info()
+
+# Implementations in src/tradescout/data_sources_scraping/
+├── CNNScraper (both interfaces)
+├── MarketWatchScraper (both interfaces)
+├── InvestingComScraper (both interfaces) 
+├── TipRanksScraper (both interfaces)
+└── ADVFNScraper (both interfaces)
+```
+
+#### Smart Coordination
+```python
+SmartCoordinator [src/tradescout/data_sources/smart_coordinator.py]
+├── Configuration-driven provider selection
+├── Dual routing (API providers + Web scrapers)
+├── Reliability-based fallback strategies
+├── Extended hours data coordination
+└── Market movers aggregation
+```
+
+#### Other Interfaces
+```python
 NewsProvider (ABC)
 ├── get_latest_news()
 ├── get_news_by_timeframe()
@@ -164,6 +207,73 @@ DatabaseManager (ABC)
 2. Web dashboard
 3. Real-time scanning
 4. Cloud migration support
+
+## Smart Data Coordination Architecture
+
+### SmartCoordinator: Unified Data Routing
+
+The SmartCoordinator provides intelligent routing between API providers and web scrapers based on configuration and reliability ratings.
+
+```python
+class SmartCoordinator:
+    """
+    Intelligent data collection coordinator with dual routing:
+    - API Providers: For reliable, structured data (quotes, fundamentals)
+    - Web Scrapers: For market movers and extended hours data
+    """
+    
+    def __init__(self):
+        self._provider_instances = {}      # API providers
+        self._scraper_instances = {}       # Web scrapers
+        self.config_manager = DataSourcesManager()
+    
+    # API Provider routing
+    def get_current_quote(self, symbol: str) -> MarketQuote:
+        # Routes to: yfinance, polygon, finnhub, etc.
+    
+    def get_extended_hours_data(self, symbol: str) -> ExtendedHoursData:
+        # Routes to: polygon, yfinance (API providers)
+    
+    # Web Scraper routing  
+    def get_extended_hours_gainers(self, limit: int) -> List[Dict]:
+        # Routes to: cnn_scraper, marketwatch_scraper, etc.
+```
+
+### Configuration-Driven Selection
+
+```yaml
+# data_sources_config.yaml
+extended_hours:
+  providers: ["polygon", "yfinance", "marketwatch_scraper", "investing_com_scraper", "cnn_scraper", "tipranks_scraper"]
+  fallback_strategy: "first_success"
+  
+# Reliability ratings for intelligent selection
+quality_weights:
+  polygon: 10
+  yfinance: 7
+  marketwatch_scraper: 8    # highly_reliable
+  investing_com_scraper: 8  # highly_reliable  
+  cnn_scraper: 6           # moderately_reliable
+  tipranks_scraper: 6      # moderately_reliable
+  advfn_scraper: 3         # inconsistent (disabled)
+```
+
+### Dual Provider Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                SmartCoordinator                         │
+├─────────────────────────┬───────────────────────────────┤
+│     API Providers       │      Web Scrapers             │
+│  (AssetDataProvider)    │  (AfterHours + PreMarket)     │
+├─────────────────────────┼───────────────────────────────┤
+│ • YFinance              │ • CNNScraper                  │
+│ • Polygon               │ • MarketWatchScraper          │
+│ • Finnhub               │ • InvestingComScraper         │
+│ • AlphaVantage          │ • TipRanksScraper             │
+│ • AlphaVantageMarket    │ • ADVFNScraper (disabled)     │
+└─────────────────────────┴───────────────────────────────┘
+```
 
 ## Data Provider Adapters
 

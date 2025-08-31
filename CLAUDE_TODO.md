@@ -1,10 +1,39 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-07-28 23:17*
+*Last updated: 2025-08-29 (Claude) - Jules implemented 3 new scrapers*
 
 This file tracks active development tasks and provides context for resuming work after session interruptions.
 
 ## 🎯 Active Development Tasks
+
+### ✅ Completed - Architecture Restructuring & Documentation Updates (August 31, 2025)
+
+- [x] **Restructured extended_hours config to be unified with proper time routing** - ✅ Done
+  - Updated finance terminology: Extended Hours = Pre-Market + After-Hours  
+  - Combined API providers (polygon, yfinance) with web scrapers (marketwatch_scraper, investing_com_scraper, cnn_scraper, tipranks_scraper)
+  - Added reliability configuration: highly_reliable, moderately_reliable, inconsistent
+
+- [x] **Enhanced SmartCoordinator to use both API and web scraper data sources** - ✅ Done
+  - Added dual routing capability: _provider_instances for APIs, _scraper_instances for scrapers
+  - Implemented get_extended_hours_data() for API routing and get_extended_hours_gainers()/losers() for scraper routing
+  - Configuration-driven provider selection with intelligent fallback strategies
+
+- [x] **Renamed scrapers to remove 'after_hours' from names** - ✅ Done
+  - CNNAfterHoursScraper → CNNScraper, MarketWatchAfterHoursScraper → MarketWatchScraper
+  - InvestingComAfterHoursScraper → InvestingComScraper, TipRanksAfterHoursScraper → TipRanksScraper
+  - ADVFNAfterHoursScraper → ADVFNScraper
+  - Updated all file paths from web_scraping/ to data_sources_scraping/
+
+- [x] **Created PreMarketWebScraper interface and added stubs to all scrapers** - ✅ Done
+  - Added abstract PreMarketWebScraper interface with get_premarket_gainers(), get_premarket_losers(), is_premarket_session(), get_premarket_session_info()
+  - Implemented stub methods in all 5 scrapers returning empty data with warning logs
+  - Future-proofed architecture for when pre-market data collection is needed
+
+- [x] **Completed comprehensive documentation audit and updates** - ✅ Done
+  - Created MARKET_HOURS.md with proper finance terminology and trading session definitions
+  - Updated WEB_SCRAPERS.md with current class names, file paths, SmartCoordinator integration, PreMarket interface documentation
+  - Enhanced ARCHITECTURE.md with SmartCoordinator dual routing, interface hierarchy, configuration-driven selection
+  - Updated DEVELOPMENT.md with correct project structure including data_sources_api/ and data_sources_scraping/ directories
 
 ### ✅ Completed - Web Scraping Infrastructure (July 28, 2025)
 
@@ -96,18 +125,57 @@ This file tracks active development tasks and provides context for resuming work
 
 ## 🔮 Current Active Tasks (High Priority)
 
+### 🎯 Next Priority Tasks
+
+- [ ] **Implement reliability-based smart selection logic in SmartCoordinator** - *High Priority*
+  - **Goal**: Use reliability ratings (highly_reliable, moderately_reliable, inconsistent) for intelligent provider selection
+  - **Features**: Prefer reliable scrapers, retry with less reliable ones on failure, circuit breaker patterns
+  - **Location**: Enhance `_get_extended_hours_movers()` method in SmartCoordinator
+
+- [ ] **Add session-aware routing in SmartCoordinator** - *High Priority*  
+  - **Goal**: Detect current market session (regular, pre-market, after-hours, closed) and route appropriately
+  - **Features**: Route to session-appropriate providers, optimize for current trading hours
+  - **Implementation**: Enhance `_get_current_market_status()` and routing logic
+
+- [ ] **Test end-to-end extended hours data flow** - *Medium Priority*
+  - **Goal**: Validate unified extended_hours configuration works in practice
+  - **Features**: Test API provider fallback to web scrapers, verify data quality
+  - **Testing**: Create integration tests for dual routing scenarios
+
+## 🔮 Previous Active Tasks (Completed This Session)
+
+### 🎆 Recently Completed by Jules (August 2025)
+
+- [x] **Investing.com after-hours scraper** - ✅ Done
+  - Parses "Most Active" table from https://www.investing.com/equities/after-hours
+  - Extracts symbol, company name, price, change %, volume
+  - Uses Selenium with persistent Chrome session
+  - Implements caching to avoid redundant parsing
+
+- [x] **TipRanks after-hours scraper** - ✅ Done  
+  - Separate URLs for gainers/losers (e.g., /markets/after-hours/gainers)
+  - Parses unique AI Catalyst column along with standard data
+  - Handles dynamic content with appropriate waits
+  - Calculates change amount from percentage
+
+- [x] **ADVFN after-hours scraper** - ✅ Done
+  - Supports all three exchanges (NASDAQ, NYSE, AMEX) via exchange parameter
+  - Finds "Top Gainers" and "Top Losers" headers and parses sibling tables
+  - Screenshots saved to data/examples/ for debugging
+  - Exchange-specific source tracking
+
 ### 🚀 Web Scraping Expansion
 
-- [ ] **Implement Investing.com after-hours scraper** - *High Priority*
+- [x] **Implement Investing.com after-hours scraper** - ✅ Done (by Jules)
   - **Source**: https://www.investing.com/equities/after-hours
-  - **Expected Features**: Global markets coverage, comprehensive filtering options
-  - **Architecture**: Use existing `AfterHoursWebScraper` interface
-  - **Location**: `src/tradescout/web_scraping/investing_after_hours_scraper.py`
+  - **Features**: Parses "Most Active" table with symbol, company, price, change %, volume
+  - **Architecture**: Uses existing `AfterHoursWebScraper` interface
+  - **Location**: `src/tradescout/web_scraping/investing_com_after_hours_scraper.py`
 
-- [ ] **Implement TipRanks after-hours scraper** - *High Priority*
+- [x] **Implement TipRanks after-hours scraper** - ✅ Done (by Jules)
   - **Source**: https://www.tipranks.com/markets/after-hours/gainers
-  - **Unique Features**: Analyst ratings integration, Smart score metrics, Institutional activity data
-  - **Architecture**: Use existing `AfterHoursWebScraper` interface
+  - **Features**: Separate gainers/losers URLs, parses AI Catalyst, price, change %, volume
+  - **Architecture**: Uses existing `AfterHoursWebScraper` interface
   - **Location**: `src/tradescout/web_scraping/tipranks_after_hours_scraper.py`
 
 - [ ] **Implement TradingView after-hours scraper** - *High Priority*
@@ -116,13 +184,13 @@ This file tracks active development tasks and provides context for resuming work
   - **Architecture**: Use existing `AfterHoursWebScraper` interface
   - **Location**: `src/tradescout/web_scraping/tradingview_after_hours_scraper.py`
 
-- [ ] **Implement ADVFN after-hours scraper with exchange-specific URLs** - *High Priority*
+- [x] **Implement ADVFN after-hours scraper with exchange-specific URLs** - ✅ Done (by Jules)
   - **Sources**: 
     - NASDAQ: https://www.advfn.com/markets/nasdaq/afterhours
     - NYSE: https://www.advfn.com/markets/nyse/afterhours
     - AMEX: https://www.advfn.com/markets/amex/afterhours
-  - **Features**: Exchange selection capability, potentially more comprehensive data per exchange
-  - **Architecture**: Use existing `AfterHoursWebScraper` interface
+  - **Features**: Exchange selection capability, parses Top Gainers/Top Losers tables
+  - **Architecture**: Uses existing `AfterHoursWebScraper` interface, takes exchange parameter
   - **Location**: `src/tradescout/web_scraping/advfn_after_hours_scraper.py`
 
 ### 📊 Scraper Infrastructure & Organization
@@ -165,12 +233,15 @@ This file tracks active development tasks and provides context for resuming work
 
 ### ✅ Working Components
 
-**Web Scraping Infrastructure:** ✅ OPERATIONAL
+**Web Scraping Infrastructure:** ✅ OPERATIONAL (5 scrapers)
 - **CNN Markets Scraper**: 11 curated stocks with transparent methodology
 - **MarketWatch Scraper**: 40+ stocks across multiple categories (gainers, losers, most active)
+- **Investing.com Scraper**: "Most Active" after-hours stocks with global coverage (NEW by Jules)
+- **TipRanks Scraper**: Gainers/losers with AI Catalyst and analyst integration (NEW by Jules)
+- **ADVFN Scraper**: Exchange-specific data for NASDAQ, NYSE, AMEX (NEW by Jules)
 - **Selenium + BeautifulSoup**: Headless and visible browser modes
 - **Persistent Chrome Sessions**: Popup/consent management solved
-- **Documentation**: Comprehensive docs/WEB_SCRAPERS.md with capabilities matrix
+- **Documentation**: docs/WEB_SCRAPERS.md needs updating with new scraper capabilities
 
 **AssetDataProvider System:**
 - 3 active providers: YFinance (Priority 2), Finnhub (Priority 3), Alpha Vantage (Priority 4) 
@@ -206,7 +277,8 @@ This file tracks active development tasks and provides context for resuming work
 ## 📋 Development Workflow Notes
 
 ### Session Resumption Priority Order
-1. **Implement additional after-hours scrapers** - Investing.com, TipRanks, TradingView, ADVFN
+1. **Implement TradingView after-hours scraper** - Only remaining scraper to implement
+2. **Test all 5 existing scrapers** - Verify Jules' implementations work correctly
 2. **Organize scrapers by capabilities** - Exchange selection, methodology transparency, filtering
 3. **Create scraper aggregation logic** - Cross-validation and conflict resolution
 4. **Complete CandidateGapTypeAnalyzer implementation** - Core gap trading logic

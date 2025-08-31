@@ -87,45 +87,5 @@ DEV_CONFIG = {
     "test_mode": False,  # Set to True for unit tests
 }
 
-# API Configuration
-API_CONFIG = {
-    # Polygon.io API (Primary data provider)
-    "polygon": {
-        "api_key": os.getenv("POLYGON_API_KEY"),
-        "rate_limit_per_minute": 5,  # Free tier limit
-        "supports_extended_hours": True,
-        "priority": 1,  # Highest priority
-    },
-    # Yahoo Finance (Fallback provider - no API key needed)
-    "yfinance": {
-        "api_key": None,
-        "rate_limit_per_minute": 60,  # Conservative estimate
-        "supports_extended_hours": True,
-        "priority": 2,  # Secondary priority
-    },
-    # Alpha Vantage (Optional third provider)
-    "alpha_vantage": {
-        "api_key": os.getenv("ALPHA_VANTAGE_API_KEY"),
-        "rate_limit_per_minute": 5,  # Free tier limit
-        "supports_extended_hours": False,
-        "priority": 4,  # Lower priority
-    },
-    # Finnhub.io (High-quality alternative provider)
-    "finnhub": {
-        "api_key": os.getenv("FINNHUB_API_KEY"),
-        "rate_limit_per_minute": 60,  # Free tier limit
-        "supports_extended_hours": True,
-        "priority": 3,  # Higher priority than Alpha Vantage
-    },
-    # NewsAPI for news data
-    "newsapi": {
-        "api_key": os.getenv("NEWS_API_KEY"),
-        "rate_limit_per_day": 1000,  # Free tier limit
-    },
-    # Reddit API for sentiment
-    "reddit": {
-        "client_id": os.getenv("REDDIT_CLIENT_ID"),
-        "client_secret": os.getenv("REDDIT_CLIENT_SECRET"),
-        "user_agent": os.getenv("REDDIT_USER_AGENT", "TradeScout/1.0"),
-    },
-}
+# NOTE: API provider configuration is now centralized in data_sources_config.yaml
+# and managed by DataSourcesManager for better organization and consistency

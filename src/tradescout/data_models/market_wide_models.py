@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Dict, List, Optional
 
-from ..data_models.domain_models_core import Asset, MarketQuote, MarketStatus
+from .domain_models_core import Asset, MarketQuote, MarketStatus
 
 
 class SectorType(Enum):

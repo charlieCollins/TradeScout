@@ -1,23 +1,26 @@
 # Web Scrapers Documentation
 
 ## Overview
-Comprehensive documentation of web scrapers for market data collection including after-hours, pre-market, news, sentiment analysis, and regular trading session data.
+Comprehensive documentation of web scrapers for market data collection. All scrapers support after-hours data and have stub implementations for pre-market data (future development).
+
+**Location**: `src/tradescout/data_sources_scraping/`  
+**Integration**: Fully integrated with SmartCoordinator for intelligent routing  
+**Configuration**: Centralized in `data_sources_config.yaml`
 
 ## Table of Contents
-- [After-Hours Scrapers](#after-hours-scrapers)
-- [Pre-Market Scrapers](#pre-market-scrapers) *(Coming Soon)*
-- [News & Sentiment Scrapers](#news--sentiment-scrapers) *(Coming Soon)*
-- [Regular Session Scrapers](#regular-session-scrapers) *(Coming Soon)*
+- [Extended Hours Scrapers](#extended-hours-scrapers)
+- [Pre-Market Support](#pre-market-support) *(Stub Implementations)*
+- [SmartCoordinator Integration](#smartcoordinator-integration)
 - [Scraper Capabilities Matrix](#scraper-capabilities-matrix)
 - [Technical Architecture](#technical-architecture)
 
 ---
 
-## After-Hours Scrapers
+## Extended Hours Scrapers
 
-After-hours trading occurs from 4:00 PM to 8:00 PM ET. These scrapers collect data on stocks with significant price movements during extended trading hours.
+Extended hours trading includes both after-hours (4:00 PM - 8:00 PM ET) and pre-market (4:00 AM - 9:30 AM ET) sessions. Current implementations focus on after-hours data with pre-market support planned.
 
-### 1. CNN Markets After-Hours Scraper ✅ WORKING - PRIMARY SOURCE
+### 1. CNN Markets Scraper ✅ IMPLEMENTED - PRIMARY SOURCE
 
 **Source**: https://www.cnn.com/markets/after-hours  
 **Status**: Fully operational  
@@ -52,11 +55,14 @@ After-hours trading occurs from 4:00 PM to 8:00 PM ET. These scrapers collect da
 ```
 
 #### Technical Implementation:
+- **Class**: `CNNScraper` (implements `AfterHoursWebScraper`, `PreMarketWebScraper`)
+- **File**: `src/tradescout/data_sources_scraping/cnn_scraper.py`
 - **Method**: Selenium WebDriver with persistent Chrome session
 - **Popup Handling**: Persistent session bypasses Legal Terms popup after first run
 - **Session Storage**: `/home/ccollins/projects/TradeScout/data/chrome_session/CNN_Scraper/`
 - **Parsing**: BeautifulSoup on rendered HTML
 - **Reliability**: High - consistent data structure
+- **SmartCoordinator**: Integrated with `moderately_reliable` rating (priority 5)
 
 #### Strengths & Limitations:
 - ✅ Consistent, clean data format
@@ -70,11 +76,13 @@ After-hours trading occurs from 4:00 PM to 8:00 PM ET. These scrapers collect da
 
 ---
 
-### 2. MarketWatch After-Hours Scraper ✅ WORKING - SECONDARY SOURCE
+### 2. MarketWatch Scraper ✅ IMPLEMENTED - SECONDARY SOURCE
 
 **Source**: https://www.marketwatch.com/tools/screener/after-hours  
 **Status**: Functional with structured table data  
 **Data Quality**: Good but filtering criteria not documented  
+**Class**: `MarketWatchScraper` (implements `AfterHoursWebScraper`, `PreMarketWebScraper`)  
+**File**: `src/tradescout/data_sources_scraping/marketwatch_scraper.py`  
 
 #### Data Characteristics:
 - **Market Coverage**: Unknown - no indication of which exchanges or indices
@@ -99,6 +107,7 @@ Table structure includes:
 - **Parsing**: Enhanced table parser with K/M/B volume notation support
 - **Reliability**: Medium - stable table structure
 - **Session Storage**: `/home/ccollins/projects/TradeScout/data/chrome_session/MarketWatch_Scraper/`
+- **SmartCoordinator**: Integrated with `highly_reliable` rating (priority 6)
 
 #### Strengths & Limitations:
 - ✅ Clean table structure available
@@ -110,30 +119,33 @@ Table structure includes:
 
 ---
 
-### 3. ADVFN After-Hours Scraper 🔄 PLANNED
+### 3. ADVFN Scraper ✅ IMPLEMENTED - LESS RELIABLE
 
 **Source**: https://www.advfn.com/markets/{exchange}/afterhours  
-**Status**: To be implemented  
-**Exchange Selection**: ✅ Yes - Separate URLs for NASDAQ, NYSE, AMEX  
-**Methodology Transparency**: 🔍 TBD  
+**Status**: Implemented (disabled by default due to reliability issues)  
+**Class**: `ADVFNScraper` (implements `AfterHoursWebScraper`, `PreMarketWebScraper`)  
+**File**: `src/tradescout/data_sources_scraping/advfn_scraper.py`  
+**SmartCoordinator**: Integrated with `inconsistent` rating (priority 9, disabled)
 
 ---
 
-### 4. Investing.com After-Hours Scraper 🔄 PLANNED
+### 4. Investing.com Scraper ✅ IMPLEMENTED
 
 **Source**: https://www.investing.com/equities/after-hours  
-**Status**: To be implemented  
-**Exchange Selection**: 🔍 TBD  
-**Global Markets**: ✅ Expected  
+**Status**: Implemented with after-hours support  
+**Class**: `InvestingComScraper` (implements `AfterHoursWebScraper`, `PreMarketWebScraper`)  
+**File**: `src/tradescout/data_sources_scraping/investing_com_scraper.py`  
+**SmartCoordinator**: Integrated with `highly_reliable` rating (priority 8)
 
 ---
 
-### 5. TipRanks After-Hours Scraper 🔄 PLANNED
+### 5. TipRanks Scraper ✅ IMPLEMENTED
 
 **Source**: https://www.tipranks.com/markets/after-hours/gainers  
-**Status**: To be implemented  
-**Unique Features**: Analyst ratings, Smart scores  
-**Exchange Selection**: 🔍 TBD  
+**Status**: Implemented with dynamic content handling  
+**Class**: `TipRanksScraper` (implements `AfterHoursWebScraper`, `PreMarketWebScraper`)  
+**File**: `src/tradescout/data_sources_scraping/tipranks_scraper.py`  
+**SmartCoordinator**: Integrated with `moderately_reliable` rating (priority 7)  
 
 ---
 
@@ -146,9 +158,62 @@ Table structure includes:
 
 ---
 
-## Pre-Market Scrapers
+## Pre-Market Support
 
-*Coming Soon - Pre-market trading occurs from 4:00 AM to 9:30 AM ET*
+All web scrapers now implement the `PreMarketWebScraper` interface with **stub methods** for future development. Pre-market trading occurs from 4:00 AM to 9:30 AM ET.
+
+### Current Implementation Status
+- **Interface**: `PreMarketWebScraper` (abstract base class)
+- **Methods**: `get_premarket_gainers()`, `get_premarket_losers()`, `is_premarket_session()`, `get_premarket_session_info()`
+- **Implementation**: All scrapers return empty data and log warnings
+- **Future Development**: Real implementations planned when pre-market data collection is prioritized
+
+### Stub Method Behavior
+```python
+def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
+    """Get pre-market gainers - not yet implemented"""
+    logger.warning("Pre-market gainers not yet supported by [Scraper] scraper")
+    return []
+
+def get_premarket_session_info(self) -> Dict[str, any]:
+    """Get pre-market session info - not yet implemented"""
+    return {
+        "current_session": "not_supported",
+        "implementation_status": "stub"
+    }
+```
+
+---
+
+## SmartCoordinator Integration
+
+All web scrapers are fully integrated with the SmartCoordinator for intelligent data source routing and fallback strategies.
+
+### Configuration-Driven Routing
+```yaml
+# data_sources_config.yaml
+extended_hours:
+  providers: ["polygon", "yfinance", "marketwatch_scraper", "investing_com_scraper", "cnn_scraper", "tipranks_scraper"]
+  fallback_strategy: "first_success"
+```
+
+### Reliability-Based Selection
+- **Highly Reliable**: `marketwatch_scraper` (priority 6), `investing_com_scraper` (priority 8)
+- **Moderately Reliable**: `cnn_scraper` (priority 5), `tipranks_scraper` (priority 7)
+- **Inconsistent**: `advfn_scraper` (priority 9, disabled by default)
+
+### Usage Through SmartCoordinator
+```python
+from tradescout.data_sources.smart_coordinator import SmartCoordinator
+
+coordinator = SmartCoordinator()
+
+# Get extended hours gainers (uses web scrapers)
+gainers = coordinator.get_extended_hours_gainers(limit=20)
+
+# Get extended hours data for specific asset (uses API providers)
+extended_data = coordinator.get_extended_hours_data("AAPL")
+```
 
 ---
 
@@ -181,16 +246,26 @@ Legend: ✅ Yes | ❌ No | 🔍 To Be Determined | ⚠️ Limited
 
 ## Technical Architecture
 
-### After-Hours Architecture
+### Web Scraper Architecture
 ```
-AfterHoursWebScraper (Interface)
-├── CNNAfterHoursScraper ✅
-├── MarketWatchAfterHoursScraper ✅
-├── ADVFNAfterHoursScraper 🔄
-├── InvestingAfterHoursScraper 🔄
-├── TipRanksAfterHoursScraper 🔄
-├── TradingViewAfterHoursScraper 🔄
-└── AfterHoursAggregator 🔄
+Extended Hours Web Scrapers (src/tradescout/data_sources_scraping/)
+
+AfterHoursWebScraper (Interface)          PreMarketWebScraper (Interface)
+├── CNNScraper ✅                         ├── CNNScraper ✅ (stub)
+├── MarketWatchScraper ✅                 ├── MarketWatchScraper ✅ (stub)  
+├── InvestingComScraper ✅                ├── InvestingComScraper ✅ (stub)
+├── TipRanksScraper ✅                    ├── TipRanksScraper ✅ (stub)
+├── ADVFNScraper ✅ (disabled)            ├── ADVFNScraper ✅ (stub)
+└── [Future scrapers]                     └── [Future implementations]
+
+SmartCoordinator Integration:
+├── API Providers (AssetDataProvider)
+│   ├── polygon (extended hours support)
+│   └── yfinance (limited extended hours)
+└── Web Scrapers (AfterHoursWebScraper + PreMarketWebScraper)  
+    ├── Reliability-based routing
+    ├── First-success fallback strategy
+    └── Configuration-driven selection
 ```
 
 ### Data Aggregation Strategy
