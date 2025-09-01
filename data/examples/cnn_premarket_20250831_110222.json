@@ -1,0 +1,77 @@
+{
+  "timestamp": "2025-08-31T11:02:22.610408",
+  "source": "CNN Pre-Market",
+  "gainers": [
+    {
+      "symbol": "NUKK",
+      "company_name": "",
+      "previous_close": 3.69,
+      "premarket_price": 5.44,
+      "premarket_change": 1.75,
+      "premarket_change_percent": 47.43,
+      "premarket_volume": 0,
+      "source": "cnn",
+      "timestamp": "2025-08-31 15:02:07.353772+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "OPEN",
+      "company_name": "",
+      "previous_close": 4.27,
+      "premarket_price": 4.51,
+      "premarket_change": 0.24,
+      "premarket_change_percent": 5.62,
+      "premarket_volume": 0,
+      "source": "cnn",
+      "timestamp": "2025-08-31 15:02:07.353987+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "RGTI",
+      "company_name": "",
+      "previous_close": 16.58,
+      "premarket_price": 16.6,
+      "premarket_change": 0.02,
+      "premarket_change_percent": 0.12,
+      "premarket_volume": 0,
+      "source": "cnn",
+      "timestamp": "2025-08-31 15:02:07.354164+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "YYAI",
+      "company_name": "",
+      "previous_close": 2.36,
+      "premarket_price": 2.92,
+      "premarket_change": 0.56,
+      "premarket_change_percent": 23.56,
+      "premarket_volume": 0,
+      "source": "cnn",
+      "timestamp": "2025-08-31 15:02:07.354335+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "BABA",
+      "company_name": "",
+      "previous_close": 119.57,
+      "premarket_price": 128.87,
+      "premarket_change": 9.3,
+      "premarket_change_percent": 7.78,
+      "premarket_volume": 0,
+      "source": "cnn",
+      "timestamp": "2025-08-31 15:02:07.354505+00:00",
+      "session": "premarket"
+    }
+  ],
+  "losers": [],
+  "session_info": {
+    "current_session": "closed",
+    "session_start": "4:00 AM ET",
+    "session_end": "9:30 AM ET",
+    "source_name": "CNN Pre-Market",
+    "data_delay": "real_time",
+    "last_updated": "2025-08-31 15:01:55.749412+00:00",
+    "timezone": "America/New_York"
+  },
+  "is_premarket_session": false
+}

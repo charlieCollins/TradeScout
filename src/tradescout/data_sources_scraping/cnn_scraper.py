@@ -41,6 +41,7 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             headless: Run browser in headless mode (default: True)
         """
         self.base_url = "https://www.cnn.com/markets/after-hours"
+        self.premarket_url = "https://www.cnn.com/markets/premarkets"
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
@@ -72,6 +73,7 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         # Use persistent user data directory to maintain cookies/session
         import os
+
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
@@ -153,18 +155,21 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             # Check for actual blocking (more specific detection)
             page_source = self.driver.page_source.lower()
             page_title = self.driver.title.lower()
-            
+
             # Look for specific blocking indicators in title or prominent text
             blocking_indicators = [
                 ("error 451" in page_title),
                 ("unavailable" in page_title),
-                ("access denied" in page_title or "access denied" in page_source[:2000]),
+                (
+                    "access denied" in page_title
+                    or "access denied" in page_source[:2000]
+                ),
                 ("blocked" in page_title),
                 # Check for error page content in first 2000 characters
                 ("this content is not available" in page_source[:2000]),
                 ("451 unavailable" in page_source[:2000]),
             ]
-            
+
             if any(blocking_indicators):
                 logger.warning("CNN page appears to be blocked or unavailable")
                 return []
@@ -185,20 +190,31 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
                 # Wait for Legal Terms and Privacy popup to appear
                 time_module.sleep(3)
                 logger.info("Waiting for Legal Terms and Privacy popup to appear...")
-                
+
                 # Wait specifically for the popup to be visible
                 try:
                     popup_present = WebDriverWait(self.driver, 10).until(
                         EC.any_of(
-                            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")),
-                            EC.presence_of_element_located((By.XPATH, "//button[text()='Agree']")),
-                            EC.presence_of_element_located((By.XPATH, "//*[contains(text(), 'Terms of Use')]"))
+                            EC.presence_of_element_located(
+                                (
+                                    By.XPATH,
+                                    "//*[contains(text(), 'Legal Terms and Privacy')]",
+                                )
+                            ),
+                            EC.presence_of_element_located(
+                                (By.XPATH, "//button[text()='Agree']")
+                            ),
+                            EC.presence_of_element_located(
+                                (By.XPATH, "//*[contains(text(), 'Terms of Use')]")
+                            ),
                         )
                     )
-                    logger.info("Found Legal Terms/Privacy popup, proceeding with dismissal...")
+                    logger.info(
+                        "Found Legal Terms/Privacy popup, proceeding with dismissal..."
+                    )
                 except TimeoutException:
                     logger.info("No Legal Terms/Privacy popup detected, continuing...")
-                
+
                 logger.info("Attempting to dismiss popups/consent dialogs...")
 
                 # Remove overlay divs with high z-index (likely popups/ads)
@@ -232,13 +248,17 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
                 # Find and click the Agree button (it's an <a> tag, not <button>)
                 agree_button_found = False
-                
+
                 # First, find the Legal Terms and Privacy popup
-                legal_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")
+                legal_elements = self.driver.find_elements(
+                    By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]"
+                )
                 for legal_elem in legal_elements:
                     if legal_elem.is_displayed():
-                        logger.info("Found displayed Legal Terms popup, looking for Agree button...")
-                        
+                        logger.info(
+                            "Found displayed Legal Terms popup, looking for Agree button..."
+                        )
+
                         # The Agree button is an <a> tag based on HTML analysis
                         agree_selectors = [
                             "//a[text()='Agree']",  # Direct match for <a> tag
@@ -251,43 +271,72 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
                             "//button[contains(text(), 'Agree')]",
                             "//*[text()='Agree' and (@role='button' or name()='button' or name()='a')]",
                         ]
-                        
+
                         for selector in agree_selectors:
                             try:
-                                agree_elements = self.driver.find_elements(By.XPATH, selector)
+                                agree_elements = self.driver.find_elements(
+                                    By.XPATH, selector
+                                )
                                 for agree_elem in agree_elements:
-                                    if agree_elem.is_displayed() and agree_elem.is_enabled():
-                                        logger.info(f"Found Agree element: {agree_elem.tag_name} with text '{agree_elem.text}'")
-                                        
+                                    if (
+                                        agree_elem.is_displayed()
+                                        and agree_elem.is_enabled()
+                                    ):
+                                        logger.info(
+                                            f"Found Agree element: {agree_elem.tag_name} with text '{agree_elem.text}'"
+                                        )
+
                                         # Scroll into view and click
-                                        self.driver.execute_script("arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", agree_elem)
+                                        self.driver.execute_script(
+                                            "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
+                                            agree_elem,
+                                        )
                                         time_module.sleep(0.5)
-                                        self.driver.execute_script("arguments[0].click();", agree_elem)
-                                        time_module.sleep(3)  # Wait for popup to disappear
-                                        
+                                        self.driver.execute_script(
+                                            "arguments[0].click();", agree_elem
+                                        )
+                                        time_module.sleep(
+                                            3
+                                        )  # Wait for popup to disappear
+
                                         # Check if popup is gone
-                                        remaining_legal = self.driver.find_elements(By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]")
-                                        visible_legal = [e for e in remaining_legal if e.is_displayed()]
-                                        
+                                        remaining_legal = self.driver.find_elements(
+                                            By.XPATH,
+                                            "//*[contains(text(), 'Legal Terms and Privacy')]",
+                                        )
+                                        visible_legal = [
+                                            e
+                                            for e in remaining_legal
+                                            if e.is_displayed()
+                                        ]
+
                                         if len(visible_legal) == 0:
-                                            logger.info("SUCCESS: Agree button clicked and popup dismissed!")
+                                            logger.info(
+                                                "SUCCESS: Agree button clicked and popup dismissed!"
+                                            )
                                             agree_button_found = True
                                             break
                                         else:
-                                            logger.debug(f"Agree button clicked but popup still visible")
-                                            
+                                            logger.debug(
+                                                f"Agree button clicked but popup still visible"
+                                            )
+
                             except Exception as e:
                                 logger.debug(f"Failed with selector {selector}: {e}")
-                            
+
                             if agree_button_found:
                                 break
-                        
+
                         if agree_button_found:
                             break
-                
+
                 if not agree_button_found:
-                    logger.warning("Could not find or click Agree button, but continuing...")
-                    popup_dismissers = []  # Skip fallback since we have persistent session now
+                    logger.warning(
+                        "Could not find or click Agree button, but continuing..."
+                    )
+                    popup_dismissers = (
+                        []
+                    )  # Skip fallback since we have persistent session now
                 else:
                     popup_dismissers = []  # Skip fallback if we already succeeded
 
@@ -296,60 +345,74 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
                     try:
                         close_buttons = self.driver.find_elements(By.XPATH, dismisser)
                         for close_button in close_buttons:
-                            if close_button.is_displayed() and close_button.is_enabled():
+                            if (
+                                close_button.is_displayed()
+                                and close_button.is_enabled()
+                            ):
                                 try:
                                     button_text = close_button.text.strip()
                                     logger.info(
                                         f"Found clickable button: '{button_text}' with selector: {dismisser}"
                                     )
-                                    
+
                                     # Scroll the button into view first
                                     self.driver.execute_script(
-                                        "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});", 
-                                        close_button
+                                        "arguments[0].scrollIntoView({behavior: 'smooth', block: 'center'});",
+                                        close_button,
                                     )
                                     time_module.sleep(0.5)
-                                    
+
                                     # Try different click methods
                                     success = False
-                                    
+
                                     # Method 1: JavaScript click (most reliable)
                                     try:
-                                        self.driver.execute_script("arguments[0].click();", close_button)
-                                        logger.info(f"Successfully clicked button '{button_text}' with JavaScript")
+                                        self.driver.execute_script(
+                                            "arguments[0].click();", close_button
+                                        )
+                                        logger.info(
+                                            f"Successfully clicked button '{button_text}' with JavaScript"
+                                        )
                                         success = True
                                     except Exception as e:
                                         logger.debug(f"JavaScript click failed: {e}")
-                                    
+
                                     # Method 2: WebDriver click as fallback
                                     if not success:
                                         try:
                                             close_button.click()
-                                            logger.info(f"Successfully clicked button '{button_text}' with WebDriver")
+                                            logger.info(
+                                                f"Successfully clicked button '{button_text}' with WebDriver"
+                                            )
                                             success = True
                                         except Exception as e:
                                             logger.debug(f"WebDriver click failed: {e}")
-                                    
+
                                     if success:
                                         buttons_found += 1
-                                        time_module.sleep(2)  # Wait longer after successful click
-                                        
+                                        time_module.sleep(
+                                            2
+                                        )  # Wait longer after successful click
+
                                         # Check if popup is gone
                                         try:
                                             popup_still_present = self.driver.find_elements(
-                                                By.XPATH, "//*[contains(text(), 'Legal Terms and Privacy')]"
+                                                By.XPATH,
+                                                "//*[contains(text(), 'Legal Terms and Privacy')]",
                                             )
                                             if not popup_still_present:
-                                                logger.info("Popup successfully dismissed!")
+                                                logger.info(
+                                                    "Popup successfully dismissed!"
+                                                )
                                                 break
                                         except:
                                             pass
-                                    
+
                                 except Exception as e:
                                     logger.debug(f"Failed to click button: {e}")
                     except:
                         continue
-                    
+
                     # Break if we successfully clicked an agree button
                     if buttons_found > 0 and "agree" in dismisser.lower():
                         break
@@ -441,18 +504,21 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             # Check for actual blocking (more specific detection)
             page_source = self.driver.page_source.lower()
             page_title = self.driver.title.lower()
-            
+
             # Look for specific blocking indicators in title or prominent text
             blocking_indicators = [
                 ("error 451" in page_title),
                 ("unavailable" in page_title),
-                ("access denied" in page_title or "access denied" in page_source[:2000]),
+                (
+                    "access denied" in page_title
+                    or "access denied" in page_source[:2000]
+                ),
                 ("blocked" in page_title),
                 # Check for error page content in first 2000 characters
                 ("this content is not available" in page_source[:2000]),
                 ("451 unavailable" in page_source[:2000]),
             ]
-            
+
             if any(blocking_indicators):
                 logger.warning("CNN page appears to be blocked or unavailable")
                 return []
@@ -753,31 +819,371 @@ class CNNScraper(AfterHoursWebScraper, PreMarketWebScraper):
         except:
             return 0
 
-    # PreMarketWebScraper interface implementation (stub methods)
+    def _fetch_premarket_data(
+        self, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """Fetch pre-market data from CNN using the pre-market URL"""
+        try:
+            self._setup_driver()
+            logger.info(f"Loading CNN pre-market page: {self.premarket_url}")
+            self.driver.get(self.premarket_url)
+
+            # Wait for page to load and check if we got blocked
+            time_module.sleep(3)
+
+            # Check for blocking indicators
+            page_source = self.driver.page_source.lower()
+            page_title = self.driver.title.lower()
+
+            blocking_indicators = [
+                ("error 451" in page_title),
+                ("unavailable" in page_title),
+                (
+                    "access denied" in page_title
+                    or "access denied" in page_source[:2000]
+                ),
+                ("blocked" in page_title),
+                ("this content is not available" in page_source[:2000]),
+                ("451 unavailable" in page_source[:2000]),
+            ]
+
+            if any(blocking_indicators):
+                logger.warning(
+                    "CNN pre-market page appears to be blocked or unavailable"
+                )
+                return []
+            else:
+                logger.info(
+                    "Pre-market page loaded successfully, proceeding with scraping"
+                )
+
+            # Wait for content to load
+            try:
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+            except TimeoutException:
+                logger.warning("Timeout waiting for CNN pre-market page to load")
+                return []
+
+            # Dismiss any popups/overlays
+            try:
+                popup_buttons = self.driver.find_elements(
+                    By.XPATH,
+                    "//button[contains(text(), 'Agree') or contains(text(), 'Accept') or contains(text(), 'Continue') or contains(text(), 'Close')]",
+                )
+                for button in popup_buttons:
+                    if button.is_displayed():
+                        button.click()
+                        time_module.sleep(1)
+                        break
+            except Exception as e:
+                logger.debug(f"Could not dismiss popups: {e}")
+
+            # Click on the appropriate tab (Gainers or Losers)
+            try:
+                if mover_type == "gainers":
+                    button_xpath = "//button[contains(text(), 'Gainers') or contains(@class, 'gainers')]"
+                else:
+                    button_xpath = "//button[contains(text(), 'Losers') or contains(@class, 'losers')]"
+
+                button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, button_xpath))
+                )
+                button.click()
+                time_module.sleep(2)  # Wait for content to update
+            except Exception as e:
+                logger.warning(f"Could not click {mover_type} button: {e}")
+
+            # Get page source and parse
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+            # Parse pre-market data using similar logic to after-hours
+            movers = self._parse_premarket_movers_data(soup, mover_type, limit)
+
+            time_module.sleep(self.delay_seconds)
+            return movers
+
+        except WebDriverException as e:
+            logger.error(f"Selenium error fetching CNN pre-market {mover_type}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing CNN pre-market {mover_type}: {e}")
+            return []
+        finally:
+            self._cleanup_driver()
+
+    def _parse_premarket_movers_data(
+        self, soup: BeautifulSoup, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """
+        Parse pre-market gainers or losers data from CNN's HTML structure
+        """
+        movers = []
+        try:
+            # Try multiple selectors to find the stock movers data
+            # CNN's structure might be different on pre-market vs after-hours
+            table_selectors = [
+                ".basic-table__container-view-21fmzH",  # Standard table container
+                ".market-movers",  # Alternative selector
+                "[class*='table']",  # Any table-like class
+                "[class*='movers']",  # Any movers-related class
+            ]
+
+            table_container = None
+            for selector in table_selectors:
+                table_container = soup.select_one(selector)
+                if table_container:
+                    logger.info(f"Found table container with selector: {selector}")
+                    break
+
+            if not table_container:
+                logger.warning("Could not find CNN pre-market table container")
+                # Fallback: try to parse any stock-like data from the page
+                return self._parse_fallback_premarket_data(soup, mover_type, limit)
+
+            # Find stock rows
+            row_selectors = [
+                ".basic-table__entry-GjSB5a",  # Standard row selector
+                "[class*='entry']",  # Any entry-like class
+                "[class*='row']",  # Any row-like class
+                "tr",  # Standard table rows
+            ]
+
+            stock_rows = []
+            for selector in row_selectors:
+                stock_rows = table_container.select(selector)[:limit]
+                if stock_rows:
+                    logger.info(
+                        f"Found {len(stock_rows)} stock rows with selector: {selector}"
+                    )
+                    break
+
+            if not stock_rows:
+                logger.warning("Could not find stock rows in pre-market table")
+                return []
+
+            for row in stock_rows:
+                try:
+                    mover_data = self._extract_premarket_stock_data(row)
+                    if mover_data and mover_data.get("symbol"):
+                        # Filter by mover type based on percentage change
+                        change_percent = mover_data.get("premarket_change_percent", 0)
+                        if mover_type == "gainers" and change_percent > 0:
+                            movers.append(mover_data)
+                        elif mover_type == "losers" and change_percent < 0:
+                            movers.append(mover_data)
+                except Exception as e:
+                    logger.debug(f"Error parsing pre-market row: {e}")
+                    continue
+
+            logger.info(
+                f"Successfully parsed {len(movers)} pre-market {mover_type} from CNN"
+            )
+            return movers[:limit]
+
+        except Exception as e:
+            logger.error(f"Error parsing CNN pre-market movers: {e}")
+            return []
+
+    def _extract_premarket_stock_data(self, row) -> Dict[str, any]:
+        """Extract stock data from a CNN pre-market table row"""
+        try:
+            # Extract symbol - try multiple selectors
+            symbol = None
+            symbol_selectors = [
+                ".ticker a",
+                "a[href*='/quote/']",
+                "[class*='symbol']",
+                "[class*='ticker']",
+            ]
+            for selector in symbol_selectors:
+                symbol_elem = row.select_one(selector)
+                if symbol_elem:
+                    symbol = symbol_elem.text.strip()
+                    break
+
+            if not symbol:
+                return None
+
+            # Extract company name - try from title attribute or nearby text
+            company_name = ""
+            try:
+                name_elem = row.select_one("[title]") or row.select_one(
+                    "[class*='name']"
+                )
+                if name_elem:
+                    company_name = name_elem.get("title") or name_elem.text.strip()
+            except:
+                pass
+
+            # Extract price data - look for price and percentage elements
+            price = 0.0
+            change = 0.0
+            change_percent = 0.0
+            volume = 0
+
+            # Look for percentage changes (usually more reliable)
+            percent_elements = row.find_all(
+                string=lambda text: text and "%" in str(text)
+            )
+            for elem in percent_elements:
+                try:
+                    percent_text = str(elem).strip().replace("%", "").replace("+", "")
+                    change_percent = float(percent_text)
+                    break
+                except:
+                    continue
+
+            # Look for price data
+            price_elements = row.find_all(string=lambda text: text and "$" in str(text))
+            for elem in price_elements:
+                try:
+                    price_text = str(elem).strip().replace("$", "").replace(",", "")
+                    price = float(price_text)
+                    break
+                except:
+                    continue
+
+            # If no price found, try to extract from any numeric text
+            if price == 0.0:
+                all_text = row.get_text()
+                import re
+
+                # Look for patterns like "123.45" or "$123.45"
+                price_matches = re.findall(r"\$?(\d+\.\d{2})", all_text)
+                if price_matches:
+                    try:
+                        price = float(price_matches[0])
+                    except:
+                        pass
+
+            # Calculate previous close if we have price and percentage
+            previous_close = 0.0
+            if price > 0 and change_percent != 0:
+                previous_close = price / (1 + change_percent / 100)
+                change = price - previous_close
+
+            return {
+                "symbol": symbol,
+                "company_name": company_name,
+                "previous_close": round(previous_close, 2),
+                "premarket_price": price,
+                "premarket_change": round(change, 2),
+                "premarket_change_percent": change_percent,
+                "premarket_volume": volume,
+                "source": "cnn",
+                "timestamp": datetime.now(pytz.UTC),
+                "session": "premarket",
+            }
+
+        except Exception as e:
+            logger.debug(f"Error extracting pre-market stock data: {e}")
+            return None
+
+    def _parse_fallback_premarket_data(
+        self, soup: BeautifulSoup, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """Fallback parsing method for pre-market data when standard selectors fail"""
+        movers = []
+        try:
+            # Look for any text containing stock symbols and percentages
+            all_text = soup.get_text()
+
+            # Simple regex to find patterns like "SYMBOL +12.34%"
+            import re
+
+            pattern = r"([A-Z]{2,6})\s*([+-]?\d+\.\d+%)"
+            matches = re.findall(pattern, all_text)
+
+            for symbol, percent_text in matches[: limit * 2]:  # Get extra to filter
+                try:
+                    change_percent = float(
+                        percent_text.replace("%", "").replace("+", "")
+                    )
+
+                    # Filter by mover type
+                    if mover_type == "gainers" and change_percent <= 0:
+                        continue
+                    elif mover_type == "losers" and change_percent >= 0:
+                        continue
+
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": "",
+                        "previous_close": 0.0,
+                        "premarket_price": 0.0,
+                        "premarket_change": 0.0,
+                        "premarket_change_percent": change_percent,
+                        "premarket_volume": 0,
+                        "source": "cnn",
+                        "timestamp": datetime.now(pytz.UTC),
+                        "session": "premarket",
+                    }
+                    movers.append(mover_data)
+
+                    if len(movers) >= limit:
+                        break
+
+                except Exception as e:
+                    logger.debug(f"Error in fallback parsing: {e}")
+                    continue
+
+            logger.info(f"Fallback parsing found {len(movers)} pre-market {mover_type}")
+            return movers
+
+        except Exception as e:
+            logger.warning(f"Fallback pre-market parsing failed: {e}")
+            return []
+
+    # PreMarketWebScraper interface implementation
     def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market gainers - not yet implemented"""
-        logger.warning("Pre-market gainers not yet supported by CNN scraper")
-        return []
+        """Get pre-market gainers from CNN"""
+        return self._fetch_premarket_data("gainers", limit)
 
     def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market losers - not yet implemented"""
-        logger.warning("Pre-market losers not yet supported by CNN scraper")
-        return []
+        """Get pre-market losers from CNN"""
+        return self._fetch_premarket_data("losers", limit)
 
     def is_premarket_session(self) -> bool:
-        """Check if currently in pre-market session - not yet implemented"""
-        logger.warning("Pre-market session detection not yet supported by CNN scraper")
+        """Check if currently in pre-market session (4:00-9:30 AM ET)"""
+        eastern = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern)
+
+        # Pre-market: 4:00 AM - 9:30 AM ET on weekdays
+        if now.weekday() < 5:  # Monday = 0, Friday = 4
+            premarket_start = time(4, 0)  # 4:00 AM
+            premarket_end = time(9, 30)  # 9:30 AM
+            current_time = now.time()
+
+            return premarket_start <= current_time < premarket_end
+
         return False
 
     def get_premarket_session_info(self) -> Dict[str, any]:
-        """Get pre-market session info - not yet implemented"""
-        logger.warning("Pre-market session info not yet supported by CNN scraper")
+        """Get pre-market session information"""
+        eastern = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern)
+        current_time = now.time()
+
+        # Determine current session
+        if now.weekday() >= 5:  # Weekend
+            current_session = "closed"
+        elif time(4, 0) <= current_time < time(9, 30):
+            current_session = "premarket"
+        elif time(9, 30) <= current_time < time(16, 0):
+            current_session = "regular"
+        elif time(16, 0) <= current_time <= time(20, 0):
+            current_session = "after_hours"
+        else:
+            current_session = "closed"
+
         return {
-            "current_session": "not_supported",
+            "current_session": current_session,
             "session_start": "4:00 AM ET",
             "session_end": "9:30 AM ET",
-            "source_name": "CNN Pre-Market (Not Implemented)",
-            "data_delay": "not_supported",
-            "last_updated": datetime.now(),
-            "implementation_status": "stub"
+            "source_name": "CNN Pre-Market",
+            "data_delay": "real_time",
+            "last_updated": datetime.now(pytz.UTC),
+            "timezone": "America/New_York",
         }

@@ -36,11 +36,14 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
         Initialize Investing.com web scraper.
         """
         self.base_url = "https://www.investing.com/equities/after-hours"
+        self.premarket_url = "https://www.investing.com/equities/pre-market"
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
         self._all_movers_cache = None
         self._cache_timestamp = None
+        self._premarket_movers_cache = None
+        self._premarket_cache_timestamp = None
 
     def _setup_driver(self):
         """Setup Chrome driver with persistent session."""
@@ -56,10 +59,13 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         chrome_options.add_argument("--window-size=1920,1080")
 
         import os
+
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
@@ -67,7 +73,9 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         try:
             self.driver = webdriver.Chrome(options=chrome_options)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self.driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
         except Exception as e:
             logger.error(f"Failed to setup Chrome driver: {e}")
             raise
@@ -88,7 +96,11 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
         when get_after_hours_gainers and get_after_hours_losers are called in succession.
         """
         # Check cache first
-        if self._all_movers_cache and self._cache_timestamp and (datetime.now() - self._cache_timestamp).total_seconds() < 60:
+        if (
+            self._all_movers_cache
+            and self._cache_timestamp
+            and (datetime.now() - self._cache_timestamp).total_seconds() < 60
+        ):
             logger.info("Returning cached data from Investing.com.")
             return self._all_movers_cache
 
@@ -101,14 +113,16 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
             WebDriverWait(self.driver, 20).until(
                 EC.presence_of_element_located((By.ID, "afterhours"))
             )
-            time_module.sleep(self.delay_seconds) # Small delay for dynamic content
+            time_module.sleep(self.delay_seconds)  # Small delay for dynamic content
 
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
 
             # The main data is in the table with id="afterhours"
             table = soup.find("table", id="afterhours")
             if not table:
-                logger.warning("Could not find the 'afterhours' data table on the page.")
+                logger.warning(
+                    "Could not find the 'afterhours' data table on the page."
+                )
                 return []
 
             parsed_data = self._parse_active_movers_table(table)
@@ -133,7 +147,11 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
         all_movers = self._fetch_and_parse_data()
 
         # Sort by percentage change (descending)
-        gainers = sorted(all_movers, key=lambda x: x.get('after_hours_change_percent', 0), reverse=True)
+        gainers = sorted(
+            all_movers,
+            key=lambda x: x.get("after_hours_change_percent", 0),
+            reverse=True,
+        )
 
         return gainers[:limit]
 
@@ -142,14 +160,22 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
         all_movers = self._fetch_and_parse_data()
 
         # Sort by percentage change (ascending)
-        losers = sorted(all_movers, key=lambda x: x.get('after_hours_change_percent', 0))
+        losers = sorted(
+            all_movers, key=lambda x: x.get("after_hours_change_percent", 0)
+        )
 
         return losers[:limit]
 
-    def _parse_active_movers_table(self, table: BeautifulSoup) -> List[Dict[str, any]]:
+    def _parse_active_movers_table(
+        self, table: BeautifulSoup, session_type: str = "after_hours"
+    ) -> List[Dict[str, any]]:
         """Parses the content of the 'Most Active' stocks table."""
         movers = []
-        rows = table.find("tbody").find_all("tr")
+        tbody = table.find("tbody")
+        if not tbody:
+            return []
+
+        rows = tbody.find_all("tr")
 
         for row in rows:
             cells = row.find_all("td")
@@ -167,30 +193,50 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
                 change_text = cells[3].get_text(strip=True)
                 change = float(change_text) if change_text else 0.0
 
-                change_percent_text = cells[4].get_text(strip=True).replace("%", "").replace("+", "")
-                change_percent = float(change_percent_text) if change_percent_text else 0.0
+                change_percent_text = (
+                    cells[4].get_text(strip=True).replace("%", "").replace("+", "")
+                )
+                change_percent = (
+                    float(change_percent_text) if change_percent_text else 0.0
+                )
 
                 volume_text = cells[5].get_text(strip=True)
                 volume = self._parse_volume(volume_text)
 
                 regular_close = price - change
 
-                mover_data = {
-                    "symbol": symbol,
-                    "company_name": company_name,
-                    "regular_close": round(regular_close, 4),
-                    "after_hours_price": price,
-                    "after_hours_change": change,
-                    "after_hours_change_percent": change_percent,
-                    "after_hours_volume": volume,
-                    "source": "investing_com_after_hours",
-                    "timestamp": datetime.now(),
-                    "session": "after_hours",
-                }
+                if session_type == "premarket":
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "previous_close": round(regular_close, 4),
+                        "premarket_price": price,
+                        "premarket_change": change,
+                        "premarket_change_percent": change_percent,
+                        "premarket_volume": volume,
+                        "source": "investing_com",
+                        "timestamp": datetime.now(pytz.timezone("America/New_York")),
+                        "session": "premarket",
+                    }
+                else:
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "regular_close": round(regular_close, 4),
+                        "after_hours_price": price,
+                        "after_hours_change": change,
+                        "after_hours_change_percent": change_percent,
+                        "after_hours_volume": volume,
+                        "source": "investing_com_after_hours",
+                        "timestamp": datetime.now(),
+                        "session": "after_hours",
+                    }
                 movers.append(mover_data)
 
             except (ValueError, IndexError) as e:
-                logger.warning(f"Could not parse row for Investing.com: {row.get_text().strip()}. Error: {e}")
+                logger.warning(
+                    f"Could not parse row for Investing.com: {row.get_text().strip()}. Error: {e}"
+                )
                 continue
 
         return movers
@@ -198,7 +244,7 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
     def _parse_volume(self, volume_text: str) -> int:
         """Parse volume string like "1.2M" or "850K" to integer."""
         volume_text = volume_text.upper().strip()
-        if not volume_text or volume_text == 'N/A':
+        if not volume_text or volume_text == "N/A":
             return 0
         try:
             if "B" in volume_text:
@@ -246,31 +292,126 @@ class InvestingComScraper(AfterHoursWebScraper, PreMarketWebScraper):
             "timezone": "America/New_York",
         }
 
-    # PreMarketWebScraper interface implementation (stub methods)
+    def _fetch_premarket_data(self) -> List[Dict[str, any]]:
+        """
+        Fetches the pre-market page data and parses the table.
+        Caches the result for a short period to avoid redundant parsing.
+        """
+        # Check cache first
+        if (
+            self._premarket_movers_cache
+            and self._premarket_cache_timestamp
+            and (datetime.now() - self._premarket_cache_timestamp).total_seconds() < 60
+        ):
+            logger.info("Returning cached pre-market data from Investing.com.")
+            return self._premarket_movers_cache
+
+        try:
+            self._setup_driver()
+            logger.info(f"Loading Investing.com pre-market page: {self.premarket_url}")
+            self.driver.get(self.premarket_url)
+
+            # Wait for the table to be present. Looking for common table identifiers
+            WebDriverWait(self.driver, 20).until(
+                lambda driver: driver.find_element(By.TAG_NAME, "table")
+            )
+            time_module.sleep(self.delay_seconds)
+
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+            # Look for the main data table - try different approaches
+            table = None
+
+            # First try: look for table with id "premarket" or similar
+            table = soup.find("table", id="premarket")
+            if not table:
+                # Second try: look for the first table with stock data structure
+                tables = soup.find_all("table")
+                for t in tables:
+                    headers = t.find_all(["th", "td"])
+                    header_text = " ".join([h.get_text().lower() for h in headers[:10]])
+                    if any(
+                        keyword in header_text
+                        for keyword in ["symbol", "name", "change", "price", "volume"]
+                    ):
+                        table = t
+                        break
+
+            if not table:
+                logger.warning(
+                    "Could not find pre-market data table on Investing.com page."
+                )
+                return []
+
+            parsed_data = self._parse_active_movers_table(table, "premarket")
+
+            # Cache the result
+            self._premarket_movers_cache = parsed_data
+            self._premarket_cache_timestamp = datetime.now()
+
+            return parsed_data
+
+        except WebDriverException as e:
+            logger.error(f"Selenium error fetching Investing.com pre-market data: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing Investing.com pre-market data: {e}")
+            return []
+        finally:
+            self._cleanup_driver()
+
+    # PreMarketWebScraper interface implementation
     def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market gainers - not yet implemented"""
-        logger.warning("Pre-market gainers not yet supported by Investing.com scraper")
-        return []
+        """Get top pre-market gaining stocks from Investing.com."""
+        all_movers = self._fetch_premarket_data()
+
+        # Sort by percentage change (descending)
+        gainers = sorted(
+            all_movers, key=lambda x: x.get("premarket_change_percent", 0), reverse=True
+        )
+
+        return gainers[:limit]
 
     def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market losers - not yet implemented"""
-        logger.warning("Pre-market losers not yet supported by Investing.com scraper")
-        return []
+        """Get top pre-market losing stocks from Investing.com."""
+        all_movers = self._fetch_premarket_data()
+
+        # Sort by percentage change (ascending)
+        losers = sorted(all_movers, key=lambda x: x.get("premarket_change_percent", 0))
+
+        return losers[:limit]
 
     def is_premarket_session(self) -> bool:
-        """Check if currently in pre-market session - not yet implemented"""
-        logger.warning("Pre-market session detection not yet supported by Investing.com scraper")
-        return False
+        """Check if we're currently in pre-market trading session (4 AM - 9:30 AM ET)."""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz).time()
+        premarket_start = time(4, 0)
+        premarket_end = time(9, 30)
+        return premarket_start <= now_et < premarket_end
 
     def get_premarket_session_info(self) -> Dict[str, any]:
-        """Get pre-market session info - not yet implemented"""
-        logger.warning("Pre-market session info not yet supported by Investing.com scraper")
+        """Get information about the current pre-market trading session and data source."""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz)
+        current_time = now_et.time()
+
+        if time(4, 0) <= current_time < time(9, 30):
+            session = "premarket"
+        elif time(9, 30) <= current_time < time(16, 0):
+            session = "regular"
+        elif time(16, 0) <= current_time <= time(20, 0):
+            session = "after_hours"
+        else:
+            session = "closed"
+
         return {
-            "current_session": "not_supported",
+            "current_session": session,
             "session_start": "4:00 AM ET",
             "session_end": "9:30 AM ET",
-            "source_name": "Investing.com Pre-Market (Not Implemented)",
-            "data_delay": "not_supported",
-            "last_updated": datetime.now(),
-            "implementation_status": "stub"
+            "source_name": "Investing.com Pre-Market",
+            "source_url": self.premarket_url,
+            "data_delay": "real_time",
+            "last_updated": now_et,
+            "timezone": "America/New_York",
+            "is_premarket_session": self.is_premarket_session(),
         }

@@ -38,6 +38,7 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
         A longer delay is used to accommodate dynamic content loading.
         """
         self.base_url = "https://www.tipranks.com/markets/after-hours"
+        self.premarket_url = "https://www.tipranks.com/markets/pre-market"
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
@@ -56,10 +57,13 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
         chrome_options.add_experimental_option("useAutomationExtension", False)
-        chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        chrome_options.add_argument(
+            "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
         chrome_options.add_argument("--window-size=1920,1080")
 
         import os
+
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
@@ -67,7 +71,9 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         try:
             self.driver = webdriver.Chrome(options=chrome_options)
-            self.driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+            self.driver.execute_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
         except Exception as e:
             logger.error(f"Failed to setup Chrome driver: {e}")
             raise
@@ -81,9 +87,15 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
                 pass
             self.driver = None
 
-    def _fetch_page(self, mover_type: str) -> Optional[BeautifulSoup]:
+    def _fetch_page(
+        self, mover_type: str, session: str = "after_hours"
+    ) -> Optional[BeautifulSoup]:
         """Fetches the page and waits for dynamic content to load."""
-        url = f"{self.base_url}/{mover_type}"
+        if session == "premarket":
+            url = f"{self.premarket_url}/{mover_type}"
+        else:
+            url = f"{self.base_url}/{mover_type}"
+
         try:
             self._setup_driver()
             logger.info(f"Loading TipRanks page: {url}")
@@ -92,7 +104,9 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
             # Wait for the table to appear and for the data to load.
             # We can check if the loading dash '―' is no longer present in a key cell.
             WebDriverWait(self.driver, 20).until(
-                EC.presence_of_element_located((By.XPATH, "//div[contains(@class, 'rt-tr-group')]"))
+                EC.presence_of_element_located(
+                    (By.XPATH, "//div[contains(@class, 'rt-tr-group')]")
+                )
             )
             # Additional wait for the dynamic data to populate
             time_module.sleep(self.delay_seconds)
@@ -114,7 +128,7 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
         if not soup:
             return []
 
-        return self._parse_data(soup, limit, "gainers")
+        return self._parse_data(soup, limit, "gainers", "after_hours")
 
     def get_after_hours_losers(self, limit: int = 10) -> List[Dict[str, any]]:
         """Get top after-hours losing stocks from TipRanks."""
@@ -122,9 +136,15 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
         if not soup:
             return []
 
-        return self._parse_data(soup, limit, "losers")
+        return self._parse_data(soup, limit, "losers", "after_hours")
 
-    def _parse_data(self, soup: BeautifulSoup, limit: int, mover_type: str) -> List[Dict[str, any]]:
+    def _parse_data(
+        self,
+        soup: BeautifulSoup,
+        limit: int,
+        mover_type: str,
+        session: str = "after_hours",
+    ) -> List[Dict[str, any]]:
         """Parses the data from the TipRanks table."""
         movers = []
         # TipRanks uses a div-based table structure with role="rowgroup"
@@ -144,36 +164,61 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
                 symbol = cells[1].get_text(strip=True)
                 company_name = cells[2].get_text(strip=True)
 
-                change_percent_text = cells[4].get_text(strip=True).replace("%", "").replace("+", "")
-                if "―" in change_percent_text: continue # Skip rows without data
+                change_percent_text = (
+                    cells[4].get_text(strip=True).replace("%", "").replace("+", "")
+                )
+                if "―" in change_percent_text:
+                    continue  # Skip rows without data
                 change_percent = float(change_percent_text)
 
-                price_text = cells[5].get_text(strip=True).replace("$", "").replace(",", "")
+                price_text = (
+                    cells[5].get_text(strip=True).replace("$", "").replace(",", "")
+                )
                 price = float(price_text)
 
                 volume_text = cells[6].get_text(strip=True)
                 volume = self._parse_volume(volume_text)
 
                 # TipRanks provides change percent, so we calculate the change amount
-                change = price * (change_percent / (100 + change_percent)) if change_percent > -100 else 0
+                change = (
+                    price * (change_percent / (100 + change_percent))
+                    if change_percent > -100
+                    else 0
+                )
                 regular_close = price - change
 
-                mover_data = {
-                    "symbol": symbol,
-                    "company_name": company_name,
-                    "regular_close": round(regular_close, 4),
-                    "after_hours_price": price,
-                    "after_hours_change": round(change, 4),
-                    "after_hours_change_percent": change_percent,
-                    "after_hours_volume": volume,
-                    "source": f"tipranks_after_hours_{mover_type}",
-                    "timestamp": datetime.now(),
-                    "session": "after_hours",
-                }
+                if session == "premarket":
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "previous_close": round(regular_close, 4),
+                        "premarket_price": price,
+                        "premarket_change": round(change, 4),
+                        "premarket_change_percent": change_percent,
+                        "premarket_volume": volume,
+                        "source": f"tipranks",
+                        "timestamp": datetime.now(pytz.timezone("America/New_York")),
+                        "session": "premarket",
+                    }
+                else:
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "regular_close": round(regular_close, 4),
+                        "after_hours_price": price,
+                        "after_hours_change": round(change, 4),
+                        "after_hours_change_percent": change_percent,
+                        "after_hours_volume": volume,
+                        "source": f"tipranks_after_hours_{mover_type}",
+                        "timestamp": datetime.now(),
+                        "session": "after_hours",
+                    }
                 movers.append(mover_data)
 
             except (ValueError, IndexError) as e:
-                logger.warning(f"Could not parse row for TipRanks: {row.get_text().strip()}. Error: {e}")
+                logger.warning(
+                    f"Could not parse row for TipRanks: {row.get_text().strip()}. Error: {e}"
+                )
                 continue
 
         return movers
@@ -224,36 +269,59 @@ class TipRanksScraper(AfterHoursWebScraper, PreMarketWebScraper):
             "session_end": "8:00 PM ET",
             "source_name": "TipRanks After Hours",
             "source_url": self.base_url,
-            "data_delay": "real_time", # Assumption
+            "data_delay": "real_time",  # Assumption
             "last_updated": now_et,
             "timezone": "America/New_York",
         }
 
-    # PreMarketWebScraper interface implementation (stub methods)
+    # PreMarketWebScraper interface implementation
     def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market gainers - not yet implemented"""
-        logger.warning("Pre-market gainers not yet supported by TipRanks scraper")
-        return []
+        """Get top pre-market gaining stocks from TipRanks."""
+        soup = self._fetch_page("gainers", "premarket")
+        if not soup:
+            return []
+
+        return self._parse_data(soup, limit, "gainers", "premarket")
 
     def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market losers - not yet implemented"""
-        logger.warning("Pre-market losers not yet supported by TipRanks scraper")
-        return []
+        """Get top pre-market losing stocks from TipRanks."""
+        soup = self._fetch_page("losers", "premarket")
+        if not soup:
+            return []
+
+        return self._parse_data(soup, limit, "losers", "premarket")
 
     def is_premarket_session(self) -> bool:
-        """Check if currently in pre-market session - not yet implemented"""
-        logger.warning("Pre-market session detection not yet supported by TipRanks scraper")
-        return False
+        """Check if we're currently in pre-market trading session (4 AM - 9:30 AM ET)."""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz).time()
+        premarket_start = time(4, 0)
+        premarket_end = time(9, 30)
+        return premarket_start <= now_et < premarket_end
 
     def get_premarket_session_info(self) -> Dict[str, any]:
-        """Get pre-market session info - not yet implemented"""
-        logger.warning("Pre-market session info not yet supported by TipRanks scraper")
+        """Get information about the current pre-market trading session and data source."""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz)
+        current_time = now_et.time()
+
+        if time(4, 0) <= current_time < time(9, 30):
+            session = "premarket"
+        elif time(9, 30) <= current_time < time(16, 0):
+            session = "regular"
+        elif time(16, 0) <= current_time <= time(20, 0):
+            session = "after_hours"
+        else:
+            session = "closed"
+
         return {
-            "current_session": "not_supported",
+            "current_session": session,
             "session_start": "4:00 AM ET",
             "session_end": "9:30 AM ET",
-            "source_name": "TipRanks Pre-Market (Not Implemented)",
-            "data_delay": "not_supported",
-            "last_updated": datetime.now(),
-            "implementation_status": "stub"
+            "source_name": "TipRanks Pre-Market",
+            "source_url": self.premarket_url,
+            "data_delay": "real_time",
+            "last_updated": now_et,
+            "timezone": "America/New_York",
+            "is_premarket_session": self.is_premarket_session(),
         }

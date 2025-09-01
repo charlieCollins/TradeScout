@@ -72,13 +72,18 @@ pytest
 # System status with provider information
 ./tradescout status
 
+# Gap Trading - Academic Research-Based Suggestions ✅ OPERATIONAL
+./tradescout suggest --limit 5 --min-gap 2.0   # Daily gap trading opportunities
+./tradescout suggest --limit 10 --min-gap 3.0  # High-conviction gaps only
+./tradescout suggest --force                    # Force fresh market scan
+
 # Individual asset analysis
 ./tradescout quote AAPL MSFT TSLA              # Current quotes
 ./tradescout fundamentals AAPL                  # Company fundamentals
 ./tradescout volume-leaders --symbols="AAPL,MSFT,GOOGL,TSLA"  # Volume analysis
 ./tradescout history AAPL --days 7             # Historical data
 
-# Market-wide analysis ✅ NEW
+# Market-wide analysis
 ./tradescout gainers --limit 10                # Top market gainers
 ./tradescout losers --limit 10                 # Top market losers  
 ./tradescout active --limit 10                 # Most active stocks
@@ -180,6 +185,15 @@ TradeScout/
 
 ## 📊 Features
 
+### 📈 **Gap Trading System - OPERATIONAL** ✅
+- **Academic Research Foundation**: Based on 90-year empirical study (Plastun et al., 2019)
+- **6-Step Binary Classification**: Systematic gap candidate evaluation (size, volume, market cap, spread, exhaustion, timing)
+- **Professional Risk Management**: 2% max account risk per trade, mandatory intraday-only execution
+- **Pre-Market Timing**: Optimized for 4:00-9:30 AM ET gap detection, 9:30-10:30 AM entry window
+- **Intelligent Gap Analysis**: 4 gap types (Common, Breakaway, Continuation, Exhaustion) with confidence scoring
+- **Rich CLI Interface**: Detailed analysis tables with entry/exit/stop levels, risk/reward ratios
+- **Multiple Data Sources**: Smart coordinator with 5 providers + web scraper fallbacks
+
 ### 🎯 **Smart Data Source Management**
 - **Configuration-Driven Routing**: YAML configuration controls which providers serve different data types
 - **Intelligent Fallback**: Automatic failover between providers with circuit breaker protection
@@ -189,8 +203,8 @@ TradeScout/
 ### 📈 **Market Analysis & CLI**
 - **Real-Time Quotes**: Multi-provider quote aggregation with automatic failover
 - **Company Fundamentals**: Comprehensive company data from multiple sources
-- **Market-Wide Analysis**: Top gainers, losers, and most active stocks ✅ NEW
-- **Bulk Market Data**: Alpha Vantage TOP_GAINERS_LOSERS API integration ✅ NEW
+- **Market-Wide Analysis**: Top gainers, losers, and most active stocks
+- **Bulk Market Data**: Alpha Vantage TOP_GAINERS_LOSERS API integration
 - **Volume Analysis**: Unusual volume detection and scanning
 - **Historical Data**: Multi-timeframe historical price data
 - **Rich CLI Interface**: Beautiful terminal interface with status displays
@@ -271,11 +285,23 @@ Each data type can be configured independently:
 
 ## 🚦 Project Status
 
-### Current Phase: Smart Data Platform ✅
+### Current Phase: Gap Trading System - OPERATIONAL ✅
+- [x] **Complete Gap Trading Workflow**: Pre-market scanning → Binary classification → Trade suggestions
+- [x] **Academic Research Integration**: 90-year empirical study implementation with statistical validation
+- [x] **Professional Risk Management**: 2% max account risk, intraday-only trades, mandatory stop losses
+- [x] **Smart Data Infrastructure**: 5 API providers + web scraper fallbacks with intelligent routing
+- [x] **Rich CLI Interface**: Full-featured `suggest` command with detailed analysis tables
+- [x] **Binary Classification Engine**: 6-step academic rules (gap size, volume, market cap, spread, exhaustion, timing)
+- [x] **Gap Type Analysis**: 4 gap types with confidence scoring and risk assessment
+- [x] **Position Sizing Engine**: Automated risk-managed position calculations
+- [x] **Pre-Market Timing**: Optimized for 4:00-9:30 AM ET scanning, 9:30-10:30 AM execution
+- [x] **Comprehensive Testing**: All components validated with real market data
+
+### Smart Data Platform Foundation ✅
 - [x] Modern Python project structure with clean architecture
 - [x] Domain models and interfaces
 - [x] Smart Coordinator with configuration-driven routing
-- [x] Multi-provider ecosystem (YFinance, Finnhub, Polygon, Alpha Vantage)
+- [x] Multi-provider ecosystem (YFinance, Finnhub, Polygon, Alpha Vantage, Web Scrapers)
 - [x] YAML-based data source configuration
 - [x] Intelligent fallback strategies and circuit breaker protection
 - [x] Rich CLI interface with status monitoring
@@ -284,12 +310,12 @@ Each data type can be configured independently:
 - [x] Comprehensive test suite (26+ tests passing)
 - [x] Professional development toolchain
 
-### Next Phase: Core Analysis Engine
-- [ ] Momentum detection algorithms using multi-provider data
-- [ ] News sentiment analysis integration
+### Next Phase: Advanced Analytics
+- [ ] News sentiment analysis integration for gap catalyst validation
 - [ ] Technical indicator calculation with provider routing
-- [ ] Trade suggestion generation with confidence scoring
-- [ ] Performance tracking system with provider analytics
+- [ ] Performance tracking system with trade outcome analytics
+- [ ] Portfolio optimization and correlation analysis
+- [ ] Web interface for monitoring and alerts
 
 ### Future Phases
 - [ ] Web interface for monitoring
@@ -326,6 +352,41 @@ mypy src
 
 # Then commit again
 git commit -m "Your message"
+```
+
+## 💡 Gap Trading Quick Start
+
+### Pre-Market Workflow (4:00-9:30 AM ET)
+
+```bash
+# 1. Scan for overnight gaps (run during pre-market hours)
+./tradescout suggest --limit 5 --min-gap 2.0
+
+# 2. Review suggestions with detailed analysis
+# - Gap size and direction
+# - Volume confirmation (2x+ average required)
+# - Entry/stop/target prices
+# - Risk/reward ratios
+# - Academic confidence levels
+
+# 3. Execute during market open (9:30-10:30 AM ET)
+# - Enter positions within first hour
+# - Set stop losses immediately
+# - Target 1:1 to 2:1 risk/reward
+# - Mandatory exit by 4:00 PM ET
+```
+
+### Key Trading Rules
+- **Timing**: Pre-market analysis, market open execution, same-day exit only
+- **Risk**: Maximum 2% account risk per trade, professional position sizing
+- **Quality**: Only trade gaps ≥2% with ≥2x volume confirmation
+- **Academic**: Based on 90-year research study with statistical validation
+
+### Weekend/After Hours Behavior
+```bash
+# Expected output when markets are closed or no gaps present
+./tradescout suggest
+# ⚠️  No gap candidates found >= 2.0%
 ```
 
 ## 🤝 Contributing

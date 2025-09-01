@@ -23,6 +23,7 @@ from rich.table import Table
 from ..config.data_sources_manager import get_data_sources_manager
 from ..config.local_config import DATABASE_CONFIG
 from ..data_models.domain_models_core import Asset, AssetType
+from ..data_models.domain_models_analysis import ConfidenceLevel
 from ..data_models.factories import MarketFactory
 from ..data_sources.smart_coordinator import create_smart_coordinator
 from ..storage.sqlite_repository import create_sqlite_database_manager
@@ -883,6 +884,257 @@ def movers(ctx, limit: int, force_refresh: bool):
 
     except Exception as e:
         console.print(f"[red]❌ Error fetching market movers report: {e}[/red]")
+
+
+@main.command()
+@click.option("--limit", default=5, help="Maximum number of suggestions (default: 5)")
+@click.option("--force-refresh", "--force", is_flag=True, help="Force refresh data")
+@click.option("--min-gap", default=2.0, help="Minimum gap percentage (default: 2.0%)")
+@click.pass_context
+def suggest(ctx, limit: int, force_refresh: bool, min_gap: float):
+    """
+    Generate daily gap trading suggestions based on academic research.
+
+    Scans for overnight gaps >= 2.0%, applies six-step binary classification,
+    and generates ranked trade recommendations with risk/reward analysis.
+
+    Example:
+        tradescout suggest --limit 10 --min-gap 2.5
+    """
+    coordinator = ctx.obj["coordinator"]
+    console.print("[bold]📈 Daily Gap Trading Suggestions[/bold]")
+
+    try:
+        # Import gap analysis components
+        from ..analysis.gap_market_scanner import GapMarketScanner
+        from ..analysis.gap_rules_engine import GapRulesEngine
+        from ..analysis.academic_gap_analyzer import AcademicGapTypeAnalyzer
+        from ..analysis.gap_suggestion_engine import GapTradeSuggestionEngine
+        from decimal import Decimal
+
+        # Initialize gap analysis components
+        with console.status("[bold green]Initializing gap analysis system...", spinner="dots"):
+            gap_scanner = GapMarketScanner(coordinator)
+            rules_engine = GapRulesEngine()
+            gap_analyzer = AcademicGapTypeAnalyzer()
+            suggestion_engine = GapTradeSuggestionEngine()
+
+        # Step 1: Scan for gap candidates
+        with console.status(f"[bold blue]Scanning for gaps >= {min_gap}%...", spinner="dots"):
+            gap_candidates = gap_scanner.scan_pre_market_gaps(Decimal(str(min_gap)))
+
+        if not gap_candidates:
+            console.print(f"[yellow]⚠️  No gap candidates found >= {min_gap}%[/yellow]")
+            return
+
+        console.print(f"[blue]🔍 Found {len(gap_candidates)} gap candidates[/blue]")
+
+        # Step 2: Apply binary classification rules
+        with console.status("[bold blue]Applying six-step binary classification...", spinner="dots"):
+            rule_evaluations = []
+            for quote in gap_candidates:
+                evaluation = rules_engine.evaluate_gap_candidate(quote)
+                rule_evaluations.append(evaluation)
+
+        # Filter to approved candidates only
+        approved_candidates = []
+        approved_evaluations = []
+        for i, evaluation in enumerate(rule_evaluations):
+            if evaluation["decision"] == "TRADE":
+                approved_candidates.append(gap_candidates[i])
+                approved_evaluations.append(evaluation)
+
+        if not approved_candidates:
+            console.print("[yellow]⚠️  No candidates passed binary classification rules[/yellow]")
+            
+            # Show summary of rejected candidates
+            rejection_table = Table(title="Gap Analysis Summary", box=box.ROUNDED)
+            rejection_table.add_column("Symbol", style="cyan")
+            rejection_table.add_column("Gap Size", justify="right")
+            rejection_table.add_column("Decision", justify="center")
+            rejection_table.add_column("Primary Reason", style="dim")
+            
+            for i, evaluation in enumerate(rule_evaluations[:10]):  # Show top 10 rejections
+                quote = gap_candidates[i]
+                gap_size = getattr(quote, 'gap_size', abs(quote.price_change_percent or Decimal(0)))
+                
+                decision_color = "green" if evaluation["decision"] == "TRADE" else "red"
+                decision_text = f"[{decision_color}]{evaluation['decision']}[/{decision_color}]"
+                
+                primary_reason = evaluation["reasons"][0] if evaluation["reasons"] else "Unknown"
+                if len(primary_reason) > 50:
+                    primary_reason = primary_reason[:47] + "..."
+                
+                rejection_table.add_row(
+                    quote.asset.symbol,
+                    f"{gap_size:.1f}%",
+                    decision_text,
+                    primary_reason
+                )
+            
+            console.print(rejection_table)
+            return
+
+        console.print(f"[green]✅ {len(approved_candidates)} candidates approved by rules engine[/green]")
+
+        # Step 3: Analyze gap types and generate suggestions
+        with console.status("[bold blue]Analyzing gap types and generating suggestions...", spinner="dots"):
+            gap_assessments = gap_analyzer.batch_analyze_candidates(approved_candidates)
+            
+            # Create analysis data for suggestion engine
+            analysis_results = []
+            for i, assessment in enumerate(gap_assessments):
+                if i < len(approved_candidates):
+                    analysis_data = {
+                        "quote": approved_candidates[i],
+                        "gap_assessment": assessment
+                    }
+                    analysis_results.append(analysis_data)
+
+            # Generate suggestions
+            suggestions = []
+            for analysis_data in analysis_results:
+                suggestion = suggestion_engine.generate_suggestion(
+                    analysis_data["quote"].asset.symbol, 
+                    analysis_data
+                )
+                if suggestion and suggestion_engine.validate_suggestion(suggestion):
+                    suggestions.append(suggestion)
+
+        # Step 4: Filter and rank suggestions
+        final_suggestions = suggestion_engine.filter_suggestions(suggestions, limit)
+
+        if not final_suggestions:
+            console.print("[yellow]⚠️  No high-quality trade suggestions generated[/yellow]")
+            return
+
+        # Display results
+        console.print(f"\n[bold green]🎯 Top {len(final_suggestions)} Gap Trading Opportunities[/bold green]")
+        
+        # Show report header with current market time
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+        console.print(
+            Panel(
+                f"[bold]Report Time:[/bold] {current_time}\n"
+                f"[bold]Candidates Screened:[/bold] {len(gap_candidates)}\n"
+                f"[bold]Rules Approved:[/bold] {len(approved_candidates)}\n"
+                f"[bold]Final Suggestions:[/bold] {len(final_suggestions)}\n"
+                f"[bold]Entry Window:[/bold] 9:30-10:30 AM ET\n"
+                f"[bold]Mandatory Exit:[/bold] 4:00 PM ET",
+                title="📊 Analysis Summary",
+                border_style="blue",
+            )
+        )
+
+        # Create suggestions table
+        suggestions_table = Table(title=f"Daily Gap Trading Suggestions", box=box.ROUNDED)
+        suggestions_table.add_column("Rank", justify="center", style="dim", width=4)
+        suggestions_table.add_column("Symbol", style="cyan", no_wrap=True, width=8)
+        suggestions_table.add_column("Gap", justify="right", width=8)
+        suggestions_table.add_column("Volume", justify="right", width=8)
+        suggestions_table.add_column("Type", justify="center", width=10)
+        suggestions_table.add_column("Entry", justify="right", width=8)
+        suggestions_table.add_column("Stop", justify="right", width=8)
+        suggestions_table.add_column("Target", justify="right", width=8)
+        suggestions_table.add_column("R:R", justify="center", width=6)
+        suggestions_table.add_column("Confidence", justify="center", width=10)
+
+        # Add suggestion rows
+        for rank, suggestion in enumerate(final_suggestions, 1):
+            # Get suggestion attributes
+            gap_size = getattr(suggestion, 'gap_size', 0)
+            volume_ratio = getattr(suggestion, 'volume_ratio', Decimal(1))
+            gap_type = getattr(suggestion, 'gap_type', 'unknown')
+            
+            # Format confidence with color
+            confidence_colors = {
+                ConfidenceLevel.VERY_HIGH: "bright_green",
+                ConfidenceLevel.HIGH: "green", 
+                ConfidenceLevel.MEDIUM: "yellow",
+                ConfidenceLevel.LOW: "red"
+            }
+            confidence_color = confidence_colors.get(suggestion.confidence, "white")
+            confidence_text = f"[{confidence_color}]{suggestion.confidence.value.upper()}[/{confidence_color}]"
+            
+            # Add confidence emoji
+            confidence_emojis = {
+                ConfidenceLevel.VERY_HIGH: "✅",
+                ConfidenceLevel.HIGH: "✅", 
+                ConfidenceLevel.MEDIUM: "⚠️",
+                ConfidenceLevel.LOW: "❌"
+            }
+            emoji = confidence_emojis.get(suggestion.confidence, "")
+            confidence_display = f"{confidence_text} {emoji}"
+            
+            # Format gap direction with color
+            gap_direction = "+" if gap_size > 0 else ""
+            gap_color = "green" if gap_size > 0 else "red"
+            gap_text = f"[{gap_color}]{gap_direction}{gap_size:.1f}%[/{gap_color}]"
+            
+            suggestions_table.add_row(
+                str(rank),
+                suggestion.asset.symbol,
+                gap_text,
+                f"{volume_ratio:.1f}x",
+                gap_type.replace("_", " ").title()[:8],
+                f"${suggestion.entry_price:.2f}",
+                f"${suggestion.stop_loss:.2f}",
+                f"${suggestion.take_profit_1:.2f}",
+                f"{suggestion.risk_reward_ratio:.1f}:1",
+                confidence_display
+            )
+
+        console.print(suggestions_table)
+
+        # Show detailed analysis for top suggestion
+        if final_suggestions:
+            top_suggestion = final_suggestions[0]
+            
+            console.print(f"\n[bold]💡 Top Recommendation Analysis: {top_suggestion.asset.symbol}[/bold]")
+            
+            analysis_text = [
+                f"[bold]Analysis:[/bold] {top_suggestion.analysis_summary}",
+                f"[bold]Position Size:[/bold] {top_suggestion.position_size} shares",
+                f"[bold]Risk Amount:[/bold] ${abs(top_suggestion.entry_price - top_suggestion.stop_loss) * top_suggestion.position_size:.0f}"
+            ]
+            
+            if top_suggestion.catalysts:
+                analysis_text.append(f"[bold]Key Catalysts:[/bold]")
+                for catalyst in top_suggestion.catalysts[:3]:
+                    analysis_text.append(f"  • {catalyst}")
+            
+            if top_suggestion.risk_factors:
+                analysis_text.append(f"[bold]Risk Factors:[/bold]")
+                for risk in top_suggestion.risk_factors[:3]:
+                    analysis_text.append(f"  • {risk}")
+            
+            console.print(
+                Panel(
+                    "\n".join(analysis_text),
+                    title=f"{top_suggestion.asset.symbol} - Detailed Analysis",
+                    border_style="green" if top_suggestion.confidence == ConfidenceLevel.VERY_HIGH else "yellow",
+                )
+            )
+
+        # Show cache status
+        if force_refresh:
+            console.print(f"\n[yellow]🔄 Fresh data analysis completed[/yellow]")
+        else:
+            console.print(
+                f"\n[blue]💾 Analysis cached. Market data refreshed at market close.[/blue]"
+            )
+        
+        # Show important disclaimers
+        console.print(
+            f"\n[dim]⚠️  Academic research-based suggestions • Past performance not indicative of future results[/dim]"
+        )
+        console.print(
+            f"[dim]📋 Entry: 9:30-10:30 AM • Exit: By 4:00 PM • No overnight holds • 2% max risk per trade[/dim]"
+        )
+
+    except Exception as e:
+        console.print(f"[red]❌ Error generating gap trading suggestions: {e}[/red]")
+        logger.error(f"Gap suggestion error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

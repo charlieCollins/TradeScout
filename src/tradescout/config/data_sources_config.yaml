@@ -74,13 +74,13 @@ providers:
     api_key_required: true
     enabled: true
     
-  reddit:
-    name: "Reddit API"
-    type: "api"
-    provider_type: "free"
-    rate_limit_per_minute: 60
-    api_key_required: true
-    enabled: true
+  # reddit:
+    # name: "Reddit API"
+    # type: "api"
+    # provider_type: "free"
+    # rate_limit_per_minute: 60
+    # api_key_required: true
+    # enabled: false  # Removed for now
 
   # Web Scraping Data Sources (Extended Hours)
   # Note: Currently support after-hours only, will be extended to pre-market in the future
@@ -223,11 +223,11 @@ data_types:
     fallback_strategy: "merge_all"
     cache_ttl_minutes: 15
     
-  social_sentiment:
-    description: "Social media sentiment and discussion"
-    providers: ["reddit"]
-    fallback_strategy: "merge_all"
-    cache_ttl_minutes: 10
+  # social_sentiment:
+    # description: "Social media sentiment and discussion"
+    # providers: ["reddit"]
+    # fallback_strategy: "merge_all"
+    # cache_ttl_minutes: 10
     
   analyst_ratings:
     description: "Analyst recommendations and price targets"
@@ -248,7 +248,7 @@ quality_weights:
   yfinance: 7      # Good quality, but free/scraped
   alpha_vantage: 6 # Decent quality, limited free tier
   newsapi: 8       # Good news quality
-  reddit: 5        # Variable quality, but good volume
+  # reddit: 5        # Variable quality, but good volume (removed)
 
 # Rate Limiting Configuration
 rate_limiting:

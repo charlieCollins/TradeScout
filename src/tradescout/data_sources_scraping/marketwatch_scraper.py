@@ -47,6 +47,8 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
             "https://www.marketwatch.com/investing/stocks/after-hours",
             "https://www.marketwatch.com/tools/markets/after-hours-movers",
         ]
+        # Pre-market URL
+        self.premarket_url = "https://www.marketwatch.com/tools/screener/premarket"
         self.delay_seconds = delay_seconds
         self.headless = headless
         self.driver = None
@@ -78,6 +80,7 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         # Use persistent user data directory for MarketWatch
         import os
+
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
@@ -133,14 +136,19 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
                 page_title = self.driver.title.lower()
                 current_url = self.driver.current_url
 
-                if ("404" not in page_title and 
-                    "error" not in page_title and 
-                    "marketwatch" in page_title):
-                    
+                if (
+                    "404" not in page_title
+                    and "error" not in page_title
+                    and "marketwatch" in page_title
+                ):
+
                     # Look for data tables or stock-related content
                     tables = self.driver.find_elements(By.TAG_NAME, "table")
-                    stock_elements = self.driver.find_elements(By.XPATH, "//*[contains(text(), '%') or contains(@class, 'stock') or contains(@class, 'symbol')]")
-                    
+                    stock_elements = self.driver.find_elements(
+                        By.XPATH,
+                        "//*[contains(text(), '%') or contains(@class, 'stock') or contains(@class, 'symbol')]",
+                    )
+
                     if tables or len(stock_elements) > 5:
                         logger.info(f"Found working MarketWatch URL: {url}")
                         self.working_url = url
@@ -152,7 +160,9 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         # Fallback to main MarketWatch markets page
         fallback_url = "https://www.marketwatch.com/markets"
-        logger.warning(f"No dedicated after-hours page found, using fallback: {fallback_url}")
+        logger.warning(
+            f"No dedicated after-hours page found, using fallback: {fallback_url}"
+        )
         self.working_url = fallback_url
         return fallback_url
 
@@ -192,7 +202,9 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
             return gainers
 
         except WebDriverException as e:
-            logger.error(f"Selenium error fetching MarketWatch after-hours gainers: {e}")
+            logger.error(
+                f"Selenium error fetching MarketWatch after-hours gainers: {e}"
+            )
             return []
         except Exception as e:
             logger.error(f"Error parsing MarketWatch after-hours gainers: {e}")
@@ -240,7 +252,9 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
         """Find and parse gainers data from MarketWatch page"""
         # Take screenshot for debugging
         try:
-            self.driver.save_screenshot("/home/ccollins/projects/TradeScout/data/examples/marketwatch_debug.png")
+            self.driver.save_screenshot(
+                "/home/ccollins/projects/TradeScout/data/examples/marketwatch_debug.png"
+            )
         except:
             pass
 
@@ -251,16 +265,21 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
         gainers = []
 
         # Strategy 1: Look for dedicated after-hours table
-        after_hours_tables = soup.find_all("table", {"class": lambda x: x and ("after" in x.lower() or "hours" in x.lower())})
+        after_hours_tables = soup.find_all(
+            "table",
+            {"class": lambda x: x and ("after" in x.lower() or "hours" in x.lower())},
+        )
         if after_hours_tables:
             logger.info("Found dedicated after-hours table")
-            gainers = self._parse_marketwatch_table(after_hours_tables[0], "gainers", limit)
+            gainers = self._parse_marketwatch_table(
+                after_hours_tables[0], "gainers", limit
+            )
 
         # Strategy 2: Look for general data tables with gainers
         if not gainers:
             tables = soup.find_all("table")
             logger.info(f"Found {len(tables)} tables, searching for gainers data")
-            
+
             for table in tables:
                 parsed_data = self._parse_marketwatch_table(table, "gainers", limit)
                 if parsed_data:
@@ -279,20 +298,24 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
         return self._parse_marketwatch_divs(soup, "losers", limit)
 
-    def _parse_marketwatch_table(self, table, mover_type: str, limit: int) -> List[Dict[str, any]]:
+    def _parse_marketwatch_table(
+        self, table, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
         """Parse data from MarketWatch table structure"""
         movers = []
-        
+
         try:
             tbody = table.find("tbody")
             if not tbody:
                 return []
 
             rows = tbody.find_all("tr")[:limit]
-            
+
             for row in rows:
                 cells = row.find_all(["td", "th"])
-                if len(cells) < 6:  # MarketWatch has 6 columns: Symbol, Company, Price, Volume, CHG, CHG%
+                if (
+                    len(cells) < 6
+                ):  # MarketWatch has 6 columns: Symbol, Company, Price, Volume, CHG, CHG%
                     continue
 
                 try:
@@ -303,33 +326,47 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
                     # Column 3: Volume
                     # Column 4: CHG (dollar change)
                     # Column 5: CHG % (percentage with visual bar)
-                    
+
                     # Extract symbol from first cell (usually a link)
                     symbol_cell = cells[0]
                     symbol_link = symbol_cell.find("a")
-                    symbol = symbol_link.get_text().strip() if symbol_link else symbol_cell.get_text().strip()
-                    
+                    symbol = (
+                        symbol_link.get_text().strip()
+                        if symbol_link
+                        else symbol_cell.get_text().strip()
+                    )
+
                     # Extract company name
                     company_name = cells[1].get_text().strip()
-                    
+
                     # Extract price
-                    price_text = cells[2].get_text().strip().replace("$", "").replace(",", "")
+                    price_text = (
+                        cells[2].get_text().strip().replace("$", "").replace(",", "")
+                    )
                     price = float(price_text) if price_text else 0.0
-                    
+
                     # Extract volume and parse K/M notation
                     volume_text = cells[3].get_text().strip()
                     volume = self._parse_volume(volume_text)
-                    
+
                     # Extract dollar change
-                    change_text = cells[4].get_text().strip().replace("$", "").replace(",", "")
-                    change = float(change_text) if change_text and change_text != "N/A" else 0.0
-                    
+                    change_text = (
+                        cells[4].get_text().strip().replace("$", "").replace(",", "")
+                    )
+                    change = (
+                        float(change_text)
+                        if change_text and change_text != "N/A"
+                        else 0.0
+                    )
+
                     # Extract percentage change
                     percent_text = cells[5].get_text().strip()
                     change_percent = 0.0
                     if "%" in percent_text:
                         # Extract just the number part
-                        percent_value = percent_text.split("%")[0].strip().replace("+", "")
+                        percent_value = (
+                            percent_text.split("%")[0].strip().replace("+", "")
+                        )
                         try:
                             change_percent = float(percent_value)
                         except:
@@ -343,8 +380,12 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
                     if symbol and price > 0:
                         # Calculate regular close from current price and change
-                        regular_close = price - change if change else price * (1 - change_percent/100)
-                        
+                        regular_close = (
+                            price - change
+                            if change
+                            else price * (1 - change_percent / 100)
+                        )
+
                         mover_data = {
                             "symbol": symbol,
                             "company_name": company_name,
@@ -367,17 +408,17 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
             logger.warning(f"Error parsing MarketWatch table: {e}")
 
         return movers
-    
+
     def _parse_volume(self, volume_text: str) -> int:
         """Parse volume with K/M/B notation"""
         try:
             volume_text = volume_text.strip().upper()
             if not volume_text or volume_text == "N/A":
                 return 0
-            
+
             # Remove any commas
             volume_text = volume_text.replace(",", "")
-            
+
             # Handle K, M, B notation
             if volume_text.endswith("K"):
                 return int(float(volume_text[:-1]) * 1000)
@@ -390,38 +431,57 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
         except:
             return 0
 
-    def _parse_marketwatch_divs(self, soup: BeautifulSoup, mover_type: str, limit: int) -> List[Dict[str, any]]:
+    def _parse_marketwatch_divs(
+        self, soup: BeautifulSoup, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
         """Parse data from MarketWatch div-based structures"""
         movers = []
-        
+
         # Look for any elements containing stock symbols and percentages
         try:
             # Find elements with percentage signs
-            percent_elements = soup.find_all(string=lambda text: text and "%" in str(text))
-            
+            percent_elements = soup.find_all(
+                string=lambda text: text and "%" in str(text)
+            )
+
             # Try to find associated symbols near percentage elements
-            for i, percent_text in enumerate(percent_elements[:limit*2]):  # Check more than limit
+            for i, percent_text in enumerate(
+                percent_elements[: limit * 2]
+            ):  # Check more than limit
                 try:
                     # Clean percentage text
-                    clean_percent = str(percent_text).strip().replace("%", "").replace("+", "").replace("(", "").replace(")", "")
+                    clean_percent = (
+                        str(percent_text)
+                        .strip()
+                        .replace("%", "")
+                        .replace("+", "")
+                        .replace("(", "")
+                        .replace(")", "")
+                    )
                     change_percent = float(clean_percent)
-                    
+
                     # Only interested in significant moves for after-hours
                     if abs(change_percent) < 1.0:  # Skip small moves
                         continue
-                    
+
                     # Look for symbol near this percentage
-                    parent = percent_text.parent if hasattr(percent_text, 'parent') else None
+                    parent = (
+                        percent_text.parent if hasattr(percent_text, "parent") else None
+                    )
                     if parent:
                         # Look for text that looks like a stock symbol
                         all_text = parent.get_text()
                         words = all_text.split()
-                        
+
                         for word in words:
                             word = word.strip().upper()
-                            if (len(word) >= 2 and len(word) <= 6 and 
-                                word.isalpha() and word != word.lower()):
-                                
+                            if (
+                                len(word) >= 2
+                                and len(word) <= 6
+                                and word.isalpha()
+                                and word != word.lower()
+                            ):
+
                                 # Found potential symbol
                                 mover_data = {
                                     "symbol": word,
@@ -437,13 +497,13 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
                                 }
                                 movers.append(mover_data)
                                 break
-                        
+
                         if len(movers) >= limit:
                             break
-                            
+
                 except (ValueError, AttributeError):
                     continue
-                    
+
         except Exception as e:
             logger.warning(f"Error parsing MarketWatch divs: {e}")
 
@@ -486,33 +546,257 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
             "timezone": "America/New_York",
         }
 
-    # PreMarketWebScraper interface implementation (stub methods)
+    def _fetch_premarket_data(
+        self, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """Fetch pre-market data from MarketWatch"""
+        try:
+            self._setup_driver()
+
+            logger.info(f"Loading MarketWatch pre-market page: {self.premarket_url}")
+            self.driver.get(self.premarket_url)
+
+            # Wait for page to load
+            time_module.sleep(5)
+
+            # Check if page loaded properly
+            page_title = self.driver.title.lower()
+            if "marketwatch" not in page_title:
+                logger.warning(
+                    "MarketWatch pre-market page may not have loaded correctly"
+                )
+                return []
+            else:
+                logger.info("MarketWatch pre-market page loaded successfully")
+
+            # Parse pre-market data
+            movers = self._find_and_parse_premarket_data(mover_type, limit)
+
+            time_module.sleep(self.delay_seconds)
+            return movers
+
+        except WebDriverException as e:
+            logger.error(f"Selenium error fetching MarketWatch pre-market data: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing MarketWatch pre-market data: {e}")
+            return []
+        finally:
+            self._cleanup_driver()
+
+    def _find_and_parse_premarket_data(
+        self, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """Find and parse pre-market data from MarketWatch page"""
+        # Take screenshot for debugging
+        try:
+            screenshot_path = (
+                f"data/examples/marketwatch_premarket_{mover_type}_debug.png"
+            )
+            self.driver.save_screenshot(screenshot_path)
+            logger.info(f"Debug screenshot saved: {screenshot_path}")
+        except:
+            pass
+
+        # Get page source and parse
+        soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+        # Look for data tables
+        movers = []
+        tables = soup.find_all("table")
+        logger.info(
+            f"Found {len(tables)} tables, searching for pre-market {mover_type} data"
+        )
+
+        for table in tables:
+            parsed_data = self._parse_premarket_table(table, mover_type, limit)
+            if parsed_data:
+                movers = parsed_data
+                break
+
+        return movers
+
+    def _parse_premarket_table(
+        self, table, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """Parse pre-market data from MarketWatch table structure"""
+        movers = []
+
+        try:
+            tbody = table.find("tbody")
+            if not tbody:
+                return []
+
+            rows = tbody.find_all("tr")[: limit * 2]  # Get more rows to filter
+
+            for row in rows:
+                cells = row.find_all(["td", "th"])
+                if (
+                    len(cells) < 6
+                ):  # MarketWatch has 6 columns: Symbol, Company, Price, Volume, CHG, CHG%
+                    continue
+
+                try:
+                    # MarketWatch pre-market table structure (same as after-hours):
+                    # Column 0: Symbol (link)
+                    # Column 1: Company Name
+                    # Column 2: Price
+                    # Column 3: Volume
+                    # Column 4: CHG (dollar change)
+                    # Column 5: CHG % (percentage with visual bar)
+
+                    # Extract symbol from first cell (usually a link)
+                    symbol_cell = cells[0]
+                    symbol_link = symbol_cell.find("a")
+                    symbol = (
+                        symbol_link.get_text().strip()
+                        if symbol_link
+                        else symbol_cell.get_text().strip()
+                    )
+
+                    if not symbol or len(symbol) > 6:  # Skip invalid symbols
+                        continue
+
+                    # Extract company name
+                    company_name = cells[1].get_text().strip()
+
+                    # Extract price
+                    price_text = (
+                        cells[2].get_text().strip().replace("$", "").replace(",", "")
+                    )
+                    try:
+                        price = float(price_text) if price_text else 0.0
+                    except:
+                        continue
+
+                    if price <= 0:
+                        continue
+
+                    # Extract volume and parse K/M notation
+                    volume_text = cells[3].get_text().strip()
+                    volume = self._parse_volume(volume_text)
+
+                    # Extract dollar change
+                    change_text = (
+                        cells[4].get_text().strip().replace("$", "").replace(",", "")
+                    )
+                    try:
+                        change = (
+                            float(change_text)
+                            if change_text and change_text != "N/A"
+                            else 0.0
+                        )
+                    except:
+                        change = 0.0
+
+                    # Extract percentage change
+                    percent_text = cells[5].get_text().strip()
+                    change_percent = 0.0
+                    if "%" in percent_text:
+                        # Extract just the number part
+                        percent_value = (
+                            percent_text.split("%")[0]
+                            .strip()
+                            .replace("+", "")
+                            .replace("−", "-")
+                        )
+                        try:
+                            change_percent = float(percent_value)
+                        except:
+                            pass
+
+                    # Filter based on mover type
+                    if mover_type == "gainers" and change_percent <= 0:
+                        continue
+                    elif mover_type == "losers" and change_percent >= 0:
+                        continue
+
+                    # Calculate previous close from current price and change
+                    if change != 0:
+                        previous_close = price - change
+                    elif change_percent != 0:
+                        # Use percentage to calculate more accurately
+                        previous_close = price / (1 + change_percent / 100)
+                    else:
+                        previous_close = price
+
+                    mover_data = {
+                        "symbol": symbol,
+                        "company_name": company_name,
+                        "previous_close": round(previous_close, 2),
+                        "premarket_price": price,
+                        "premarket_change": change,
+                        "premarket_change_percent": change_percent,
+                        "premarket_volume": volume,
+                        "source": "marketwatch",
+                        "timestamp": datetime.now(pytz.UTC),
+                        "session": "premarket",
+                    }
+                    movers.append(mover_data)
+
+                    if len(movers) >= limit:
+                        break
+
+                except Exception as e:
+                    logger.debug(f"Error parsing MarketWatch pre-market row: {e}")
+                    continue
+
+        except Exception as e:
+            logger.warning(f"Error parsing MarketWatch pre-market table: {e}")
+
+        logger.info(f"Parsed {len(movers)} pre-market {mover_type} from MarketWatch")
+        return movers
+
+    # PreMarketWebScraper interface implementation
     def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market gainers - not yet implemented"""
-        logger.warning("Pre-market gainers not yet supported by MarketWatch scraper")
-        return []
+        """Get pre-market gainers from MarketWatch"""
+        return self._fetch_premarket_data("gainers", limit)
 
     def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market losers - not yet implemented"""
-        logger.warning("Pre-market losers not yet supported by MarketWatch scraper")
-        return []
+        """Get pre-market losers from MarketWatch"""
+        return self._fetch_premarket_data("losers", limit)
 
     def is_premarket_session(self) -> bool:
-        """Check if currently in pre-market session - not yet implemented"""
-        logger.warning("Pre-market session detection not yet supported by MarketWatch scraper")
+        """Check if currently in pre-market session (4:00-9:30 AM ET)"""
+        eastern = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern)
+
+        # Pre-market: 4:00 AM - 9:30 AM ET on weekdays
+        if now.weekday() < 5:  # Monday = 0, Friday = 4
+            premarket_start = time(4, 0)  # 4:00 AM
+            premarket_end = time(9, 30)  # 9:30 AM
+            current_time = now.time()
+
+            return premarket_start <= current_time < premarket_end
+
         return False
 
     def get_premarket_session_info(self) -> Dict[str, any]:
-        """Get pre-market session info - not yet implemented"""
-        logger.warning("Pre-market session info not yet supported by MarketWatch scraper")
+        """Get pre-market session information"""
+        eastern = pytz.timezone("US/Eastern")
+        now = datetime.now(eastern)
+        current_time = now.time()
+
+        # Determine current session
+        if now.weekday() >= 5:  # Weekend
+            current_session = "closed"
+        elif time(4, 0) <= current_time < time(9, 30):
+            current_session = "premarket"
+        elif time(9, 30) <= current_time < time(16, 0):
+            current_session = "regular"
+        elif time(16, 0) <= current_time <= time(20, 0):
+            current_session = "after_hours"
+        else:
+            current_session = "closed"
+
         return {
-            "current_session": "not_supported",
+            "current_session": current_session,
             "session_start": "4:00 AM ET",
             "session_end": "9:30 AM ET",
-            "source_name": "MarketWatch Pre-Market (Not Implemented)",
-            "data_delay": "not_supported",
-            "last_updated": datetime.now(),
-            "implementation_status": "stub"
+            "source_name": "MarketWatch Pre-Market",
+            "data_delay": "real_time",
+            "last_updated": datetime.now(pytz.UTC),
+            "timezone": "America/New_York",
         }
 
     def is_source_accessible(self) -> bool:
@@ -520,7 +804,7 @@ class MarketWatchScraper(AfterHoursWebScraper, PreMarketWebScraper):
         try:
             self._setup_driver()
             url = self._find_working_url()
-            
+
             if url:
                 page_title = self.driver.title.lower()
                 return "marketwatch" in page_title

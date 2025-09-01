@@ -1,0 +1,138 @@
+{
+  "timestamp": "2025-08-31T10:55:16.334179",
+  "source": "MarketWatch Pre-Market",
+  "gainers": [
+    {
+      "symbol": "WOOF",
+      "company_name": "Petco Health & Wellness Co. Inc.",
+      "previous_close": 3.23,
+      "premarket_price": 3.96,
+      "premarket_change": 0.73,
+      "premarket_change_percent": 22.6,
+      "premarket_volume": 2960000,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:05.029618+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "AFRM",
+      "company_name": "Affirm Holdings Inc. Cl A",
+      "previous_close": 79.99,
+      "premarket_price": 92.0,
+      "premarket_change": 12.01,
+      "premarket_change_percent": 15.01,
+      "premarket_volume": 1410000,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:05.029666+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "ADSK",
+      "company_name": "Autodesk Inc.",
+      "previous_close": 288.49,
+      "premarket_price": 318.45,
+      "premarket_change": 29.96,
+      "premarket_change_percent": 10.39,
+      "premarket_volume": 101550,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:05.029696+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "S",
+      "company_name": "SentinelOne Inc.",
+      "previous_close": 17.61,
+      "premarket_price": 19.0,
+      "premarket_change": 1.39,
+      "premarket_change_percent": 7.89,
+      "premarket_volume": 515230,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:05.029723+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "ESTC",
+      "company_name": "Elastic N.V.",
+      "previous_close": 87.66,
+      "premarket_price": 94.24,
+      "premarket_change": 6.58,
+      "premarket_change_percent": 7.5,
+      "premarket_volume": 578230,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:05.029750+00:00",
+      "session": "premarket"
+    }
+  ],
+  "losers": [
+    {
+      "symbol": "MRVL",
+      "company_name": "Marvell Technology Inc.",
+      "previous_close": 77.28,
+      "premarket_price": 64.5,
+      "premarket_change": -12.78,
+      "premarket_change_percent": 16.55,
+      "premarket_volume": 5730000,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:14.139535+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "DELL",
+      "company_name": "Dell Technologies Inc. Cl C",
+      "previous_close": 134.05,
+      "premarket_price": 124.8,
+      "premarket_change": -9.25,
+      "premarket_change_percent": 6.9,
+      "premarket_volume": 1180000,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:14.139570+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "SMCI",
+      "company_name": "Super Micro Computer Inc.",
+      "previous_close": 43.97,
+      "premarket_price": 42.61,
+      "premarket_change": -1.36,
+      "premarket_change_percent": 3.09,
+      "premarket_volume": 795060,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:14.139595+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "PSTG",
+      "company_name": "Pure Storage Inc. Cl A",
+      "previous_close": 80.54,
+      "premarket_price": 78.26,
+      "premarket_change": -2.28,
+      "premarket_change_percent": 2.83,
+      "premarket_volume": 467970,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:14.139620+00:00",
+      "session": "premarket"
+    },
+    {
+      "symbol": "CAT",
+      "company_name": "Caterpillar Inc.",
+      "previous_close": 434.91,
+      "premarket_price": 425.02,
+      "premarket_change": -9.89,
+      "premarket_change_percent": 2.27,
+      "premarket_volume": 21490,
+      "source": "marketwatch",
+      "timestamp": "2025-08-31 14:55:14.139643+00:00",
+      "session": "premarket"
+    }
+  ],
+  "session_info": {
+    "current_session": "closed",
+    "session_start": "4:00 AM ET",
+    "session_end": "9:30 AM ET",
+    "source_name": "MarketWatch Pre-Market",
+    "data_delay": "real_time",
+    "last_updated": "2025-08-31 14:54:32.757381+00:00",
+    "timezone": "America/New_York"
+  },
+  "is_premarket_session": false
+}

@@ -125,7 +125,65 @@ This file tracks active development tasks and provides context for resuming work
 
 ## 🔮 Current Active Tasks (High Priority)
 
+### ✅ Completed - Pre-Market Implementation (August 31, 2025)
+
+- [x] **Implement pre-market data for TradingView scraper** - ✅ Done
+  - Uses separate URLs for gainers/losers (/pre-market-gainers, /pre-market-losers)
+  - Parses data-rowkey attributes for robust data extraction
+  - Handles complex table structure with exchange:symbol format
+
+- [x] **Implement pre-market data for MarketWatch scraper** - ✅ Done  
+  - Single page with filtering logic in _parse_premarket_table()
+  - 6-column table parsing (Symbol, Company, Price, Volume, CHG, CHG%)
+  - Session detection with proper timezone handling
+
+- [x] **Implement pre-market data for CNN scraper** - ✅ Done
+  - Single page with robust fallback parsing using regex patterns
+  - Handles popup dismissal and consent dialogs  
+  - Filtering logic: gainers (change_percent > 0), losers (change_percent < 0)
+
+- [x] **Implement pre-market data for Investing.com scraper** - ✅ Done
+  - Single page with table parsing in _parse_active_movers_table()
+  - Dynamic table detection and header-based parsing
+  - Consistent data structure with session-aware field mapping
+
+- [x] **Implement pre-market data for TipRanks scraper** - ✅ Done
+  - Uses separate URLs for gainers/losers (/pre-market/gainers, /pre-market/losers) 
+  - Parses div-based table structure with role="row" elements
+  - Handles AI Catalyst column and dynamic content loading
+
+- [x] **Implement pre-market data for ADVFN scraper** - ✅ Done
+  - Multi-exchange support (NASDAQ, NYSE, AMEX) with premarket URLs
+  - Header-based table detection ("Top Gainers", "Top Losers")
+  - Unified data parsing for both after-hours and pre-market sessions
+
+### ✅ Completed - Gap Trading Strategy Academic Integration (August 31, 2025)
+
+- [x] **Updated GAP_TRADING_STRATEGY.md with academic research integration** - ✅ Done
+  - Added critical research disclaimer about stock market gap limitations per Caporale & Plastun (2016)
+  - Integrated size-based gap thresholds from academic research (≥2.0%, dynamic thresholds)
+  - Revised time horizon to day-0 only strategy with mandatory same-day exits
+  - Added comprehensive academic citations and statistical backing from 5 primary papers
+  - Simplified executive summary with reality check about market efficiency challenges
+
+- [x] **Created GAP_TRADING_STRATEGY_RULES.md for machine implementation** - ✅ Done
+  - Built binary gap classification system with crystal-clear good vs bad candidate rules
+  - Implemented simple 6-step decision logic: gap size ≥2%, volume ≥2x, market cap ≥$1B, spread ≤1%, not exhaustion gap, not Friday
+  - Added YAML configuration format with specific numerical thresholds for automation
+  - Included complete position management rules, risk controls, and screening workflow
+  - Cross-referenced to main strategy document while maintaining tactical execution focus
+
 ### 🎯 Next Priority Tasks
+
+- [ ] **Remove legacy strategy framework section from GAP_TRADING_STRATEGY.md** - *High Priority*  
+  - **Goal**: Clean up strategy document by removing outdated "Legacy Strategy Framework (Pre-Research Integration)" section
+  - **Reason**: Section conflicts with academic research integration and is no longer needed
+  - **Location**: docs/GAP_TRADING_STRATEGY.md around lines 159-213
+
+- [ ] **Implement gap screening logic based on new binary rules** - *High Priority*
+  - **Goal**: Create automated gap candidate screening using 6-step decision process
+  - **Features**: Binary good/bad classification, academic threshold enforcement, risk filtering
+  - **Implementation**: Use existing market movers data with gap calculation and filtering logic
 
 - [ ] **Implement reliability-based smart selection logic in SmartCoordinator** - *High Priority*
   - **Goal**: Use reliability ratings (highly_reliable, moderately_reliable, inconsistent) for intelligent provider selection

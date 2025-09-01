@@ -170,3 +170,28 @@ class AssetDataProviderAlphaVantageMarket(AssetDataProvider):
             "description": "Market gainers, losers, and most active stocks",
             "available": str(self.available),
         }
+
+    # Abstract methods from AssetDataProvider (not implemented for market-only provider)
+    def get_current_quote(self, symbol: str):
+        raise NotImplementedError("Alpha Vantage Market provider only supports market-wide data, not individual quotes")
+    
+    def get_extended_hours_data(self, symbol: str):
+        raise NotImplementedError("Alpha Vantage Market provider only supports market-wide data, not individual extended hours")
+    
+    def get_fundamental_data(self, symbol: str):
+        raise NotImplementedError("Alpha Vantage Market provider only supports market-wide data, not individual fundamentals")
+    
+    def get_historical_quotes(self, symbol: str, period: str = "1y"):
+        raise NotImplementedError("Alpha Vantage Market provider only supports market-wide data, not individual historical data")
+    
+    def scan_volume_leaders(self, limit: int = 10):
+        # This could potentially be mapped to most_active, but keeping it separate for now
+        raise NotImplementedError("Alpha Vantage Market provider only supports predefined market movers, use get_most_active() instead")
+    
+    @property
+    def rate_limit_per_minute(self) -> int:
+        return 5  # Same as Alpha Vantage standard limit
+    
+    @property 
+    def supports_extended_hours(self) -> bool:
+        return False  # Market movers API doesn't provide extended hours data

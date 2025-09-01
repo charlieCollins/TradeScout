@@ -32,7 +32,12 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
     Currently supports after-hours data, may be extended for pre-market in the future.
     """
 
-    def __init__(self, exchange: str = "nasdaq", delay_seconds: float = 1.0, headless: bool = True):
+    def __init__(
+        self,
+        exchange: str = "nasdaq",
+        delay_seconds: float = 1.0,
+        headless: bool = True,
+    ):
         """
         Initialize ADVFN web scraper with Selenium
 
@@ -47,8 +52,16 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             "nyse": "https://www.advfn.com/markets/nyse/afterhours",
             "amex": "https://www.advfn.com/markets/amex/afterhours",
         }
+        # ADVFN pre-market URLs for different exchanges
+        self.premarket_urls = {
+            "nasdaq": "https://www.advfn.com/markets/nasdaq/premarket",
+            "nyse": "https://www.advfn.com/markets/nyse/premarket",
+            "amex": "https://www.advfn.com/markets/amex/premarket",
+        }
         if exchange.lower() not in self.urls:
-            raise ValueError(f"Unsupported exchange: '{exchange}'. Supported exchanges are: {list(self.urls.keys())}")
+            raise ValueError(
+                f"Unsupported exchange: '{exchange}'. Supported exchanges are: {list(self.urls.keys())}"
+            )
         self.exchange = exchange.lower()
         self.delay_seconds = delay_seconds
         self.headless = headless
@@ -80,6 +93,7 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         # Use persistent user data directory for ADVFN
         import os
+
         user_data_dir = "data/chrome_session"
         os.makedirs(user_data_dir, exist_ok=True)
         chrome_options.add_argument(f"--user-data-dir={os.path.abspath(user_data_dir)}")
@@ -136,7 +150,7 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             # Use the appropriate URL for the exchange
             url = self.urls[self.exchange]
             logger.info(f"Loading ADVFN {self.exchange} after-hours page: {url}")
-            
+
             self.driver.get(url)
             time_module.sleep(5)  # Wait for page to load
 
@@ -147,10 +161,10 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
             # Parse the page
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            
+
             # Look for the after-hours data table
-            gainers = self._parse_advfn_data(soup, "gainers", limit)
-            
+            gainers = self._parse_advfn_data(soup, "gainers", limit, "after_hours")
+
             logger.info(f"Found {len(gainers)} gainers on ADVFN {self.exchange}")
             return gainers
 
@@ -179,16 +193,16 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             # Use the appropriate URL for the exchange
             url = self.urls[self.exchange]
             logger.info(f"Loading ADVFN {self.exchange} after-hours page: {url}")
-            
+
             self.driver.get(url)
             time_module.sleep(5)  # Wait for page to load
 
             # Parse the page
             soup = BeautifulSoup(self.driver.page_source, "html.parser")
-            
+
             # Look for the after-hours data table
-            losers = self._parse_advfn_data(soup, "losers", limit)
-            
+            losers = self._parse_advfn_data(soup, "losers", limit, "after_hours")
+
             logger.info(f"Found {len(losers)} losers on ADVFN {self.exchange}")
             return losers
 
@@ -201,12 +215,18 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
         finally:
             self._cleanup_driver()
 
-    def _parse_advfn_data(self, soup: BeautifulSoup, mover_type: str, limit: int) -> List[Dict[str, any]]:
+    def _parse_advfn_data(
+        self,
+        soup: BeautifulSoup,
+        mover_type: str,
+        limit: int,
+        session: str = "after_hours",
+    ) -> List[Dict[str, any]]:
         """
         Parse movers data from ADVFN page by finding specific headers and their sibling tables.
         """
         movers = []
-        
+
         # Determine the header text to search for
         if mover_type == "gainers":
             header_text = "Top Gainers"
@@ -218,7 +238,9 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
 
         try:
             # Find the header element (h3) containing the specified text
-            header = soup.find(lambda tag: tag.name == 'h3' and header_text in tag.get_text())
+            header = soup.find(
+                lambda tag: tag.name == "h3" and header_text in tag.get_text()
+            )
 
             if not header:
                 logger.warning(f"Could not find '{header_text}' header on the page.")
@@ -245,17 +267,25 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
                     # Extract data based on column order: Symbol, Name, Price, Change, Change %, Volume
                     symbol = cells[0].get_text(strip=True)
                     company_name = cells[1].get_text(strip=True)
-                    
+
                     # Clean and convert numeric values
-                    after_hours_price_text = cells[2].get_text(strip=True).replace(",", "")
-                    after_hours_price = float(after_hours_price_text) if after_hours_price_text else 0.0
+                    after_hours_price_text = (
+                        cells[2].get_text(strip=True).replace(",", "")
+                    )
+                    after_hours_price = (
+                        float(after_hours_price_text) if after_hours_price_text else 0.0
+                    )
 
                     change_text = cells[3].get_text(strip=True).replace(",", "")
                     change = float(change_text) if change_text else 0.0
 
-                    change_percent_text = cells[4].get_text(strip=True).replace("%", "").replace(",", "")
-                    change_percent = float(change_percent_text) if change_percent_text else 0.0
-                    
+                    change_percent_text = (
+                        cells[4].get_text(strip=True).replace("%", "").replace(",", "")
+                    )
+                    change_percent = (
+                        float(change_percent_text) if change_percent_text else 0.0
+                    )
+
                     volume_text = cells[5].get_text(strip=True)
                     volume = self._parse_volume(volume_text)
 
@@ -266,27 +296,49 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
                     # Calculate regular close price
                     regular_close = after_hours_price - change
 
-                    mover_data = {
-                        "symbol": symbol,
-                        "company_name": company_name,
-                        "regular_close": round(regular_close, 4),
-                        "after_hours_price": after_hours_price,
-                        "after_hours_change": change,
-                        "after_hours_change_percent": change_percent,
-                        "after_hours_volume": volume,
-                        "source": f"advfn_{self.exchange}_after_hours",
-                        "timestamp": datetime.now(),
-                        "session": "after_hours",
-                    }
+                    if session == "premarket":
+                        mover_data = {
+                            "symbol": symbol,
+                            "company_name": company_name,
+                            "previous_close": round(regular_close, 4),
+                            "premarket_price": after_hours_price,
+                            "premarket_change": change,
+                            "premarket_change_percent": change_percent,
+                            "premarket_volume": volume,
+                            "source": f"advfn_{self.exchange}",
+                            "timestamp": datetime.now(
+                                pytz.timezone("America/New_York")
+                            ),
+                            "session": "premarket",
+                        }
+                    else:
+                        mover_data = {
+                            "symbol": symbol,
+                            "company_name": company_name,
+                            "regular_close": round(regular_close, 4),
+                            "after_hours_price": after_hours_price,
+                            "after_hours_change": change,
+                            "after_hours_change_percent": change_percent,
+                            "after_hours_volume": volume,
+                            "source": f"advfn_{self.exchange}_after_hours",
+                            "timestamp": datetime.now(),
+                            "session": "after_hours",
+                        }
                     movers.append(mover_data)
-                    logger.debug(f"Parsed {mover_type}: {symbol} at {after_hours_price}")
+                    logger.debug(
+                        f"Parsed {mover_type}: {symbol} at {after_hours_price}"
+                    )
 
                 except (ValueError, IndexError) as e:
-                    logger.warning(f"Could not parse row: {row.get_text().strip()}. Error: {e}")
+                    logger.warning(
+                        f"Could not parse row: {row.get_text().strip()}. Error: {e}"
+                    )
                     continue
-        
+
         except Exception as e:
-            logger.error(f"An unexpected error occurred while parsing ADVFN {mover_type} data: {e}")
+            logger.error(
+                f"An unexpected error occurred while parsing ADVFN {mover_type} data: {e}"
+            )
 
         return movers
 
@@ -295,7 +347,7 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
         Parse volume string like "1.2M", "850K", or "1.5B" to integer.
         """
         volume_text = volume_text.upper().replace(",", "").strip()
-        if not volume_text or volume_text == 'N/A':
+        if not volume_text or volume_text == "N/A":
             return 0
         try:
             if "B" in volume_text:
@@ -354,7 +406,7 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
             self._setup_driver()
             self.driver.get(self.urls["nasdaq"])
             time_module.sleep(2)
-            
+
             page_title = self.driver.title.lower()
             return "advfn" in page_title or "after" in page_title
 
@@ -364,31 +416,91 @@ class ADVFNScraper(AfterHoursWebScraper, PreMarketWebScraper):
         finally:
             self._cleanup_driver()
 
-    # PreMarketWebScraper interface implementation (stub methods)
+    def _fetch_premarket_data(
+        self, mover_type: str, limit: int
+    ) -> List[Dict[str, any]]:
+        """
+        Fetch pre-market data from ADVFN using the pre-market URL
+        """
+        try:
+            self._setup_driver()
+
+            # Use the appropriate pre-market URL for the exchange
+            url = self.premarket_urls[self.exchange]
+            logger.info(f"Loading ADVFN {self.exchange} pre-market page: {url}")
+
+            self.driver.get(url)
+            time_module.sleep(5)  # Wait for page to load
+
+            # Take screenshot for debugging
+            try:
+                screenshot_path = f"data/examples/advfn_{self.exchange}_premarket_{mover_type}_debug.png"
+                self.driver.save_screenshot(screenshot_path)
+                logger.info(f"Debug screenshot saved: {screenshot_path}")
+            except:
+                pass
+
+            # Parse the page
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+            # Look for the pre-market data table
+            movers = self._parse_advfn_data(soup, mover_type, limit, "premarket")
+
+            logger.info(
+                f"Found {len(movers)} {mover_type} on ADVFN {self.exchange} pre-market"
+            )
+            return movers
+
+        except WebDriverException as e:
+            logger.error(f"Selenium error fetching ADVFN pre-market {mover_type}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Error parsing ADVFN pre-market {mover_type}: {e}")
+            return []
+        finally:
+            self._cleanup_driver()
+
+    # PreMarketWebScraper interface implementation
     def get_premarket_gainers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market gainers - not yet implemented"""
-        logger.warning("Pre-market gainers not yet supported by ADVFN scraper")
-        return []
+        """Get top pre-market gaining stocks from ADVFN"""
+        return self._fetch_premarket_data("gainers", limit)
 
     def get_premarket_losers(self, limit: int = 10) -> List[Dict[str, any]]:
-        """Get pre-market losers - not yet implemented"""
-        logger.warning("Pre-market losers not yet supported by ADVFN scraper")
-        return []
+        """Get top pre-market losing stocks from ADVFN"""
+        return self._fetch_premarket_data("losers", limit)
 
     def is_premarket_session(self) -> bool:
-        """Check if currently in pre-market session - not yet implemented"""
-        logger.warning("Pre-market session detection not yet supported by ADVFN scraper")
-        return False
+        """Check if we're currently in pre-market trading session (4 AM - 9:30 AM ET)"""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz).time()
+        premarket_start = time(4, 0)
+        premarket_end = time(9, 30)
+        return premarket_start <= now_et < premarket_end
 
     def get_premarket_session_info(self) -> Dict[str, any]:
-        """Get pre-market session info - not yet implemented"""
-        logger.warning("Pre-market session info not yet supported by ADVFN scraper")
+        """Get information about the current pre-market trading session and data source"""
+        et_tz = pytz.timezone("America/New_York")
+        now_et = datetime.now(et_tz)
+        current_time = now_et.time()
+
+        if time(4, 0) <= current_time < time(9, 30):
+            session = "premarket"
+        elif time(9, 30) <= current_time < time(16, 0):
+            session = "regular"
+        elif time(16, 0) <= current_time <= time(20, 0):
+            session = "after_hours"
+        else:
+            session = "closed"
+
         return {
-            "current_session": "not_supported",
+            "current_session": session,
             "session_start": "4:00 AM ET",
             "session_end": "9:30 AM ET",
-            "source_name": "ADVFN Pre-Market (Not Implemented)",
-            "data_delay": "not_supported",
-            "last_updated": datetime.now(),
-            "implementation_status": "stub"
+            "source_name": "ADVFN Pre-Market",
+            "source_url": self.premarket_urls[self.exchange],
+            "data_delay": "real_time",
+            "last_updated": now_et,
+            "timezone": "America/New_York",
+            "exchanges": ["nasdaq", "nyse", "amex"],
+            "is_premarket_session": self.is_premarket_session(),
         }

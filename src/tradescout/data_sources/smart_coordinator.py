@@ -132,6 +132,16 @@ class SmartCoordinator:
                 else:
                     logger.warning("Alpha Vantage API key not found for market provider")
                     return None
+            elif provider_id == "newsapi":
+                import os
+                api_key = os.getenv("NEWS_API_KEY")
+                if api_key and api_key != "your_newsapi_key_here":
+                    # NewsAPI provider not implemented yet - return None for now
+                    logger.info(f"NewsAPI provider not yet implemented, API key available")
+                    return None
+                else:
+                    logger.warning("NewsAPI key not found or still placeholder")
+                    return None
             # Add other providers as needed
             else:
                 logger.warning(f"Unknown provider: {provider_id}")
@@ -659,6 +669,165 @@ class SmartCoordinator:
         self._provider_instances.clear()
         self._scraper_instances.clear()
         self._initialize_providers()
+
+    # Gap Trading Analysis Methods
+    
+    def get_daily_gap_suggestions(
+        self, min_gap_percent: float = 2.0, max_suggestions: int = 5
+    ) -> List[Dict[str, any]]:
+        """
+        Generate daily gap trading suggestions using integrated analysis workflow
+        
+        Args:
+            min_gap_percent: Minimum gap size to consider (default: 2.0%)
+            max_suggestions: Maximum suggestions to return (default: 5)
+            
+        Returns:
+            List of gap trading suggestions with analysis
+        """
+        logger.info(f"Generating daily gap suggestions (min gap: {min_gap_percent}%)")
+        
+        try:
+            from ..analysis.gap_market_scanner import GapMarketScanner
+            from ..analysis.gap_rules_engine import GapRulesEngine
+            from ..analysis.academic_gap_analyzer import AcademicGapTypeAnalyzer
+            from ..analysis.gap_suggestion_engine import GapTradeSuggestionEngine
+            from decimal import Decimal
+            
+            # Initialize gap analysis components
+            gap_scanner = GapMarketScanner(self)
+            rules_engine = GapRulesEngine()
+            gap_analyzer = AcademicGapTypeAnalyzer()
+            suggestion_engine = GapTradeSuggestionEngine()
+            
+            # Step 1: Scan for gap candidates
+            gap_candidates = gap_scanner.scan_pre_market_gaps(Decimal(str(min_gap_percent)))
+            logger.info(f"Found {len(gap_candidates)} gap candidates")
+            
+            if not gap_candidates:
+                return []
+            
+            # Step 2: Apply binary classification rules
+            approved_candidates = []
+            for quote in gap_candidates:
+                evaluation = rules_engine.evaluate_gap_candidate(quote)
+                if evaluation["decision"] == "TRADE":
+                    approved_candidates.append(quote)
+            
+            logger.info(f"{len(approved_candidates)} candidates passed binary rules")
+            
+            if not approved_candidates:
+                return []
+            
+            # Step 3: Analyze gap types and generate suggestions
+            gap_assessments = gap_analyzer.batch_analyze_candidates(approved_candidates)
+            
+            # Step 4: Generate trade suggestions
+            suggestions = []
+            for i, assessment in enumerate(gap_assessments):
+                if i < len(approved_candidates) and assessment.is_tradeable:
+                    analysis_data = {
+                        "quote": approved_candidates[i],
+                        "gap_assessment": assessment
+                    }
+                    
+                    suggestion = suggestion_engine.generate_suggestion(
+                        approved_candidates[i].asset.symbol, 
+                        analysis_data
+                    )
+                    
+                    if suggestion and suggestion_engine.validate_suggestion(suggestion):
+                        suggestions.append({
+                            "suggestion": suggestion,
+                            "assessment": assessment,
+                            "quote": approved_candidates[i]
+                        })
+            
+            # Step 5: Filter and rank suggestions
+            final_suggestions = suggestion_engine.filter_suggestions(
+                [s["suggestion"] for s in suggestions], 
+                max_suggestions
+            )
+            
+            # Return enriched suggestions
+            result = []
+            for suggestion in final_suggestions:
+                # Find matching assessment and quote
+                matching_data = next(
+                    (s for s in suggestions if s["suggestion"].id == suggestion.id), 
+                    None
+                )
+                if matching_data:
+                    result.append({
+                        "suggestion": suggestion,
+                        "assessment": matching_data["assessment"],
+                        "quote": matching_data["quote"],
+                        "analysis_summary": suggestion.analysis_summary
+                    })
+            
+            logger.info(f"Generated {len(result)} daily gap trading suggestions")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error generating gap suggestions: {e}")
+            return []
+    
+    def scan_gap_opportunities(self, min_gap_percent: float = 2.0) -> Dict[str, any]:
+        """
+        Comprehensive gap opportunity scan with detailed analysis
+        
+        Args:
+            min_gap_percent: Minimum gap percentage to scan for
+            
+        Returns:
+            Dictionary with gap scan results and statistics
+        """
+        logger.info(f"Scanning for gap opportunities >= {min_gap_percent}%")
+        
+        try:
+            from ..analysis.gap_market_scanner import GapMarketScanner
+            from ..analysis.gap_rules_engine import GapRulesEngine
+            from decimal import Decimal
+            
+            # Initialize scanner and rules engine
+            gap_scanner = GapMarketScanner(self)
+            rules_engine = GapRulesEngine()
+            
+            # Get comprehensive gap scan
+            scan_results = gap_scanner.get_comprehensive_gap_scan(Decimal(str(min_gap_percent)))
+            
+            # Apply rules to all candidates
+            rules_analysis = []
+            for quote in scan_results["gap_candidates"]:
+                evaluation = rules_engine.evaluate_gap_candidate(quote)
+                rules_analysis.append({
+                    "symbol": quote.asset.symbol,
+                    "evaluation": evaluation,
+                    "quote": quote
+                })
+            
+            # Compile statistics
+            total_candidates = len(scan_results["gap_candidates"])
+            rules_approved = len([r for r in rules_analysis if r["evaluation"]["decision"] == "TRADE"])
+            volume_confirmed = len(scan_results["volume_confirmed"])
+            high_quality = len(scan_results["high_quality"])
+            
+            return {
+                "scan_results": scan_results,
+                "rules_analysis": rules_analysis,
+                "statistics": {
+                    "total_candidates": total_candidates,
+                    "rules_approved": rules_approved,
+                    "volume_confirmed": volume_confirmed,
+                    "high_quality": high_quality,
+                    "approval_rate": (rules_approved / total_candidates * 100) if total_candidates > 0 else 0
+                },
+                "timestamp": datetime.now()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error scanning gap opportunities: {e}")
+            return {"error": str(e)}
 
 
 # Convenience functions

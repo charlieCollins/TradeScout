@@ -338,9 +338,21 @@ class DataSourcesManager:
 
         # Check API key availability
         if provider_config.api_key_required:
-            api_key_var = f"{provider_id.upper()}_API_KEY"
-            if not os.getenv(api_key_var):
-                return False
+            # Handle special cases for API key naming
+            if provider_id == "alpha_vantage_market":
+                # Alpha Vantage Market uses the same API key as regular Alpha Vantage
+                if not os.getenv("ALPHA_VANTAGE_API_KEY"):
+                    return False
+            elif provider_id == "newsapi":
+                # NewsAPI uses NEWS_API_KEY naming convention
+                api_key = os.getenv("NEWS_API_KEY")
+                if not api_key or api_key == "your_newsapi_key_here":
+                    return False
+            else:
+                # Default pattern: PROVIDER_ID_API_KEY
+                api_key_var = f"{provider_id.upper()}_API_KEY"
+                if not os.getenv(api_key_var):
+                    return False
 
         # Check circuit breaker
         if provider_id in self.disabled_providers:
