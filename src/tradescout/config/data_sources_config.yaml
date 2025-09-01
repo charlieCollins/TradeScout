@@ -47,24 +47,12 @@ providers:
     rate_limit_per_day: 25  # Free tier: 25 requests per day (very limited)
     rate_limit_per_minute: 5
     supports_extended_hours: false
+    supports_market_movers: true  # Now includes market movers functionality
     api_key_required: true
     priority: 4
     enabled: true
     base_url: "https://www.alphavantage.co/query"
-    timeout_seconds: 10
-    
-  alpha_vantage_market:
-    name: "Alpha Vantage Market Movers"
-    type: "api"
-    provider_type: "freemium"
-    rate_limit_per_day: 25  # Shares limit with regular alpha_vantage
-    rate_limit_per_minute: 5
-    supports_extended_hours: false
-    api_key_required: true
-    priority: 1  # High priority for market movers
-    enabled: true
-    base_url: "https://www.alphavantage.co/query"
-    timeout_seconds: 30
+    timeout_seconds: 30  # Increased for market movers requests
     
   newsapi:
     name: "NewsAPI"
@@ -73,14 +61,6 @@ providers:
     rate_limit_per_day: 1000
     api_key_required: true
     enabled: true
-    
-  # reddit:
-    # name: "Reddit API"
-    # type: "api"
-    # provider_type: "free"
-    # rate_limit_per_minute: 60
-    # api_key_required: true
-    # enabled: false  # Removed for now
 
   # Web Scraping Data Sources (Extended Hours)
   # Note: Currently support after-hours only, will be extended to pre-market in the future
@@ -206,7 +186,7 @@ data_types:
     
   market_movers:
     description: "Top gainers, losers, most active stocks"
-    providers: ["alpha_vantage_market", "yfinance"]
+    providers: ["alpha_vantage", "yfinance"]  # Now using unified alpha_vantage provider
     fallback_strategy: "first_success"
     cache_ttl_minutes: 60  # 1 hour cache to protect Alpha Vantage quota
     
@@ -222,12 +202,6 @@ data_types:
     providers: ["newsapi", "finnhub"]
     fallback_strategy: "merge_all"
     cache_ttl_minutes: 15
-    
-  # social_sentiment:
-    # description: "Social media sentiment and discussion"
-    # providers: ["reddit"]
-    # fallback_strategy: "merge_all"
-    # cache_ttl_minutes: 10
     
   analyst_ratings:
     description: "Analyst recommendations and price targets"
@@ -245,10 +219,9 @@ data_types:
 quality_weights:
   polygon: 10      # Highest quality, paid API
   finnhub: 9       # High quality, good free tier
-  yfinance: 7      # Good quality, but free/scraped
-  alpha_vantage: 6 # Decent quality, limited free tier
   newsapi: 8       # Good news quality
-  # reddit: 5        # Variable quality, but good volume (removed)
+  yfinance: 7      # Good quality, but free/scraped
+  alpha_vantage: 6 # Decent quality, very limited free tier
 
 # Rate Limiting Configuration
 rate_limiting:

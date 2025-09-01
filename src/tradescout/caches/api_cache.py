@@ -77,8 +77,9 @@ class APICache:
         self.providers = {
             "polygon": self.cache_dir / "polygon",
             "yfinance": self.cache_dir / "yfinance",
+            "finnhub": self.cache_dir / "finnhub",
+            "alphavantage": self.cache_dir / "alphavantage",
             "newsapi": self.cache_dir / "newsapi",
-            "reddit": self.cache_dir / "reddit",
             "general": self.cache_dir / "general",
         }
 

@@ -120,11 +120,13 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 
 ### Data Pipeline
 ```python
-# Polygon.io FREE + yfinance → Analysis → Suggestions → Email/Dashboard
-# - Polygon.io: Fundamentals, historical (5 calls/min)
-# - yfinance: Real-time prices, after-hours (unlimited)
+# Multi-provider system with smart fallback → Analysis → Suggestions → CLI
+# - Polygon.io: Premium data (5 calls/min free)
+# - YFinance: Real-time prices, backup (unlimited)
+# - Finnhub: High-quality data (60 calls/min free)
+# - Alpha Vantage: Market movers, fundamentals (25 calls/day - very limited!)
 # - NewsAPI: 1000 articles/day
-# - Reddit API: Unlimited sentiment
+# - Web scrapers: Extended hours data (MarketWatch, CNN, etc.)
 ```
 
 ### Development vs Production Separation
@@ -133,26 +135,31 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 - **Principle**: Production code pristine, exploration uses file caching
 
 ### Technology Stack
-- **Backend**: Python + Flask
-- **Database**: SQLite (start simple)
-- **APIs**: Polygon.io (free) + yfinance + NewsAPI + Reddit
-- **Platform**: Linux/Ubuntu
-- **Budget**: $0-50/month
+- **Backend**: Python CLI with Rich interface
+- **Database**: SQLite (implemented)
+- **APIs**: Multi-provider system (Polygon, YFinance, Finnhub, Alpha Vantage, NewsAPI)
+- **Web Scrapers**: Extended hours data collection
+- **Platform**: Linux/Ubuntu/WSL2
+- **Budget**: $0-50/month (mostly free tier usage)
 
 ## Project Status
 - [x] Technical plan completed
-- [x] Data sources identified
-- [x] Architecture designed
-- [ ] Development environment setup
-- [ ] API keys acquired
-- [ ] MVP scope defined
+- [x] Data sources identified and implemented
+- [x] Architecture designed and implemented
+- [x] Development environment setup
+- [x] Multi-provider data system operational
+- [x] Gap trading system operational
+- [x] Academic research-based trading rules
+- [x] Rich CLI interface
+- [x] Comprehensive testing suite
+- [x] Smart coordinator with fallback strategies
 
 ## Next Steps
-1. Environment setup with API keys
-2. Basic data pipeline implementation
-3. Momentum detection algorithm
-4. Suggestion generation system
-5. Performance tracking
+1. News sentiment integration for gap catalyst validation
+2. Performance tracking system
+3. Advanced technical indicators
+4. Portfolio optimization features
+5. Web interface development
 
 ## Key Reminders
 - Always use TodoWrite for task management

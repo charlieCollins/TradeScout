@@ -1,11 +1,11 @@
 """
-Data Collection Package
+Data Models Package
 
-Handles all external data sources:
+Core domain models and interfaces for TradeScout:
 - Domain models (Asset, Market, MarketSegment, etc.)
 - Data provider interfaces (AssetDataProvider, NewsProvider, etc.)
 - Factory classes for creating domain entities
-- External API adapters (Polygon.io, yfinance, NewsAPI, Reddit)
+- Support for multiple API providers (Polygon.io, yfinance, Finnhub, Alpha Vantage, NewsAPI)
 """
 
 # Analysis models
@@ -56,7 +56,4 @@ from .interfaces import (
 )
 
 # Future adapter implementations will be imported here:
-# from .yfinance_adapter import YFinanceAdapter
-# from .polygon_adapter import PolygonAdapter
-# from .news_api_adapter import NewsAPIAdapter
-# from .reddit_adapter import RedditAdapter
+# Legacy adapter references - now handled by data_sources_api package

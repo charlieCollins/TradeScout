@@ -25,9 +25,11 @@ DATABASE_CONFIG = {
 # API Rate Limits (Free Tier Friendly)
 API_RATE_LIMITS = {
     "polygon_calls_per_minute": 5,
+    "finnhub_calls_per_minute": 60,
+    "alpha_vantage_calls_per_day": 25,  # Very limited!
+    "alpha_vantage_calls_per_minute": 5,
     "newsapi_calls_per_day": 1000,
     "yfinance_delay_seconds": 0.1,  # Be nice to Yahoo
-    "reddit_requests_per_minute": 60,
 }
 
 # Market Hours (Eastern Time)

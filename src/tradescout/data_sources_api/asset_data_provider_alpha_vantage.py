@@ -1,8 +1,9 @@
 """
 Alpha Vantage Adapter - Implementation using Alpha Vantage API
 
-Free tier: 500 API calls per day, 5 API calls per minute
+Free tier: 25 API calls per day, 5 API calls per minute
 Documentation: https://www.alphavantage.co/documentation/
+Note: Includes both regular data and market movers functionality
 """
 
 import logging
@@ -15,12 +16,15 @@ import requests
 from ..caches.api_cache import CachePolicy, cached_api_call
 from ..data_models.domain_models_core import (
     Asset,
+    AssetType,
     ExtendedHoursData,
     MarketQuote,
     MarketStatus,
     PriceData,
 )
+from ..data_models.factories import MarketFactory
 from ..data_models.interfaces import AssetDataProvider
+from ..data_models.market_wide_models import MarketMover, MarketMoversReport
 
 logger = logging.getLogger(__name__)
 
@@ -30,9 +34,10 @@ class AssetDataProviderAlphaVantage(AssetDataProvider):
     Alpha Vantage adapter implementing AssetDataProvider interface
 
     Features:
-    - Free tier: 500 calls/day, 5 calls/minute
+    - Free tier: 25 calls/day, 5 calls/minute (very limited!)
     - Real-time and historical data
     - Fundamental data
+    - Market movers (gainers, losers, most active)
     - Good reliability and data quality
     """
 
@@ -48,6 +53,11 @@ class AssetDataProviderAlphaVantage(AssetDataProvider):
         self.api_key = api_key or os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
         self.base_url = "https://www.alphavantage.co/query"
         self.provider_name = "alphavantage"
+        self.market_factory = MarketFactory()
+        self.available = True if self.api_key and self.api_key != "demo" else False
+        
+        if not self.available:
+            logger.warning("Alpha Vantage API key not configured or using demo key - provider disabled")
 
     def get_current_quote(self, asset: Asset) -> Optional[MarketQuote]:
         """Get current market quote for an asset"""
@@ -356,6 +366,133 @@ class AssetDataProviderAlphaVantage(AssetDataProvider):
                 f"Error getting Alpha Vantage fundamentals for {asset.symbol}: {e}"
             )
             return {}
+
+    def _fetch_market_movers_data(self, force_refresh: bool = False) -> Optional[Dict]:
+        """Fetch market movers data from Alpha Vantage TOP_GAINERS_LOSERS endpoint"""
+        def fetch_data():
+            params = {"function": "TOP_GAINERS_LOSERS", "apikey": self.api_key}
+            response = requests.get(self.base_url, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            
+            if "Error Message" in data or "Note" in data:
+                logger.warning(f"Alpha Vantage API issue: {data}")
+                return None
+                
+            if not all(key in data for key in ["top_gainers", "top_losers", "most_actively_traded"]):
+                logger.error(f"Unexpected API response structure: {list(data.keys())}")
+                return None
+                
+            return data
+        
+        return cached_api_call(
+            provider=self.provider_name,
+            endpoint="top_gainers_losers", 
+            params={},
+            api_function=fetch_data,
+            policy=CachePolicy.INTRADAY,
+            force_refresh=force_refresh
+        )
+    
+    def _parse_mover_data(self, raw_data: List[Dict], mover_type: str) -> List[MarketMover]:
+        """Parse raw Alpha Vantage market mover data into MarketMover objects"""
+        movers = []
+        nasdaq = self.market_factory.create_nasdaq_market()
+        
+        for i, item in enumerate(raw_data):
+            try:
+                asset = Asset(
+                    symbol=item["ticker"],
+                    name=item.get("ticker", "Unknown"),  
+                    asset_type=AssetType.COMMON_STOCK,
+                    market=nasdaq,
+                    currency="USD"
+                )
+                
+                mover = MarketMover(
+                    asset=asset,
+                    current_price=Decimal(item["price"]),
+                    price_change=Decimal(item["change_amount"]),
+                    price_change_percent=Decimal(item["change_percentage"].rstrip("%")),
+                    volume=int(item["volume"]),
+                    rank=i + 1
+                )
+                movers.append(mover)
+            except (KeyError, ValueError, TypeError) as e:
+                logger.debug(f"Error parsing {mover_type} item {i}: {e}")
+                continue
+                
+        return movers
+    
+    def get_market_gainers(self, limit: int = 20, force_refresh: bool = False) -> List[MarketMover]:
+        """Get top market gainers from TOP_GAINERS_LOSERS endpoint"""
+        if not self.available:
+            return []
+            
+        data = self._fetch_market_movers_data(force_refresh)
+        if not data:
+            return []
+            
+        return self._parse_mover_data(data["top_gainers"][:limit], "gainers")
+    
+    def get_market_losers(self, limit: int = 20, force_refresh: bool = False) -> List[MarketMover]:
+        """Get top market losers from TOP_GAINERS_LOSERS endpoint"""
+        if not self.available:
+            return []
+            
+        data = self._fetch_market_movers_data(force_refresh)
+        if not data:
+            return []
+            
+        return self._parse_mover_data(data["top_losers"][:limit], "losers")
+    
+    def get_most_active(self, limit: int = 20, force_refresh: bool = False) -> List[MarketMover]:
+        """Get most active stocks by volume from TOP_GAINERS_LOSERS endpoint"""
+        if not self.available:
+            return []
+            
+        data = self._fetch_market_movers_data(force_refresh)
+        if not data:
+            return []
+            
+        return self._parse_mover_data(data["most_actively_traded"][:limit], "most_active")
+    
+    def get_market_movers_report(self, limit: int = 20, force_refresh: bool = False) -> Optional[MarketMoversReport]:
+        """Get comprehensive market movers report with single API call"""
+        if not self.available:
+            return None
+            
+        data = self._fetch_market_movers_data(force_refresh)
+        if not data:
+            return None
+            
+        gainers = self._parse_mover_data(data["top_gainers"][:limit], "gainers")
+        losers = self._parse_mover_data(data["top_losers"][:limit], "losers")
+        most_active = self._parse_mover_data(data["most_actively_traded"][:limit], "most_active")
+        
+        # Determine market status based on current time
+        now = datetime.now()
+        weekday = now.weekday()
+        hour = now.hour
+        
+        if weekday >= 5:
+            market_status = MarketStatus.CLOSED
+        elif 9 <= hour < 16:
+            market_status = MarketStatus.OPEN
+        elif hour < 9:
+            market_status = MarketStatus.PRE_MARKET
+        elif hour < 20:
+            market_status = MarketStatus.AFTER_HOURS
+        else:
+            market_status = MarketStatus.CLOSED
+        
+        return MarketMoversReport(
+            gainers=gainers,
+            losers=losers,
+            most_active=most_active,
+            timestamp=datetime.now(),
+            market_status=market_status
+        )
 
     @property
     def rate_limit_per_minute(self) -> int:

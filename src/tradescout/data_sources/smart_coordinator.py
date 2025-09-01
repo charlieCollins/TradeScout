@@ -21,7 +21,6 @@ from ..data_models.factories import MarketFactory
 from ..data_models.interfaces import AssetDataProvider
 from ..data_models.market_wide_models import MarketMover, MarketMoversReport
 from ..data_sources_api.asset_data_provider_alpha_vantage import AssetDataProviderAlphaVantage
-from ..data_sources_api.asset_data_provider_alpha_vantage_market import AssetDataProviderAlphaVantageMarket
 from ..data_sources_api.asset_data_provider_finnhub import AssetDataProviderFinnhub
 from ..data_sources_api.asset_data_provider_polygon import AssetDataProviderPolygon
 from ..data_sources_api.asset_data_provider_yfinance import AssetDataProviderYFinance
@@ -123,14 +122,6 @@ class SmartCoordinator:
                     return AssetDataProviderAlphaVantage(api_key)
                 else:
                     logger.warning("Alpha Vantage API key not found")
-                    return None
-            elif provider_id == "alpha_vantage_market":
-                import os
-                api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-                if api_key:
-                    return AssetDataProviderAlphaVantageMarket(api_key)
-                else:
-                    logger.warning("Alpha Vantage API key not found for market provider")
                     return None
             elif provider_id == "newsapi":
                 import os

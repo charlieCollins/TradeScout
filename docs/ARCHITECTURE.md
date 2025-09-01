@@ -26,7 +26,7 @@ TradeScout implements a sophisticated **hybrid data collection architecture** th
 │ • Polygon               │ • MarketWatchScraper          │
 │ • Finnhub               │ • InvestingComScraper         │
 │ • AlphaVantage          │ • TipRanksScraper             │
-│ • AlphaVantageMarket    │ • ADVFNScraper                │
+│ • NewsAPI               │ • ADVFNScraper                │
 └─────────────────────────┴───────────────────────────────┘
                            │
                            ▼
@@ -119,11 +119,10 @@ AssetDataProvider (ABC) [src/tradescout/data_models/interfaces.py]
 └── get_fundamental_data()
 
 # Current Implementations in src/tradescout/data_sources_api/
-├── AssetDataProviderYFinance (Priority 2, active)
-├── AssetDataProviderPolygon (Priority 1, disabled by user)  
-├── AssetDataProviderFinnhub (Priority 3, active)
-├── AssetDataProviderAlphaVantage (Priority 4, active)
-└── AssetDataProviderAlphaVantageMarket (market-wide data)
+├── AssetDataProviderYFinance (Priority 2, active, unlimited)
+├── AssetDataProviderPolygon (Priority 1, 5/min free)  
+├── AssetDataProviderFinnhub (Priority 3, 60/min free)
+└── AssetDataProviderAlphaVantage (Priority 4, 25/day free - includes market movers)
 ```
 
 #### Web Scraper-Based Data Collection
@@ -366,7 +365,7 @@ quality_weights:
 │ • Polygon (Disabled)    │ • MarketWatchScraper          │
 │ • Finnhub (Priority 3)  │ • InvestingComScraper         │
 │ • AlphaVantage (P4)     │ • TipRanksScraper             │
-│ • AlphaVantageMarket    │ • ADVFNScraper (disabled)     │
+│ • NewsAPI               │ • ADVFNScraper (disabled)     │
 └─────────────────────────┴───────────────────────────────┘
                            │
                            ▼

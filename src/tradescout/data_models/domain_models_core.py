@@ -333,7 +333,7 @@ class SocialSentiment:
 
     asset: Asset
     timestamp: datetime
-    source_platform: str  # "reddit", "twitter", "stocktwits"
+    source_platform: str  # "twitter", "stocktwits", "fintwit", etc.
     total_mentions: int
     sentiment_score: Decimal  # -1.0 to 1.0
     bullish_mentions: int

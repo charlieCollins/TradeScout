@@ -339,11 +339,7 @@ class DataSourcesManager:
         # Check API key availability
         if provider_config.api_key_required:
             # Handle special cases for API key naming
-            if provider_id == "alpha_vantage_market":
-                # Alpha Vantage Market uses the same API key as regular Alpha Vantage
-                if not os.getenv("ALPHA_VANTAGE_API_KEY"):
-                    return False
-            elif provider_id == "newsapi":
+            if provider_id == "newsapi":
                 # NewsAPI uses NEWS_API_KEY naming convention
                 api_key = os.getenv("NEWS_API_KEY")
                 if not api_key or api_key == "your_newsapi_key_here":

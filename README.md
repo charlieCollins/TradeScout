@@ -231,13 +231,19 @@ TradeScout/
 
 ### 📊 **Market Data Providers**
 - **Finnhub.io**: High-quality real-time data (60/min free) - Priority 3, Quality 9
-- **Yahoo Finance**: Reliable backup provider (60/min estimated) - Priority 2, Quality 7
+- **Yahoo Finance**: Reliable backup provider (unlimited free) - Priority 2, Quality 7
 - **Polygon.io**: Premium data when available (5/min free) - Priority 1, Quality 10
-- **Alpha Vantage**: Additional backup option (5/min free) - Priority 4, Quality 6
+- **Alpha Vantage**: Market movers & fundamentals (25/day free - very limited!) - Priority 4, Quality 6
+
+### 🌐 **Extended Hours Data (Web Scrapers)**
+- **MarketWatch**: After-hours movers (highly reliable) - Priority 6
+- **Investing.com**: Extended hours data (highly reliable) - Priority 8
+- **CNN Money**: After-hours gainers/losers (moderately reliable) - Priority 5
+- **TipRanks**: Dynamic after-hours data (moderately reliable) - Priority 7
+- **ADVFN**: Extended hours backup (disabled by default) - Priority 9
 
 ### 📰 **News & Sentiment**
 - **NewsAPI**: Company and market news (1000/day free) - Quality 8
-- **Reddit API**: Social sentiment analysis (60/min free) - Quality 5
 - **Finnhub News**: Integrated news from financial provider
 
 ### 🎛️ **Configuration Control**
