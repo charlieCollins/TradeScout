@@ -21,17 +21,17 @@ from .data_models.domain_models_core import (
     PriceData,
 )
 from .data_models.interfaces import AssetDataProvider
-from .data_sources_api.asset_data_provider_yfinance import AssetDataProviderYFinance
+from .data_sources_api.asset_data_provider_tiingo import AssetDataProviderTiingo
 
 __all__ = [
     "Asset",
     "Market",
-    "MarketSegment",
+    "MarketSegment", 
     "PriceData",
     "MarketQuote",
     "AssetType",
     "MarketType",
     "MarketStatus",
     "AssetDataProvider",
-    "AssetDataProviderYFinance",
+    "AssetDataProviderTiingo",
 ]

@@ -192,7 +192,7 @@ TradeScout/
 - **Pre-Market Timing**: Optimized for 4:00-9:30 AM ET gap detection, 9:30-10:30 AM entry window
 - **Intelligent Gap Analysis**: 4 gap types (Common, Breakaway, Continuation, Exhaustion) with confidence scoring
 - **Rich CLI Interface**: Detailed analysis tables with entry/exit/stop levels, risk/reward ratios
-- **Multiple Data Sources**: Smart coordinator with 5 providers + web scraper fallbacks
+- **Multiple Data Sources**: Smart coordinator with API providers and intelligent routing
 
 ### 🎯 **Smart Data Source Management**
 - **Configuration-Driven Routing**: YAML configuration controls which providers serve different data types
@@ -235,12 +235,9 @@ TradeScout/
 - **Polygon.io**: Premium data when available (5/min free) - Priority 1, Quality 10
 - **Alpha Vantage**: Market movers & fundamentals (25/day free - very limited!) - Priority 4, Quality 6
 
-### 🌐 **Extended Hours Data (Web Scrapers)**
-- **MarketWatch**: After-hours movers (highly reliable) - Priority 6
-- **Investing.com**: Extended hours data (highly reliable) - Priority 8
-- **CNN Money**: After-hours gainers/losers (moderately reliable) - Priority 5
-- **TipRanks**: Dynamic after-hours data (moderately reliable) - Priority 7
-- **ADVFN**: Extended hours backup (disabled by default) - Priority 9
+### 🌐 **Extended Hours Data (APIs)**
+- **YFinance**: Extended hours via `prepost=True` parameter - Free, unlimited
+- **Polygon**: Pre-market and after-hours via API - Rate limited
 
 ### 📰 **News & Sentiment**
 - **NewsAPI**: Company and market news (1000/day free) - Quality 8
@@ -295,7 +292,7 @@ Each data type can be configured independently:
 - [x] **Complete Gap Trading Workflow**: Pre-market scanning → Binary classification → Trade suggestions
 - [x] **Academic Research Integration**: 90-year empirical study implementation with statistical validation
 - [x] **Professional Risk Management**: 2% max account risk, intraday-only trades, mandatory stop losses
-- [x] **Smart Data Infrastructure**: 5 API providers + web scraper fallbacks with intelligent routing
+- [x] **Smart Data Infrastructure**: Multiple API providers with intelligent routing
 - [x] **Rich CLI Interface**: Full-featured `suggest` command with detailed analysis tables
 - [x] **Binary Classification Engine**: 6-step academic rules (gap size, volume, market cap, spread, exhaustion, timing)
 - [x] **Gap Type Analysis**: 4 gap types with confidence scoring and risk assessment
@@ -307,7 +304,7 @@ Each data type can be configured independently:
 - [x] Modern Python project structure with clean architecture
 - [x] Domain models and interfaces
 - [x] Smart Coordinator with configuration-driven routing
-- [x] Multi-provider ecosystem (YFinance, Finnhub, Polygon, Alpha Vantage, Web Scrapers)
+- [x] Multi-provider ecosystem (YFinance, Finnhub, Polygon, Alpha Vantage)
 - [x] YAML-based data source configuration
 - [x] Intelligent fallback strategies and circuit breaker protection
 - [x] Rich CLI interface with status monitoring

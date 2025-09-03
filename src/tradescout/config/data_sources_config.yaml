@@ -1,232 +1,130 @@
 # TradeScout Data Sources Configuration
-# This file controls which data providers are used for different types of data
+# Single provider configuration - Polygon.io Paid Account
+# Documentation: https://polygon.io/docs
+#
+# Polygon Market Coverage:
+# - Real-time and historical market data for stocks, options, forex, crypto
+# - Extended hours trading data (pre-market 4AM-9:30AM, after-hours 4PM-8PM EST)
+# - Comprehensive market coverage with tick-level data streams
+# - Note: Extended hour trades may have Sale Conditions affecting aggregates
 
 
 # Data Source Definitions
 providers:
-  yfinance:
-    name: "Yahoo Finance"
-    type: "api"
-    provider_type: "free"
-    rate_limit_per_minute: 60
-    supports_extended_hours: true
-    api_key_required: false
-    priority: 2
-    enabled: true
-    base_url: "https://query1.finance.yahoo.com"  # YFinance uses multiple endpoints
-    timeout_seconds: 10
-    
-  finnhub:
-    name: "Finnhub.io"
-    type: "api"
-    provider_type: "freemium"
-    rate_limit_per_minute: 60
-    supports_extended_hours: false
-    api_key_required: true
-    priority: 3
-    enabled: true
-    base_url: "https://finnhub.io/api/v1"
-    timeout_seconds: 10
-    
   polygon:
     name: "Polygon.io"
     type: "api"
-    provider_type: "freemium"
-    rate_limit_per_minute: 5
+    provider_type: "commercial"
+    documentation_url: "https://polygon.io/docs"
+    rate_limit_per_minute: 300  # Varies by subscription tier
     supports_extended_hours: true
+    supports_market_movers: true
+    supports_news: true
+    supports_fundamentals: true
+    supports_crypto: true
+    supports_forex: true
     api_key_required: true
     priority: 1
     enabled: true
     base_url: "https://api.polygon.io"
-    timeout_seconds: 10
-    
-  alpha_vantage:
-    name: "Alpha Vantage"
+    timeout_seconds: 15
+  
+  tiingo:
+    name: "Tiingo"
     type: "api"
-    provider_type: "freemium"
-    rate_limit_per_day: 25  # Free tier: 25 requests per day (very limited)
-    rate_limit_per_minute: 5
-    supports_extended_hours: false
-    supports_market_movers: true  # Now includes market movers functionality
+    provider_type: "commercial"
+    documentation_url: "https://www.tiingo.com/documentation/general/overview"
+    rate_limit_per_minute: 1000
+    supports_extended_hours: true
+    supports_market_movers: true
+    supports_news: true
+    supports_fundamentals: true
+    supports_crypto: true
+    supports_forex: true
     api_key_required: true
-    priority: 4
-    enabled: true
-    base_url: "https://www.alphavantage.co/query"
-    timeout_seconds: 30  # Increased for market movers requests
-    
-  newsapi:
-    name: "NewsAPI"
-    type: "api"
-    provider_type: "freemium"
-    rate_limit_per_day: 1000
-    api_key_required: true
-    enabled: true
+    priority: 2
+    enabled: false  # Disabled - switching to Polygon
+    base_url: "https://api.tiingo.com"
+    timeout_seconds: 15
 
-  # Web Scraping Data Sources (Extended Hours)
-  # Note: Currently support after-hours only, will be extended to pre-market in the future
-  cnn_scraper:
-    name: "CNN Extended Hours Scraper"
-    type: "web_scraper"
-    rate_limit_per_minute: 10  # Conservative to avoid being blocked
-    api_key_required: false
-    priority: 5
-    enabled: true
-    base_url: "https://money.cnn.com"
-    timeout_seconds: 30
-    reliability: "moderately_reliable"  # CNN changes layout occasionally
-    supports_extended_hours: true  # Will support both pre-market and after-hours
-    current_support: "after_hours_only"  # Current implementation status
-    
-  marketwatch_scraper:
-    name: "MarketWatch Extended Hours Scraper"
-    type: "web_scraper"
-    rate_limit_per_minute: 10
-    api_key_required: false
-    priority: 6
-    enabled: true
-    base_url: "https://www.marketwatch.com"
-    timeout_seconds: 30
-    reliability: "highly_reliable"  # MarketWatch is very stable
-    supports_extended_hours: true
-    current_support: "after_hours_only"
-    
-  tipranks_scraper:
-    name: "TipRanks Extended Hours Scraper"
-    type: "web_scraper"
-    rate_limit_per_minute: 5  # More conservative for TipRanks
-    api_key_required: false
-    priority: 7
-    enabled: true
-    base_url: "https://www.tipranks.com"
-    timeout_seconds: 45  # Longer timeout for dynamic loading
-    reliability: "moderately_reliable"  # Dynamic content can be fragile
-    supports_extended_hours: true
-    current_support: "after_hours_only"
-    
-  investing_com_scraper:
-    name: "Investing.com Extended Hours Scraper"
-    type: "web_scraper"
-    rate_limit_per_minute: 8
-    api_key_required: false
-    priority: 8
-    enabled: true
-    base_url: "https://www.investing.com"
-    timeout_seconds: 30
-    reliability: "highly_reliable"  # Investing.com is stable
-    supports_extended_hours: true
-    current_support: "after_hours_only"
-    
-  advfn_scraper:
-    name: "ADVFN Extended Hours Scraper"
-    type: "web_scraper"
-    rate_limit_per_minute: 5
-    api_key_required: false
-    priority: 9
-    enabled: false  # Less reliable, disabled by default
-    base_url: "https://www.advfn.com"
-    timeout_seconds: 30
-    reliability: "inconsistent"  # ADVFN can be unreliable
-    supports_extended_hours: true
-    current_support: "after_hours_only"
 
 # Data Type Configurations
-# Each data type can specify which providers to use, in order of preference
+# All data types use Polygon as the primary source
 data_types:
   
   # Real-time and current market data
   current_quotes:
     description: "Current stock prices and basic market data"
-    providers: ["yfinance", "finnhub", "alpha_vantage"]
-    fallback_strategy: "first_success"  # try providers in order until one succeeds
-    cache_ttl_minutes: 2
+    providers: ["polygon"]
+    cache_ttl_minutes: 1
     
   historical_prices:
     description: "Historical OHLCV data"
-    providers: ["polygon", "yfinance", "finnhub"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
     cache_ttl_hours: 24
     
   extended_hours:
-    description: "Extended hours trading data (pre-market and after-hours) from both APIs and web scrapers"
-    providers: ["polygon", "yfinance", "marketwatch_scraper", "investing_com_scraper", "cnn_scraper", "tipranks_scraper"]
-    fallback_strategy: "first_success"
+    description: "Extended hours trading data (pre-market and after-hours)"
+    providers: ["polygon"]
     cache_ttl_minutes: 5
     
   # Company and fundamental data
   company_fundamentals:
     description: "Company profile, financials, and basic stats"
-    providers: ["finnhub", "alpha_vantage", "yfinance"]
-    fallback_strategy: "merge_best"  # combine data from multiple sources
+    providers: ["polygon"]
     cache_ttl_days: 7
     
   financial_statements:
     description: "Income statement, balance sheet, cash flow"
-    providers: ["polygon", "alpha_vantage"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
     cache_ttl_days: 90
     
   earnings_data:
     description: "Earnings history and estimates"
-    providers: ["finnhub", "polygon"]
-    fallback_strategy: "merge_best"
+    providers: ["polygon"]
     cache_ttl_days: 1
     
   # Market analysis data
   volume_analysis:
     description: "Volume patterns and unusual volume detection"
-    providers: ["polygon", "yfinance"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
     cache_ttl_minutes: 15
     
   technical_indicators:
     description: "RSI, MACD, moving averages, etc."
-    providers: ["polygon", "yfinance"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
     cache_ttl_minutes: 15
     
   market_movers:
     description: "Top gainers, losers, most active stocks"
-    providers: ["alpha_vantage", "yfinance"]  # Now using unified alpha_vantage provider
-    fallback_strategy: "first_success"
-    cache_ttl_minutes: 60  # 1 hour cache to protect Alpha Vantage quota
+    providers: ["polygon"]
+    cache_ttl_minutes: 15
     
   # News and sentiment data
   company_news:
     description: "Company-specific news and press releases"
-    providers: ["newsapi", "finnhub"]
-    fallback_strategy: "merge_all"  # combine news from all sources
+    providers: ["polygon"]
     cache_ttl_minutes: 30
     
   market_news:
     description: "General market and sector news"
-    providers: ["newsapi", "finnhub"]
-    fallback_strategy: "merge_all"
+    providers: ["polygon"]
+    cache_ttl_minutes: 15
+    
+  sentiment_analysis:
+    description: "Social sentiment and news sentiment analysis"
+    providers: ["polygon"]
     cache_ttl_minutes: 15
     
   analyst_ratings:
     description: "Analyst recommendations and price targets"
-    providers: ["finnhub", "polygon"]
-    fallback_strategy: "merge_best"
+    providers: ["polygon"]
     cache_ttl_hours: 6
-
-# Fallback Strategies Explained:
-# - first_success: Try providers in order, return first successful result
-# - merge_best: Combine data from multiple providers, preferring higher quality
-# - merge_all: Combine all available data from all providers
-# - round_robin: Rotate between providers to balance load
-
-# Quality Scoring (used in merge_best strategy)
-quality_weights:
-  polygon: 10      # Highest quality, paid API
-  finnhub: 9       # High quality, good free tier
-  newsapi: 8       # Good news quality
-  yfinance: 7      # Good quality, but free/scraped
-  alpha_vantage: 6 # Decent quality, very limited free tier
 
 # Rate Limiting Configuration
 rate_limiting:
   enabled: true
-  burst_allowance: 5  # Allow brief bursts above limit
+  burst_allowance: 10  # Allow brief bursts above limit
   backoff_strategy: "exponential"  # linear, exponential, or fixed
   max_retry_attempts: 3
   retry_delay_seconds: 1
@@ -236,7 +134,7 @@ error_handling:
   max_failures_before_disable: 5  # Disable provider after N consecutive failures
   failure_window_minutes: 10      # Reset failure count after this window
   circuit_breaker_enabled: true   # Temporarily disable failing providers
-  fallback_to_cache: true         # Use cached data if all providers fail
+  fallback_to_cache: true         # Use cached data if provider fails
   max_cache_age_hours: 24         # Maximum age of cached data to use as fallback
 
 # Development and Testing

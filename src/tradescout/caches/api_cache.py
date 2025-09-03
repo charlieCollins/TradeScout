@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 class CachePolicy(Enum):
     """Cache policies for different data types"""
 
-    REAL_TIME = "real_time"  # 1 hour (aggressive caching for rate-limited APIs)
-    INTRADAY = "intraday"  # 1 hour (aggressive caching for rate-limited APIs)
+    REAL_TIME = "real_time"  # 15 minutes for real-time pricing data
+    INTRADAY = "intraday"  # 15 minutes for intraday pricing data
     PREMARKET = "premarket"  # Pre-market hours (4 AM - 9:30 AM ET)
     AFTERHOURS = "afterhours"  # After-hours (4 PM - 8 PM ET)
     DAILY = "daily"  # 4-24 hours
@@ -46,10 +46,10 @@ class CacheConfig:
     def __post_init__(self):
         if self.ttl_policies is None:
             self.ttl_policies = {
-                CachePolicy.REAL_TIME: 60,  # 1 hour (aggressive caching for rate-limited APIs)
-                CachePolicy.INTRADAY: 60,  # 1 hour (aggressive caching for rate-limited APIs)
-                CachePolicy.PREMARKET: 60,  # 1 hour (pre-market extended hours)
-                CachePolicy.AFTERHOURS: 60,  # 1 hour (after-hours extended hours)
+                CachePolicy.REAL_TIME: 15,  # 15 minutes for real-time pricing data
+                CachePolicy.INTRADAY: 15,  # 15 minutes for intraday pricing data
+                CachePolicy.PREMARKET: 15,  # 15 minutes for pre-market extended hours
+                CachePolicy.AFTERHOURS: 15,  # 15 minutes for after-hours extended hours
                 CachePolicy.DAILY: 240,  # 4 hours
                 CachePolicy.FUNDAMENTAL: 10080,  # 1 week
                 CachePolicy.HISTORICAL: 43200,  # 30 days
@@ -75,11 +75,7 @@ class APICache:
 
         # Cache subdirectories by provider
         self.providers = {
-            "polygon": self.cache_dir / "polygon",
-            "yfinance": self.cache_dir / "yfinance",
-            "finnhub": self.cache_dir / "finnhub",
-            "alphavantage": self.cache_dir / "alphavantage",
-            "newsapi": self.cache_dir / "newsapi",
+            "tiingo": self.cache_dir / "tiingo",
             "general": self.cache_dir / "general",
         }
 
@@ -449,7 +445,7 @@ if __name__ == "__main__":
 
     # First call (cache miss)
     data1 = cached_api_call(
-        "yfinance",
+        "tiingo",
         "get_quote",
         {"symbol": "NVDA"},
         mock_api_call,
@@ -458,7 +454,7 @@ if __name__ == "__main__":
 
     # Second call (cache hit)
     data2 = cached_api_call(
-        "yfinance",
+        "tiingo",
         "get_quote",
         {"symbol": "NVDA"},
         mock_api_call,

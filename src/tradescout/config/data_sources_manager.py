@@ -50,18 +50,17 @@ class ProviderConfig:
     """Configuration for a single data provider"""
 
     name: str
-    provider_type: str  # free, freemium, paid (for APIs) or web_scraper
+    provider_type: str  # free, freemium, paid (for APIs)
     rate_limit_per_minute: int
     api_key_required: bool
     priority: int
     enabled: bool
-    type: str = "api"  # "api" or "web_scraper"
+    type: str = "api"
     supports_extended_hours: bool = False
     rate_limit_per_day: Optional[int] = None
     quality_weight: int = 5
     base_url: Optional[str] = None
     timeout_seconds: int = 10
-    reliability: Optional[str] = None  # For web scrapers: "highly_reliable", "moderately_reliable", "inconsistent"
 
 
 @dataclass
@@ -147,7 +146,9 @@ class DataSourcesManager:
             for provider_id, provider_data in yaml_data.get("providers", {}).items():
                 providers[provider_id] = ProviderConfig(
                     name=provider_data.get("name", provider_id),
-                    provider_type=provider_data.get("provider_type", provider_data.get("type", "unknown")),
+                    provider_type=provider_data.get(
+                        "provider_type", provider_data.get("type", "unknown")
+                    ),
                     rate_limit_per_minute=provider_data.get(
                         "rate_limit_per_minute", 60
                     ),
@@ -161,7 +162,6 @@ class DataSourcesManager:
                     rate_limit_per_day=provider_data.get("rate_limit_per_day"),
                     base_url=provider_data.get("base_url"),
                     timeout_seconds=provider_data.get("timeout_seconds", 10),
-                    reliability=provider_data.get("reliability"),
                 )
 
             # Parse data types
@@ -338,17 +338,10 @@ class DataSourcesManager:
 
         # Check API key availability
         if provider_config.api_key_required:
-            # Handle special cases for API key naming
-            if provider_id == "newsapi":
-                # NewsAPI uses NEWS_API_KEY naming convention
-                api_key = os.getenv("NEWS_API_KEY")
-                if not api_key or api_key == "your_newsapi_key_here":
-                    return False
-            else:
-                # Default pattern: PROVIDER_ID_API_KEY
-                api_key_var = f"{provider_id.upper()}_API_KEY"
-                if not os.getenv(api_key_var):
-                    return False
+            # Default pattern: PROVIDER_ID_API_KEY
+            api_key_var = f"{provider_id.upper()}_API_KEY"
+            if not os.getenv(api_key_var):
+                return False
 
         # Check circuit breaker
         if provider_id in self.disabled_providers:

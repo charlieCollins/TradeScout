@@ -1,291 +1,612 @@
 """
-Polygon.io Adapter - Implementation using Polygon.io API
+Polygon.io Adapter - Implementation of AssetDataProvider using Polygon.io API
 
-Features both free and paid tiers with comprehensive market data.
-Documentation: https://polygon.io/docs/stocks
+Uses Polygon.io API for high-quality market data with intelligent caching 
+to optimize API usage and improve performance.
+Specializes in extended hours data via snapshot endpoint.
 """
 
 import logging
-from datetime import datetime, timedelta
+import requests
+from datetime import datetime, timedelta, time
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-import requests
-
-from ..caches.api_cache import CachePolicy, cached_api_call
+from ..caches.api_cache import APICache, CachePolicy, cached_api_call
 from ..data_models.domain_models_core import (
     Asset,
+    AssetType,
     ExtendedHoursData,
+    Market,
     MarketQuote,
     MarketStatus,
+    MarketType,
     PriceData,
 )
 from ..data_models.interfaces import AssetDataProvider
+from ..data_models.market_wide_models import MarketMover
+from ..config.screening_universe_config import get_default_screening_universe
 
 logger = logging.getLogger(__name__)
 
 
 class AssetDataProviderPolygon(AssetDataProvider):
     """
-    Polygon.io adapter implementing AssetDataProvider interface
-
+    Polygon.io adapter implementing our AssetDataProvider interface
+    
     Features:
-    - Free tier: 5 API calls per minute
-    - Paid tiers: Much higher limits + real-time data
-    - Comprehensive market data including extended hours
-    - High data quality and reliability
+    - High-quality financial data from Polygon.io
+    - Excellent extended hours data via snapshot endpoint
+    - Intelligent caching with appropriate TTLs
+    - Rate-friendly API calls with built-in delays
+    - Comprehensive market data coverage
+    - Real-time gap calculation for extended hours
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str, cache: Optional[APICache] = None, request_delay: float = 0.2):
         """
-        Initialize Polygon adapter
-
+        Initialize Polygon.io adapter
+        
         Args:
-            api_key: Polygon.io API key (get from environment if None)
+            api_key: Polygon.io API key
+            cache: API cache instance (creates default if None)
+            request_delay: Delay between requests in seconds
         """
-        import os
-
-        self.api_key = api_key or os.getenv("POLYGON_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "Polygon API key required. Set POLYGON_API_KEY environment variable."
-            )
-
-        self.base_url = "https://api.polygon.io"
+        self.cache = cache or APICache()
+        self.request_delay = request_delay
         self.provider_name = "polygon"
+        self.api_key = api_key
+        self.base_url = "https://api.polygon.io"
+        
+        # Create default market for US stocks
+        self.default_market = Market(
+            id="US_STOCKS",
+            name="US Stock Market (via Polygon)",
+            market_type=MarketType.STOCK,
+            timezone="America/New_York",
+            currency="USD",
+            regular_open=time(9, 30),
+            regular_close=time(16, 0),
+            pre_market_start=time(4, 0),
+            after_hours_end=time(20, 0)
+        )
+
+    @property
+    def rate_limit_per_minute(self) -> int:
+        """Return the rate limit for Polygon API (varies by subscription)"""
+        return 300  # Conservative estimate - check your plan
+
+    @property
+    def supports_extended_hours(self) -> bool:
+        """Polygon supports extended hours data via snapshot endpoint"""
+        return True
+
+    @property
+    def supports_market_movers(self) -> bool:
+        """Polygon supports market screening capabilities"""
+        return True
+
+    def _make_request(self, endpoint: str, params: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """
+        Make a request to Polygon API with error handling
+        
+        Args:
+            endpoint: API endpoint path
+            params: Query parameters
+            
+        Returns:
+            JSON response data or None if failed
+        """
+        try:
+            url = f"{self.base_url}/{endpoint}"
+            request_params = {"apikey": self.api_key}
+            if params:
+                request_params.update(params)
+            
+            response = requests.get(url, params=request_params, timeout=15)
+            
+            if response.status_code == 200:
+                return response.json()
+            elif response.status_code == 403:
+                logger.error(f"Polygon API access denied (403): {response.text}")
+                return None
+            else:
+                logger.warning(f"Polygon API error {response.status_code}: {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error making Polygon API request to {endpoint}: {e}")
+            return None
 
     def get_current_quote(self, asset: Asset) -> Optional[MarketQuote]:
-        """Get current market quote for an asset using free tier endpoints"""
+        """
+        Get current market quote for an asset using Polygon snapshot
+        
+        Args:
+            asset: Asset to get quote for
+            
+        Returns:
+            MarketQuote with current pricing data or None if unavailable
+        """
         try:
-
-            def fetch_quote() -> Optional[Dict[str, Any]]:
-                """Fetch quote from Polygon API using free tier endpoints"""
-                # Free tier only has access to previous close data, not real-time quotes
-                # Use the aggregates endpoint for the most recent available data
-                prev_close_url = f"{self.base_url}/v2/aggs/ticker/{asset.symbol}/prev"
-                params = {"apikey": self.api_key}
-
-                response = requests.get(prev_close_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get("status") != "OK":
-                    logger.warning(f"Polygon API response: {data}")
-                    return None
-
-                results = data.get("results", [])
-                if not results:
-                    logger.warning(f"No previous close data for {asset.symbol}")
-                    return None
-
-                prev_data = results[0]
-
-                # Safe conversion function for numeric values
-                def safe_decimal(value, default=0):
-                    """Safely convert value to Decimal"""
-                    try:
-                        if isinstance(value, str):
-                            import re
-
-                            clean_value = re.sub(r"[^\d.-]", "", value)
-                            return (
-                                Decimal(clean_value)
-                                if clean_value
-                                else Decimal(str(default))
-                            )
-                        else:
-                            return Decimal(str(value))
-                    except (ValueError, TypeError, AttributeError):
-                        return Decimal(str(default))
-
-                def safe_int(value, default=0):
-                    """Safely convert value to int"""
-                    try:
-                        if isinstance(value, str):
-                            import re
-
-                            clean_value = re.sub(r"[^\d]", "", value)
-                            return int(clean_value) if clean_value else default
-                        else:
-                            return int(value)
-                    except (ValueError, TypeError, AttributeError):
-                        return default
-
-                # Extract data from previous close (most recent available in free tier)
-                current_price = safe_decimal(
-                    prev_data.get("c", 0)
-                )  # Previous close as "current"
-                open_price = safe_decimal(
-                    prev_data.get("o", current_price)
-                )  # Open price
-                high_price = safe_decimal(
-                    prev_data.get("h", current_price)
-                )  # High price
-                low_price = safe_decimal(prev_data.get("l", current_price))  # Low price
-                volume = safe_int(prev_data.get("v", 0))  # Volume
-
-                # For previous close comparison, we'd need another day's data
-                # For now, calculate change from open to close of the same day
-                if open_price > 0:
-                    price_change = current_price - open_price
-                    price_change_percent = (price_change / open_price) * 100
-                else:
-                    price_change = Decimal("0")
-                    price_change_percent = Decimal("0")
-
-                return {
-                    "symbol": asset.symbol,
-                    "current_price": current_price,
-                    "previous_close": open_price,  # Use open as "previous" for day's change
-                    "price_change": price_change,
-                    "price_change_percent": price_change_percent,
-                    "volume": volume,
-                    "high": high_price,
-                    "low": low_price,
-                    "open": open_price,
-                    "timestamp": datetime.fromtimestamp(
-                        prev_data.get("t", 0) / 1000
-                    ),  # Convert from milliseconds
-                }
-
-            # Cache with REAL_TIME policy (2 minutes)
-            quote_data = cached_api_call(
-                provider=self.provider_name,
-                endpoint="last_quote",
-                params={"symbol": asset.symbol},
-                api_function=fetch_quote,
-                policy=CachePolicy.REAL_TIME,
-            )
-
-            if not quote_data:
+            if asset.asset_type not in [AssetType.COMMON_STOCK, AssetType.PREFERRED_STOCK]:
+                logger.warning(f"Polygon only supports stocks, got {asset.asset_type}")
                 return None
 
+            # Use snapshot endpoint for real-time data
+            snapshot_data = self._get_market_snapshot(asset.symbol)
+            if not snapshot_data:
+                return None
+
+            return self._convert_snapshot_to_quote(snapshot_data, asset)
+
+        except Exception as e:
+            logger.error(f"Error getting current quote for {asset.symbol}: {e}")
+            return None
+
+    def _get_market_snapshot(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get market snapshot data for a symbol
+        
+        Args:
+            symbol: Stock symbol
+            
+        Returns:
+            Snapshot data or None if unavailable
+        """
+        endpoint = f"v2/snapshot/locale/us/markets/stocks/tickers/{symbol}"
+        response = self._make_request(endpoint)
+        
+        if response and response.get("status") == "OK":
+            return response.get("ticker")
+        
+        return None
+
+    def _convert_snapshot_to_quote(self, snapshot_data: Dict[str, Any], asset: Asset) -> MarketQuote:
+        """Convert Polygon snapshot data to our MarketQuote format"""
+        try:
+            # Get current price from snapshot
+            # Priority: min.c (latest minute close) > day.c (current day close) > prevDay.c
+            current_price = None
+            volume = 0
+            timestamp = datetime.now()
+            
+            # Try to get most recent price
+            if "min" in snapshot_data and snapshot_data["min"]:
+                min_data = snapshot_data["min"]
+                current_price = Decimal(str(min_data.get("c", 0)))
+                volume = int(min_data.get("v", 0))
+                if "t" in min_data:
+                    timestamp = datetime.fromtimestamp(min_data["t"] / 1000)
+            elif "day" in snapshot_data and snapshot_data["day"]:
+                day_data = snapshot_data["day"]
+                current_price = Decimal(str(day_data.get("c", 0)))
+                volume = int(day_data.get("v", 0))
+            
+            if not current_price or current_price <= 0:
+                logger.warning(f"No valid price data in snapshot for {asset.symbol}")
+                return None
+            
+            # Get OHLC data from day or min data
+            day_data = snapshot_data.get("day", {})
+            open_price = Decimal(str(day_data.get("o", current_price)))
+            high_price = Decimal(str(day_data.get("h", current_price)))
+            low_price = Decimal(str(day_data.get("l", current_price)))
+            
             # Create PriceData
             price_data = PriceData(
                 asset=asset,
-                timestamp=quote_data["timestamp"],
-                price=quote_data["current_price"],
-                volume=quote_data["volume"],
-                open_price=quote_data["open"],
-                high_price=quote_data["high"],
-                low_price=quote_data["low"],
-                session_type=MarketStatus.OPEN,
-                bid_price=quote_data.get("bid_price"),
-                ask_price=quote_data.get("ask_price"),
-                data_source="polygon",
-                data_quality="good",
+                timestamp=timestamp,
+                price=current_price,
+                volume=volume,
+                open_price=open_price,
+                high_price=high_price,
+                low_price=low_price,
             )
 
-            # Create MarketQuote
             return MarketQuote(
                 asset=asset,
                 price_data=price_data,
-                previous_close=quote_data["previous_close"],
-                average_volume=None,  # Would need separate API call for this
             )
 
         except Exception as e:
-            logger.error(f"Error getting Polygon quote for {asset.symbol}: {e}")
-            return None
+            logger.error(f"Error converting Polygon snapshot data: {e}")
+            raise
 
     def get_extended_hours_data(
         self, asset: Asset, session: MarketStatus
     ) -> Optional[ExtendedHoursData]:
-        """Get extended hours trading data"""
+        """
+        Get extended hours trading data with real-time gap calculation
+        
+        Uses Polygon snapshot endpoint for current extended hours price
+        and previous close data for gap calculation.
+        
+        Args:
+            asset: Asset to get extended hours data for
+            session: Pre-market or after-hours session
+            
+        Returns:
+            ExtendedHoursData with calculated gap metrics or None if unavailable
+        """
         try:
-
-            def fetch_extended_hours() -> Optional[Dict[str, Any]]:
-                """Fetch extended hours data from Polygon"""
-                # Get today's date
-                today = datetime.now().strftime("%Y-%m-%d")
-
-                # Polygon aggregates endpoint for minute-level data
-                url = f"{self.base_url}/v2/aggs/ticker/{asset.symbol}/range/1/minute/{today}/{today}"
-                params = {"apikey": self.api_key, "adjusted": "true", "sort": "asc"}
-
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get("status") != "OK" or not data.get("results"):
-                    logger.warning(f"No extended hours data for {asset.symbol}")
-                    return None
-
-                # Filter data for the requested session
-                session_data = []
-                for bar in data["results"]:
-                    timestamp = datetime.fromtimestamp(
-                        bar["t"] / 1000
-                    )  # Polygon uses milliseconds
-                    hour = timestamp.hour
-
-                    # Filter by session type
-                    if session == MarketStatus.PRE_MARKET and 4 <= hour < 9:
-                        session_data.append(bar)
-                    elif session == MarketStatus.AFTER_HOURS and 16 <= hour < 20:
-                        session_data.append(bar)
-
-                if not session_data:
-                    return None
-
-                # Calculate session metrics
-                session_volume = sum(bar["v"] for bar in session_data)
-                session_high = max(bar["h"] for bar in session_data)
-                session_low = min(bar["l"] for bar in session_data)
-                session_open = session_data[0]["o"]
-                session_close = session_data[-1]["c"]
-
-                return {
-                    "session": session,
-                    "volume": session_volume,
-                    "high": Decimal(str(session_high)),
-                    "low": Decimal(str(session_low)),
-                    "open": Decimal(str(session_open)),
-                    "close": Decimal(str(session_close)),
-                    "change": Decimal(str(session_close - session_open)),
-                    "timestamp": datetime.now(),
-                }
-
-            # Cache with INTRADAY policy (15 minutes)
-            extended_data = cached_api_call(
-                provider=self.provider_name,
-                endpoint="extended_hours",
-                params={"symbol": asset.symbol, "session": session.value},
-                api_function=fetch_extended_hours,
-                policy=CachePolicy.INTRADAY,
-            )
-
-            if not extended_data:
+            if asset.asset_type not in [AssetType.COMMON_STOCK, AssetType.PREFERRED_STOCK]:
                 return None
 
-            # Create PriceData for extended hours
+            # Get market snapshot for real-time extended hours data
+            snapshot_data = self._get_market_snapshot(asset.symbol)
+            if not snapshot_data:
+                return None
+
+            # Extract current price (prefer minute data for most recent)
+            current_price = None
+            volume = 0
+            timestamp = datetime.now()
+            
+            if "min" in snapshot_data and snapshot_data["min"]:
+                min_data = snapshot_data["min"]
+                current_price = Decimal(str(min_data.get("c", 0)))
+                volume = int(min_data.get("v", 0))
+                if "t" in min_data:
+                    timestamp = datetime.fromtimestamp(min_data["t"] / 1000)
+            elif "day" in snapshot_data and snapshot_data["day"]:
+                day_data = snapshot_data["day"]
+                current_price = Decimal(str(day_data.get("c", 0)))
+                volume = int(day_data.get("v", 0))
+            
+            # Get previous close
+            prev_close = None
+            if "prevDay" in snapshot_data and snapshot_data["prevDay"]:
+                prev_close = Decimal(str(snapshot_data["prevDay"].get("c", 0)))
+            
+            if not current_price or not prev_close or prev_close <= 0:
+                logger.warning(f"Missing price data for {asset.symbol}: current={current_price}, prev={prev_close}")
+                return None
+            
+            # Create PriceData for current extended hours price
             price_data = PriceData(
                 asset=asset,
-                timestamp=extended_data["timestamp"],
-                price=extended_data["close"],
-                volume=extended_data["volume"],
-                open_price=extended_data["open"],
-                high_price=extended_data["high"],
-                low_price=extended_data["low"],
-                session_type=extended_data["session"],
-                data_source="polygon",
+                timestamp=timestamp,
+                price=current_price,
+                volume=volume,
+                open_price=current_price,  # For extended hours, use current as OHLC
+                high_price=current_price,
+                low_price=current_price,
+            )
+            
+            # Create ExtendedHoursData - gap calculation happens in __post_init__
+            extended_hours_data = ExtendedHoursData(
+                asset=asset,
+                session_type=session,
+                price_data=price_data,
+                regular_session_close=prev_close
+            )
+            
+            return extended_hours_data
+            
+        except Exception as e:
+            logger.error(f"Error getting extended hours data for {asset.symbol}: {e}")
+            return None
+
+    def get_historical_prices(
+        self,
+        asset: Asset,
+        start_date: datetime,
+        end_date: Optional[datetime] = None,
+        interval: str = "1d",
+    ) -> List[PriceData]:
+        """
+        Get historical price data for an asset using Polygon aggregates
+        
+        Args:
+            asset: Asset to get historical data for
+            start_date: Start date for historical data
+            end_date: End date (defaults to today)
+            interval: Data interval (1d, 1wk, 1mo)
+            
+        Returns:
+            List of PriceData objects
+        """
+        try:
+            if asset.asset_type not in [AssetType.COMMON_STOCK, AssetType.PREFERRED_STOCK]:
+                return []
+
+            end_date = end_date or datetime.now()
+            
+            # Convert interval to Polygon format
+            multiplier, timespan = self._convert_interval(interval)
+            
+            # Use caching for historical data
+            historical_data = cached_api_call(
+                provider=self.provider_name,
+                endpoint="historical_prices",
+                params={
+                    "symbol": asset.symbol,
+                    "start_date": start_date.strftime("%Y-%m-%d"),
+                    "end_date": end_date.strftime("%Y-%m-%d"),
+                    "interval": interval,
+                },
+                api_function=lambda: self._fetch_aggregates(
+                    asset.symbol, start_date, end_date, multiplier, timespan
+                ),
+                policy=CachePolicy.DAILY,
             )
 
-            # Use previous day's close as reference (simplified)
-            regular_session_close = extended_data["open"]
+            if not historical_data:
+                return []
 
-            return ExtendedHoursData(
+            return [self._convert_to_price_data(record, asset) for record in historical_data]
+
+        except Exception as e:
+            logger.error(f"Error getting historical prices for {asset.symbol}: {e}")
+            return []
+
+    def _convert_interval(self, interval: str) -> tuple[int, str]:
+        """Convert standard interval to Polygon multiplier and timespan"""
+        if interval == "1d":
+            return 1, "day"
+        elif interval == "1wk":
+            return 1, "week"
+        elif interval == "1mo":
+            return 1, "month"
+        else:
+            return 1, "day"  # Default
+
+    def _fetch_aggregates(
+        self, symbol: str, start_date: datetime, end_date: datetime, 
+        multiplier: int, timespan: str
+    ) -> List[Dict[str, Any]]:
+        """Fetch historical aggregates from Polygon"""
+        try:
+            endpoint = f"v2/aggs/ticker/{symbol}/range/{multiplier}/{timespan}/{start_date.strftime('%Y-%m-%d')}/{end_date.strftime('%Y-%m-%d')}"
+            response = self._make_request(endpoint)
+            
+            if response and response.get("status") == "OK":
+                return response.get("results", [])
+            
+            return []
+
+        except Exception as e:
+            logger.error(f"Error fetching aggregates from Polygon for {symbol}: {e}")
+            return []
+
+    def _convert_to_price_data(self, record: Dict[str, Any], asset: Asset) -> PriceData:
+        """Convert Polygon aggregate record to PriceData"""
+        try:
+            close_price = Decimal(str(record.get("c", 0)))
+            open_price = Decimal(str(record.get("o", close_price)))
+            high_price = Decimal(str(record.get("h", close_price)))
+            low_price = Decimal(str(record.get("l", close_price)))
+            volume = int(record.get("v", 0))
+            
+            # Convert timestamp from milliseconds
+            timestamp = datetime.fromtimestamp(record.get("t", 0) / 1000)
+
+            return PriceData(
                 asset=asset,
-                session_type=extended_data["session"],
-                price_data=price_data,
-                regular_session_close=regular_session_close,
+                timestamp=timestamp,
+                price=close_price,
+                volume=volume,
+                open_price=open_price,
+                high_price=high_price,
+                low_price=low_price,
             )
 
         except Exception as e:
-            logger.error(
-                f"Error getting Polygon extended hours for {asset.symbol}: {e}"
+            logger.error(f"Error converting Polygon price record: {e}")
+            return PriceData(
+                asset=asset,
+                timestamp=datetime.now(),
+                price=Decimal("0"),
+                volume=0,
             )
+
+    def get_market_gainers(self, limit: int = 20, force_refresh: bool = False) -> List[MarketMover]:
+        """
+        Get top market gainers using Polygon snapshot screening
+        
+        Args:
+            limit: Maximum number of gainers to return
+            force_refresh: Force refresh (ignored for now)
+            
+        Returns:
+            List of MarketMover objects
+        """
+        try:
+            return self._screen_market_movers("gainers", limit)
+        except Exception as e:
+            logger.error(f"Error getting market gainers: {e}")
+            return []
+
+    def get_market_losers(self, limit: int = 20, force_refresh: bool = False) -> List[MarketMover]:
+        """
+        Get top market losers using Polygon snapshot screening
+        
+        Args:
+            limit: Maximum number of losers to return
+            force_refresh: Force refresh (ignored for now)
+            
+        Returns:
+            List of MarketMover objects
+        """
+        try:
+            return self._screen_market_movers("losers", limit)
+        except Exception as e:
+            logger.error(f"Error getting market losers: {e}")
+            return []
+
+    def _screen_market_movers(self, mover_type: str, limit: int) -> List[MarketMover]:
+        """
+        Screen for market movers using Polygon snapshot data
+        
+        TODO: Optimize using Polygon's dedicated market movers endpoint:
+        https://polygon.io/docs/rest/stocks/snapshots/top-market-movers
+        This would be much more efficient than individual snapshot calls.
+        
+        Args:
+            mover_type: 'gainers' or 'losers'
+            limit: Maximum number of movers to return
+            
+        Returns:
+            List of MarketMover objects sorted by percentage change
+        """
+        try:
+            screening_symbols = self._get_screening_universe()
+            logger.info(f"Screening {len(screening_symbols)} symbols for {mover_type}")
+            
+            movers_data = []
+            failed_symbols = 0
+            
+            for symbol in screening_symbols:
+                try:
+                    asset = Asset(
+                        symbol=symbol,
+                        name=symbol,
+                        asset_type=AssetType.COMMON_STOCK,
+                        market=self.default_market,
+                        currency="USD"
+                    )
+                    
+                    # Get extended hours data for gap calculation
+                    extended_data = self.get_extended_hours_data(asset, MarketStatus.AFTER_HOURS)
+                    if not extended_data:
+                        failed_symbols += 1
+                        continue
+                    
+                    current_price = extended_data.price_data.price
+                    prev_close = extended_data.regular_session_close
+                    volume = extended_data.price_data.volume
+                    gap_pct = extended_data.gap_percent
+                    
+                    # Filter by minimum criteria - only exclude penny stocks
+                    if current_price < 1.0:
+                        continue
+                        
+                    movers_data.append({
+                        'symbol': symbol,
+                        'current_price': current_price,
+                        'previous_close': prev_close,
+                        'change_pct': gap_pct,
+                        'price_change': extended_data.gap_amount,
+                        'volume': volume,
+                        'timestamp': extended_data.price_data.timestamp
+                    })
+                    
+                except Exception as e:
+                    logger.debug(f"Failed to process {symbol}: {e}")
+                    failed_symbols += 1
+                    continue
+            
+            logger.info(f"Successfully processed {len(movers_data)} symbols, {failed_symbols} failed")
+            
+            # Sort by change percentage
+            reverse_sort = mover_type == "gainers"
+            movers_data.sort(key=lambda x: x['change_pct'], reverse=reverse_sort)
+            
+            # Convert to MarketMover objects
+            market_movers = []
+            for data in movers_data[:limit]:
+                try:
+                    asset = Asset(
+                        symbol=data['symbol'],
+                        name=data['symbol'],
+                        asset_type=AssetType.COMMON_STOCK,
+                        market=self.default_market,
+                        currency=self.default_market.currency
+                    )
+                    
+                    market_mover = MarketMover(
+                        asset=asset,
+                        current_price=data['current_price'],
+                        price_change=data['price_change'],
+                        price_change_percent=data['change_pct'],
+                        volume=data['volume']
+                    )
+                    
+                    market_movers.append(market_mover)
+                    
+                except Exception as e:
+                    logger.error(f"Error creating MarketMover for {data['symbol']}: {e}")
+                    continue
+                    
+            logger.info(f"Returning {len(market_movers)} {mover_type}")
+            return market_movers
+            
+        except Exception as e:
+            logger.error(f"Error in market movers screening: {e}")
+            return []
+    
+    def _get_screening_universe(self) -> List[str]:
+        """Get universe of stocks for screening from configuration"""
+        try:
+            liquid_universe = get_default_screening_universe()
+            
+            if not liquid_universe:
+                logger.error("No screening universe loaded from config, using minimal fallback")
+                liquid_universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+            
+            logger.info(f"Using configured screening universe of {len(liquid_universe)} symbols")
+            return liquid_universe
+            
+        except Exception as e:
+            logger.error(f"Error loading screening universe from config: {e}")
+            fallback_universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+            logger.info(f"Using fallback universe of {len(fallback_universe)} symbols")
+            return fallback_universe
+
+    def get_company_info(self, asset: Asset) -> Optional[Dict[str, Any]]:
+        """
+        Get company information using Polygon ticker details
+        
+        Args:
+            asset: Asset to get company info for
+            
+        Returns:
+            Dictionary with company information or None
+        """
+        try:
+            if asset.asset_type not in [AssetType.COMMON_STOCK, AssetType.PREFERRED_STOCK]:
+                return None
+
+            # Use light caching for company metadata
+            company_info = cached_api_call(
+                provider=self.provider_name,
+                endpoint="company_info",
+                params={"symbol": asset.symbol},
+                api_function=lambda: self._fetch_ticker_details(asset.symbol),
+                policy=CachePolicy.DAILY,
+            )
+
+            return company_info
+
+        except Exception as e:
+            logger.error(f"Error getting company info for {asset.symbol}: {e}")
             return None
+
+    def _fetch_ticker_details(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """Fetch ticker details from Polygon"""
+        endpoint = f"v3/reference/tickers/{symbol}"
+        response = self._make_request(endpoint)
+        
+        if response and response.get("status") == "OK":
+            return response.get("results")
+        
+        return None
+
+    def health_check(self) -> bool:
+        """
+        Check if the Polygon API is accessible and working
+        
+        Returns:
+            True if API is healthy, False otherwise
+        """
+        try:
+            # Try to get a simple snapshot for a well-known ticker
+            test_data = self._get_market_snapshot("AAPL")
+            return test_data is not None
+        except Exception as e:
+            logger.error(f"Polygon health check failed: {e}")
+            return False
 
     def get_historical_quotes(
         self,
@@ -294,238 +615,20 @@ class AssetDataProviderPolygon(AssetDataProvider):
         end_date: datetime,
         interval: str = "1d",
     ) -> List[PriceData]:
-        """Get historical price data"""
-        try:
-
-            def fetch_historical() -> List[Dict[str, Any]]:
-                """Fetch historical data from Polygon"""
-                # Map intervals to Polygon format
-                multiplier = 1
-                timespan = "day"
-
-                if interval == "1m":
-                    multiplier, timespan = 1, "minute"
-                elif interval == "5m":
-                    multiplier, timespan = 5, "minute"
-                elif interval == "15m":
-                    multiplier, timespan = 15, "minute"
-                elif interval == "30m":
-                    multiplier, timespan = 30, "minute"
-                elif interval == "1h":
-                    multiplier, timespan = 1, "hour"
-                elif interval == "1d":
-                    multiplier, timespan = 1, "day"
-
-                start_str = start_date.strftime("%Y-%m-%d")
-                end_str = end_date.strftime("%Y-%m-%d")
-
-                url = f"{self.base_url}/v2/aggs/ticker/{asset.symbol}/range/{multiplier}/{timespan}/{start_str}/{end_str}"
-                params = {"apikey": self.api_key, "adjusted": "true", "sort": "asc"}
-
-                response = requests.get(url, params=params, timeout=30)
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get("status") != "OK" or not data.get("results"):
-                    logger.warning(f"No historical data for {asset.symbol}")
-                    return []
-
-                # Convert Polygon format to our format
-                price_data = []
-                for bar in data["results"]:
-                    timestamp = datetime.fromtimestamp(
-                        bar["t"] / 1000
-                    )  # Convert from milliseconds
-
-                    price_data.append(
-                        {
-                            "timestamp": timestamp,
-                            "open": Decimal(str(bar["o"])),
-                            "high": Decimal(str(bar["h"])),
-                            "low": Decimal(str(bar["l"])),
-                            "close": Decimal(str(bar["c"])),
-                            "volume": int(bar["v"]),
-                        }
-                    )
-
-                return price_data
-
-            # Cache with HISTORICAL policy (30 days)
-            cache_params = {
-                "symbol": asset.symbol,
-                "start_date": start_date.isoformat(),
-                "end_date": end_date.isoformat(),
-                "interval": interval,
-            }
-
-            historical_data = cached_api_call(
-                provider=self.provider_name,
-                endpoint="aggregates",
-                params=cache_params,
-                api_function=fetch_historical,
-                policy=CachePolicy.HISTORICAL,
-            )
-
-            # Convert to PriceData objects
-            return [
-                PriceData(
-                    asset=asset,
-                    timestamp=item["timestamp"],
-                    price=item["close"],
-                    open_price=item["open"],
-                    high_price=item["high"],
-                    low_price=item["low"],
-                    volume=item["volume"],
-                    session_type=MarketStatus.OPEN,
-                    data_source="polygon",
-                )
-                for item in historical_data
-            ]
-
-        except Exception as e:
-            logger.error(
-                f"Error getting Polygon historical data for {asset.symbol}: {e}"
-            )
-            return []
+        """Alias for get_historical_prices"""
+        return self.get_historical_prices(asset, start_date, end_date, interval)
 
     def scan_volume_leaders(
         self, assets: List[Asset], min_volume_ratio: Decimal = Decimal("2.0")
     ) -> List[MarketQuote]:
-        """Scan for volume leaders using Polygon's market data"""
-        volume_leaders = []
+        """Volume scanning not implemented for basic version"""
+        logger.info("Volume scanning not implemented for Polygon basic version")
+        return []
 
-        for asset in assets:
-            try:
-                quote = self.get_current_quote(asset)
-                if quote and quote.price_data.volume > 0:
-                    # For now, just return quotes with volume data
-                    # Real implementation would compare against historical averages
-                    volume_leaders.append(quote)
-
-            except Exception as e:
-                logger.error(f"Error scanning volume for {asset.symbol}: {e}")
-                continue
-
-        # Sort by volume (highest first)
-        return sorted(volume_leaders, key=lambda q: q.price_data.volume, reverse=True)
-
-    def get_fundamental_data(self, asset: Asset) -> Dict[str, Any]:
-        """Get fundamental company data"""
+    def get_fundamental_data(self, asset: Asset) -> Dict[str, any]:
+        """Get fundamental company data (uses company info for now)"""
         try:
-
-            def fetch_fundamentals() -> Dict[str, Any]:
-                """Fetch company details from Polygon"""
-                url = f"{self.base_url}/v3/reference/tickers/{asset.symbol}"
-                params = {"apikey": self.api_key}
-
-                response = requests.get(url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-
-                if data.get("status") != "OK" or not data.get("results"):
-                    logger.warning(f"No fundamental data for {asset.symbol}")
-                    return {}
-
-                results = data["results"]
-
-                # Map Polygon fields to our format
-                fundamentals = {
-                    "symbol": asset.symbol,
-                    "company_name": results.get("name", ""),
-                    "description": results.get("description", ""),
-                    "sector": results.get("sic_description", ""),
-                    "market_cap": results.get("market_cap", 0),
-                    "shares_outstanding": results.get(
-                        "share_class_shares_outstanding", 0
-                    ),
-                    "homepage_url": results.get("homepage_url", ""),
-                    "phone_number": results.get("phone_number", ""),
-                    "address": results.get("address", {}),
-                    "timestamp": datetime.now().isoformat(),
-                }
-
-                return fundamentals
-
-            # Cache with FUNDAMENTAL policy (1 week)
-            return cached_api_call(
-                provider=self.provider_name,
-                endpoint="ticker_details",
-                params={"symbol": asset.symbol},
-                api_function=fetch_fundamentals,
-                policy=CachePolicy.FUNDAMENTAL,
-            )
-
+            return self.get_company_info(asset) or {}
         except Exception as e:
-            logger.error(f"Error getting Polygon fundamentals for {asset.symbol}: {e}")
+            logger.error(f"Error getting fundamental data for {asset.symbol}: {e}")
             return {}
-
-    @property
-    def rate_limit_per_minute(self) -> int:
-        """Return the rate limit for this provider"""
-        return 5  # Free tier: 5 calls per minute
-
-    @property
-    def supports_extended_hours(self) -> bool:
-        """Return whether provider supports extended hours data"""
-        return True  # Polygon supports extended hours data
-
-
-# Convenience function for creating adapter
-def create_asset_data_provider_polygon(
-    api_key: Optional[str] = None,
-) -> AssetDataProviderPolygon:
-    """
-    Create a Polygon asset data provider
-
-    Args:
-        api_key: Polygon.io API key (uses environment variable if None)
-
-    Returns:
-        Configured AssetDataProviderPolygon
-    """
-    return AssetDataProviderPolygon(api_key)
-
-
-if __name__ == "__main__":
-    # Simple test of the adapter
-    import os
-
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        print("❌ POLYGON_API_KEY environment variable not set")
-        exit(1)
-
-    print("🧪 Testing Polygon Adapter...")
-
-    from ..data_models.domain_models_core import Asset, AssetType
-    from ..data_models.factories import MarketFactory
-
-    # Create test asset
-    nasdaq = MarketFactory().create_nasdaq_market()
-    test_asset = Asset(
-        symbol="AAPL",
-        name="Apple Inc.",
-        asset_type=AssetType.COMMON_STOCK,
-        market=nasdaq,
-        currency="USD",
-    )
-
-    # Test the adapter
-    adapter = create_polygon_adapter(api_key)
-
-    print(f"\n📈 Current Quote for {test_asset.symbol}:")
-    quote = adapter.get_current_quote(test_asset)
-    if quote:
-        print(f"Price: ${quote.price_data.price}")
-        print(f"Volume: {quote.price_data.volume:,}")
-        print(f"Change: {quote.price_change_percent:.2f}%")
-    else:
-        print("Failed to get quote")
-
-    print(f"\n📊 Fundamental Data for {test_asset.symbol}:")
-    fundamentals = adapter.get_fundamental_data(test_asset)
-    if fundamentals:
-        print(f"Company: {fundamentals.get('company_name', 'N/A')}")
-        print(f"Market Cap: ${fundamentals.get('market_cap', 0):,}")
-
-    print("\n✅ Polygon Adapter test completed!")

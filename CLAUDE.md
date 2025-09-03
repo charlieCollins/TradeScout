@@ -126,7 +126,7 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 # - Finnhub: High-quality data (60 calls/min free)
 # - Alpha Vantage: Market movers, fundamentals (25 calls/day - very limited!)
 # - NewsAPI: 1000 articles/day
-# - Web scrapers: Extended hours data (MarketWatch, CNN, etc.)
+# - API Sources: Extended hours data via YFinance and Polygon
 ```
 
 ### Development vs Production Separation

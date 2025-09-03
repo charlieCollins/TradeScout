@@ -1,0 +1,17 @@
+{
+  "timestamp": "2025-09-02T18:48:16.388268",
+  "provider": "Polygon",
+  "tests": {
+    "health_check": true,
+    "quote_available": true,
+    "extended_hours_available": true,
+    "company_info_available": true
+  },
+  "gap_analysis": {
+    "symbol": "GEG",
+    "current_price": 3.67,
+    "previous_close": 2.41,
+    "gap_percent": 52.28215767634855,
+    "volume": 4565
+  }
+}

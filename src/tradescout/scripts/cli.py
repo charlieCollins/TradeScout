@@ -22,6 +22,7 @@ from rich.table import Table
 
 from ..config.data_sources_manager import get_data_sources_manager
 from ..config.local_config import DATABASE_CONFIG
+from ..config.markets_manager import get_markets_manager, TradingSession
 from ..data_models.domain_models_core import Asset, AssetType
 from ..data_models.domain_models_analysis import ConfidenceLevel
 from ..data_models.factories import MarketFactory
@@ -596,16 +597,45 @@ def backup(ctx, backup_path: str):
 @click.pass_context
 def gainers(ctx, limit: int, force_refresh: bool):
     """
-    Show top market gainers.
-
-    Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
-    Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
+    Show top market gainers based on current trading session.
+    
+    - Regular Hours: Show regular session movers
+    - Pre-Market: Show pre-market gaps vs yesterday close  
+    - After-Hours: Show after-hours gaps vs today close
+    - Closed: Show most recent session data
 
     Example:
         tradescout gainers --limit 20
     """
     coordinator = ctx.obj["coordinator"]
-    console.print("[green]🟢 Top Market Gainers[/green]")
+    markets_manager = get_markets_manager()
+    
+    # Determine current trading session
+    current_session = markets_manager.get_current_trading_session("nasdaq")
+    
+    # Show session-aware header and data explanation
+    now = datetime.now()
+    
+    if current_session == TradingSession.PREMARKET:
+        header = "🌅 PRE-MARKET EXTENDED HOURS GAPS"
+        data_explanation = "[dim]Pre-market prices vs yesterday's close[/dim]"
+        gap_timing = "PRE-MARKET"
+    elif current_session == TradingSession.AFTERHOURS:
+        header = "🌆 AFTER-HOURS EXTENDED HOURS GAPS"  
+        data_explanation = "[dim]After-hours prices vs today's close[/dim]"
+        gap_timing = "AFTER-HOURS"
+    elif current_session == TradingSession.REGULAR:
+        header = "🟢 DAILY GAPS (Regular Session)"
+        data_explanation = "[dim]Showing: Current regular session vs previous session (DAILY GAPS)[/dim]"
+        gap_timing = "DAILY"
+    else:  # CLOSED
+        header = "🟢 DAILY GAPS (Market Closed)"
+        data_explanation = "[dim]Showing: Most recent daily session vs previous session (DAILY GAPS)[/dim]"
+        gap_timing = "DAILY"
+    
+    console.print(f"[green]{header}[/green]")
+    console.print(f"{data_explanation}")
+    console.print(f"[bold green]Current Time: {now.strftime('%Y-%m-%d %H:%M:%S EST')} | Session: {current_session.value.title()}[/bold green]\n")
 
     try:
         # Get gainers using smart coordinator
@@ -616,14 +646,15 @@ def gainers(ctx, limit: int, force_refresh: bool):
             console.print("[yellow]⚠️  No gainers data available[/yellow]")
             return
 
-        # Create table
-        table = Table(title=f"Top {len(gainers_list)} Market Gainers", box=box.ROUNDED)
+        # Create table 
+        table = Table(title=f"Top {len(gainers_list)} Market Gainers ({gap_timing} Session)", box=box.ROUNDED)
         table.add_column("Rank", justify="center", style="dim", width=4)
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Price", style="green", justify="right")
         table.add_column("Change", justify="right")
         table.add_column("Change %", justify="right", style="bold green")
         table.add_column("Volume", justify="right", style="dim")
+        table.add_column("Session", justify="center", style="yellow", width=10)
 
         # Add rows
         for gainer in gainers_list:
@@ -650,7 +681,7 @@ def gainers(ctx, limit: int, force_refresh: bool):
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
             console.print(
-                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+                f"[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
             )
 
     except Exception as e:
@@ -663,16 +694,45 @@ def gainers(ctx, limit: int, force_refresh: bool):
 @click.pass_context
 def losers(ctx, limit: int, force_refresh: bool):
     """
-    Show top market losers.
-
-    Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
-    Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
+    Show top market losers based on current trading session.
+    
+    - Regular Hours: Show regular session movers
+    - Pre-Market: Show pre-market gaps vs yesterday close  
+    - After-Hours: Show after-hours gaps vs today close
+    - Closed: Show most recent session data
 
     Example:
         tradescout losers --limit 20
     """
     coordinator = ctx.obj["coordinator"]
-    console.print("[red]🔴 Top Market Losers[/red]")
+    markets_manager = get_markets_manager()
+    
+    # Determine current trading session
+    current_session = markets_manager.get_current_trading_session("nasdaq")
+    
+    # Show session-aware header and data explanation
+    now = datetime.now()
+    
+    if current_session == TradingSession.PREMARKET:
+        header = "🌅 PRE-MARKET EXTENDED HOURS GAPS"
+        data_explanation = "[dim]Pre-market prices vs yesterday's close[/dim]"
+        gap_timing = "PRE-MARKET"
+    elif current_session == TradingSession.AFTERHOURS:
+        header = "🌆 AFTER-HOURS EXTENDED HOURS GAPS"  
+        data_explanation = "[dim]After-hours prices vs today's close[/dim]"
+        gap_timing = "AFTER-HOURS"
+    elif current_session == TradingSession.REGULAR:
+        header = "🔴 DAILY GAPS (Regular Session)"
+        data_explanation = "[dim]Showing: Current regular session vs previous session (DAILY GAPS)[/dim]"
+        gap_timing = "DAILY"
+    else:  # CLOSED
+        header = "🔴 DAILY GAPS (Market Closed)"
+        data_explanation = "[dim]Showing: Most recent daily session vs previous session (DAILY GAPS)[/dim]"
+        gap_timing = "DAILY"
+    
+    console.print(f"[red]{header}[/red]")
+    console.print(f"{data_explanation}")
+    console.print(f"[bold green]Current Time: {now.strftime('%Y-%m-%d %H:%M:%S EST')} | Session: {current_session.value.title()}[/bold green]\n")
 
     try:
         # Get losers using smart coordinator
@@ -683,14 +743,15 @@ def losers(ctx, limit: int, force_refresh: bool):
             console.print("[yellow]⚠️  No losers data available[/yellow]")
             return
 
-        # Create table
-        table = Table(title=f"Top {len(losers_list)} Market Losers", box=box.ROUNDED)
+        # Create table 
+        table = Table(title=f"Top {len(losers_list)} Market Losers ({gap_timing} Session)", box=box.ROUNDED)
         table.add_column("Rank", justify="center", style="dim", width=4)
         table.add_column("Symbol", style="cyan", no_wrap=True)
         table.add_column("Price", style="red", justify="right")
         table.add_column("Change", justify="right")
         table.add_column("Change %", justify="right", style="bold red")
         table.add_column("Volume", justify="right", style="dim")
+        table.add_column("Session", justify="center", style="yellow", width=10)
 
         # Add rows
         for loser in losers_list:
@@ -717,7 +778,7 @@ def losers(ctx, limit: int, force_refresh: bool):
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
             console.print(
-                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+                f"[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
             )
 
     except Exception as e:
@@ -782,7 +843,7 @@ def active(ctx, limit: int, force_refresh: bool):
             console.print(f"[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]")
         else:
             console.print(
-                f"[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+                f"[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
             )
 
     except Exception as e:
@@ -790,87 +851,109 @@ def active(ctx, limit: int, force_refresh: bool):
 
 
 @main.command()
-@click.option("--limit", default=5, help="Number of stocks per category (default: 5)")
+@click.option("--limit", default=10, help="Number of stocks per category (default: 10)")
 @click.option("--force-refresh", "--force", is_flag=True, help="Force refresh cache")
 @click.pass_context
 def movers(ctx, limit: int, force_refresh: bool):
     """
-    Show comprehensive market movers report (gainers, losers, most active).
+    Show comprehensive market movers report (gainers and losers).
 
-    Uses Alpha Vantage TOP_GAINERS_LOSERS API with 1-hour caching.
-    Falls back to YFinance S&P 500 processing if Alpha Vantage unavailable.
+    Shows top gainers and losers based on current trading session.
 
     Example:
         tradescout movers --limit 10
     """
     coordinator = ctx.obj["coordinator"]
-    console.print("[bold]📈 Market Movers Report[/bold]")
+    markets_manager = get_markets_manager()
+    
+    # Determine current trading session
+    current_session = markets_manager.get_current_trading_session("nasdaq")
+    
+    # Show session-aware header
+    now = datetime.now()
+    
+    if current_session == TradingSession.PREMARKET:
+        header = "🌅 Market Movers (PRE-MARKET Session)"
+        data_explanation = "[dim]Pre-market prices vs yesterday's close[/dim]"
+        gap_timing = "PRE-MARKET"
+    elif current_session == TradingSession.AFTERHOURS:
+        header = "🌆 Market Movers (AFTER-HOURS Session)"  
+        data_explanation = "[dim]After-hours prices vs today's close[/dim]"
+        gap_timing = "AFTER-HOURS"
+    elif current_session == TradingSession.REGULAR:
+        header = "🟢 Market Movers (REGULAR Session)"
+        data_explanation = "[dim]Showing: Current regular session vs previous session[/dim]"
+        gap_timing = "REGULAR"
+    else:  # CLOSED
+        header = "🟢 Market Movers (Market Closed)"
+        data_explanation = "[dim]Showing: Most recent session vs previous session[/dim]"
+        gap_timing = "CLOSED"
+    
+    console.print(f"[bold]{header}[/bold]")
+    console.print(f"{data_explanation}")
+    console.print(f"[bold green]Current Time: {now.strftime('%Y-%m-%d %H:%M:%S EST')} | Session: {current_session.value.title()}[/bold green]\n")
 
     try:
-        # Get complete report using smart coordinator
-        with console.status(
-            "[bold]Fetching complete market movers report...", spinner="dots"
-        ):
-            report = coordinator.get_market_movers_report(limit, force_refresh)
-
-        # Show report header
-        console.print(
-            Panel(
-                f"[bold]Market Status:[/bold] {report.market_status.value}\n"
-                f"[bold]Report Time:[/bold] {report.timestamp.strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"[bold]Data Source:[/bold] {'Alpha Vantage' if len(report.gainers) >= limit else 'YFinance Fallback'}",
-                title="📊 Report Info",
-                box=box.ROUNDED,
-            )
-        )
+        # Get gainers and losers separately
+        with console.status("[bold green]Fetching market gainers and losers...", spinner="dots"):
+            gainers_list = coordinator.get_market_gainers(limit, force_refresh)
+            losers_list = coordinator.get_market_losers(limit, force_refresh)
 
         # Gainers table
-        if report.gainers:
-            console.print("\n[green]🟢 Top Gainers[/green]")
-            gainers_table = Table(box=box.SIMPLE)
+        if gainers_list:
+            console.print(f"\n[green]🟢 Top {len(gainers_list)} Market Gainers ({gap_timing} Session)[/green]")
+            gainers_table = Table(box=box.ROUNDED)
+            gainers_table.add_column("Rank", justify="center", style="dim", width=4)
             gainers_table.add_column("Symbol", style="cyan")
-            gainers_table.add_column("Price", justify="right")
+            gainers_table.add_column("Price", justify="right", style="green")
+            gainers_table.add_column("Change", justify="right")
             gainers_table.add_column("Change %", justify="right", style="bold green")
+            gainers_table.add_column("Volume", justify="right", style="dim")
 
-            for gainer in report.gainers:
+            for i, gainer in enumerate(gainers_list, 1):
+                change_color = "green" if gainer.price_change >= 0 else "red"
+                price_change_str = (
+                    f"+{gainer.price_change:.2f}"
+                    if gainer.price_change >= 0
+                    else f"{gainer.price_change:.2f}"
+                )
                 gainers_table.add_row(
+                    str(i),
                     gainer.asset.symbol,
                     f"${gainer.current_price:.2f}",
+                    f"[{change_color}]{price_change_str}[/{change_color}]",
                     f"+{gainer.price_change_percent:.2f}%",
+                    f"{gainer.volume:,}" if gainer.volume > 0 else "N/A",
                 )
             console.print(gainers_table)
 
         # Losers table
-        if report.losers:
-            console.print("\n[red]🔴 Top Losers[/red]")
-            losers_table = Table(box=box.SIMPLE)
+        if losers_list:
+            console.print(f"\n[red]🔴 Top {len(losers_list)} Market Losers ({gap_timing} Session)[/red]")
+            losers_table = Table(box=box.ROUNDED)
+            losers_table.add_column("Rank", justify="center", style="dim", width=4)
             losers_table.add_column("Symbol", style="cyan")
-            losers_table.add_column("Price", justify="right")
+            losers_table.add_column("Price", justify="right", style="red")
+            losers_table.add_column("Change", justify="right")
             losers_table.add_column("Change %", justify="right", style="bold red")
+            losers_table.add_column("Volume", justify="right", style="dim")
 
-            for loser in report.losers:
+            for i, loser in enumerate(losers_list, 1):
+                change_color = "green" if loser.price_change >= 0 else "red"
+                price_change_str = (
+                    f"+{loser.price_change:.2f}"
+                    if loser.price_change >= 0
+                    else f"{loser.price_change:.2f}"
+                )
                 losers_table.add_row(
+                    str(i),
                     loser.asset.symbol,
                     f"${loser.current_price:.2f}",
+                    f"[{change_color}]{price_change_str}[/{change_color}]",
                     f"{loser.price_change_percent:.2f}%",
+                    f"{loser.volume:,}" if loser.volume > 0 else "N/A",
                 )
             console.print(losers_table)
-
-        # Most active table
-        if report.most_active:
-            console.print("\n[blue]📊 Most Active[/blue]")
-            active_table = Table(box=box.SIMPLE)
-            active_table.add_column("Symbol", style="cyan")
-            active_table.add_column("Price", justify="right")
-            active_table.add_column("Volume", justify="right", style="bold blue")
-
-            for active_stock in report.most_active:
-                active_table.add_row(
-                    active_stock.asset.symbol,
-                    f"${active_stock.current_price:.2f}",
-                    f"{active_stock.volume:,}" if active_stock.volume > 0 else "N/A",
-                )
-            console.print(active_table)
 
         # Show cache status more prominently
         if force_refresh:
@@ -879,11 +962,11 @@ def movers(ctx, limit: int, force_refresh: bool):
             )
         else:
             console.print(
-                f"\n[blue]💾 Data cached for 1 hour. Use --force-refresh to get fresh data.[/blue]"
+                f"\n[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
             )
 
     except Exception as e:
-        console.print(f"[red]❌ Error fetching market movers report: {e}[/red]")
+        console.print(f"[red]❌ Error fetching market movers: {e}[/red]")
 
 
 @main.command()

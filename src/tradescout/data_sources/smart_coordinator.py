@@ -16,34 +16,32 @@ from ..config.data_sources_manager import (
     FallbackStrategy,
     get_data_sources_manager,
 )
-from ..data_models.domain_models_core import Asset, AssetType, ExtendedHoursData, MarketQuote, MarketStatus, PriceData
+from ..data_models.domain_models_core import (
+    Asset,
+    AssetType,
+    ExtendedHoursData,
+    MarketQuote,
+    MarketStatus,
+    PriceData,
+)
 from ..data_models.factories import MarketFactory
 from ..data_models.interfaces import AssetDataProvider
 from ..data_models.market_wide_models import MarketMover, MarketMoversReport
-from ..data_sources_api.asset_data_provider_alpha_vantage import AssetDataProviderAlphaVantage
-from ..data_sources_api.asset_data_provider_finnhub import AssetDataProviderFinnhub
+from ..data_sources_api.asset_data_provider_tiingo import AssetDataProviderTiingo
 from ..data_sources_api.asset_data_provider_polygon import AssetDataProviderPolygon
-from ..data_sources_api.asset_data_provider_yfinance import AssetDataProviderYFinance
-from ..data_sources_scraping.marketwatch_scraper import MarketWatchScraper
-from ..data_sources_scraping.investing_com_scraper import InvestingComScraper
-from ..data_sources_scraping.cnn_scraper import CNNScraper
-from ..data_sources_scraping.tipranks_scraper import TipRanksScraper
-from ..data_sources_scraping.advfn_scraper import ADVFNScraper
-from ..data_sources_scraping.interfaces import AfterHoursWebScraper
 
 logger = logging.getLogger(__name__)
 
 
 class SmartCoordinator:
     """
-    Intelligent data collection coordinator that routes requests based on configuration
+    Data collection coordinator using Tiingo as the single data source
 
     Features:
-    - Configuration-driven provider selection
-    - Multiple fallback strategies (first_success, merge_best, merge_all)
-    - Automatic circuit breaking for failing providers
-    - Quality-based data merging
-    - Comprehensive error handling and logging
+    - Tiingo commercial API integration
+    - Comprehensive caching
+    - Error handling and retry logic
+    - Simplified single-provider architecture
     """
 
     def __init__(self, config_manager: Optional[DataSourcesManager] = None):
@@ -55,7 +53,6 @@ class SmartCoordinator:
         """
         self.config_manager = config_manager or get_data_sources_manager()
         self._provider_instances: Dict[str, AssetDataProvider] = {}
-        self._scraper_instances: Dict[str, AfterHoursWebScraper] = {}
         self._nasdaq_market = MarketFactory().create_nasdaq_market()
 
         # Initialize available providers
@@ -67,12 +64,7 @@ class SmartCoordinator:
             if self.config_manager.is_provider_enabled(provider_id):
                 try:
                     provider_config = self._get_provider_config(provider_id)
-                    if provider_config and provider_config.type == "web_scraper":
-                        scraper = self._create_scraper_instance(provider_id)
-                        if scraper:
-                            self._scraper_instances[provider_id] = scraper
-                            logger.info(f"Initialized web scraper: {provider_id}")
-                    else:
+                    if provider_config and provider_config.type == "api":
                         instance = self._create_provider_instance(provider_id)
                         if instance:
                             self._provider_instances[provider_id] = instance
@@ -97,77 +89,47 @@ class SmartCoordinator:
                 logger.warning(f"No configuration found for provider: {provider_id}")
                 return None
 
-            if provider_id == "yfinance":
-                return AssetDataProviderYFinance()
-            elif provider_id == "finnhub":
+            if provider_id == "tiingo":
                 import os
-                api_key = os.getenv("FINNHUB_API_KEY")
+
+                api_key = os.getenv("TIINGO_API_KEY")
                 if api_key:
-                    return AssetDataProviderFinnhub(api_key)
+                    return AssetDataProviderTiingo(api_key)
                 else:
-                    logger.warning("Finnhub API key not found")
+                    logger.warning("Tiingo API key not found")
                     return None
             elif provider_id == "polygon":
                 import os
+                from pathlib import Path
+
+                # Try to load from .env file if not in environment
                 api_key = os.getenv("POLYGON_API_KEY")
+                if not api_key:
+                    # Look for .env file in project root
+                    project_root = Path(__file__).parent.parent.parent.parent
+                    env_file = project_root / ".env"
+                    if env_file.exists():
+                        try:
+                            with open(env_file, 'r') as f:
+                                for line in f:
+                                    line = line.strip()
+                                    if line.startswith("POLYGON_API_KEY=") and not line.startswith("POLYGON_API_KEY=your_"):
+                                        api_key = line.split("=", 1)[1]
+                                        break
+                        except Exception as e:
+                            logger.debug(f"Error reading .env file: {e}")
+                
                 if api_key:
                     return AssetDataProviderPolygon(api_key)
                 else:
                     logger.warning("Polygon API key not found")
                     return None
-            elif provider_id == "alpha_vantage":
-                import os
-                api_key = os.getenv("ALPHA_VANTAGE_API_KEY")
-                if api_key:
-                    return AssetDataProviderAlphaVantage(api_key)
-                else:
-                    logger.warning("Alpha Vantage API key not found")
-                    return None
-            elif provider_id == "newsapi":
-                import os
-                api_key = os.getenv("NEWS_API_KEY")
-                if api_key and api_key != "your_newsapi_key_here":
-                    # NewsAPI provider not implemented yet - return None for now
-                    logger.info(f"NewsAPI provider not yet implemented, API key available")
-                    return None
-                else:
-                    logger.warning("NewsAPI key not found or still placeholder")
-                    return None
-            # Add other providers as needed
+            # Future providers can be added here
             else:
                 logger.warning(f"Unknown provider: {provider_id}")
                 return None
         except Exception as e:
             logger.error(f"Error creating provider {provider_id}: {e}")
-            return None
-
-    def _create_scraper_instance(
-        self, provider_id: str
-    ) -> Optional[AfterHoursWebScraper]:
-        """Create an instance of the specified web scraper"""
-        try:
-            provider_config = self._get_provider_config(provider_id)
-            if not provider_config:
-                logger.warning(f"No configuration found for scraper: {provider_id}")
-                return None
-            
-            timeout = provider_config.timeout_seconds
-            
-            if provider_id == "marketwatch_scraper":
-                return MarketWatchScraper()
-            elif provider_id == "investing_com_scraper":
-                return InvestingComScraper()
-            elif provider_id == "cnn_scraper":
-                return CNNScraper()
-            elif provider_id == "tipranks_scraper":
-                return TipRanksScraper()
-            elif provider_id == "advfn_scraper":
-                return ADVFNScraper()
-            else:
-                logger.warning(f"Unknown web scraper: {provider_id}")
-                return None
-        except Exception as e:
-            logger.error(f"Error creating web scraper {provider_id}: {e}")
             return None
 
     def get_current_quote(self, symbol: str) -> Optional[MarketQuote]:
@@ -399,11 +361,11 @@ class SmartCoordinator:
     ) -> List[MarketMover]:
         """
         Get top market gainers using smart provider selection
-        
+
         Args:
             limit: Maximum number of gainers to return
             force_refresh: Bypass cache and fetch fresh data
-            
+
         Returns:
             List of top gaining stocks with performance data
         """
@@ -422,11 +384,11 @@ class SmartCoordinator:
     ) -> List[MarketMover]:
         """
         Get top market losers using smart provider selection
-        
+
         Args:
             limit: Maximum number of losers to return
             force_refresh: Bypass cache and fetch fresh data
-            
+
         Returns:
             List of top losing stocks with performance data
         """
@@ -445,11 +407,11 @@ class SmartCoordinator:
     ) -> List[MarketMover]:
         """
         Get most active stocks by volume using smart provider selection
-        
+
         Args:
             limit: Maximum number of active stocks to return
             force_refresh: Bypass cache and fetch fresh data
-            
+
         Returns:
             List of most active stocks by trading volume
         """
@@ -468,11 +430,11 @@ class SmartCoordinator:
     ) -> MarketMoversReport:
         """
         Get comprehensive market movers report using smart provider selection
-        
+
         Args:
             limit: Maximum number of movers in each category
             force_refresh: Bypass cache and fetch fresh data
-            
+
         Returns:
             Complete report with gainers, losers, and most active
         """
@@ -483,16 +445,16 @@ class SmartCoordinator:
             limit=limit,
             force_refresh=force_refresh,
         )
-        
+
         if report:
             return report
-            
+
         # Fallback: build report from individual calls
         logger.info("Building market movers report from individual calls")
         gainers = self.get_market_gainers(limit, force_refresh)
         losers = self.get_market_losers(limit, force_refresh)
         most_active = self.get_most_active(limit, force_refresh)
-        
+
         return MarketMoversReport(
             gainers=gainers,
             losers=losers,
@@ -506,7 +468,7 @@ class SmartCoordinator:
     ) -> List[MarketMover]:
         """Get market gainers from a specific provider"""
         # Check if provider has market movers capability
-        if hasattr(provider, 'get_market_gainers'):
+        if hasattr(provider, "get_market_gainers"):
             return provider.get_market_gainers(**kwargs)
         return None
 
@@ -514,7 +476,7 @@ class SmartCoordinator:
         self, provider: AssetDataProvider, provider_id: str, **kwargs
     ) -> List[MarketMover]:
         """Get market losers from a specific provider"""
-        if hasattr(provider, 'get_market_losers'):
+        if hasattr(provider, "get_market_losers"):
             return provider.get_market_losers(**kwargs)
         return None
 
@@ -522,7 +484,7 @@ class SmartCoordinator:
         self, provider: AssetDataProvider, provider_id: str, **kwargs
     ) -> List[MarketMover]:
         """Get most active stocks from a specific provider"""
-        if hasattr(provider, 'get_most_active'):
+        if hasattr(provider, "get_most_active"):
             return provider.get_most_active(**kwargs)
         return None
 
@@ -530,66 +492,9 @@ class SmartCoordinator:
         self, provider: AssetDataProvider, provider_id: str, **kwargs
     ) -> MarketMoversReport:
         """Get complete market movers report from a specific provider"""
-        if hasattr(provider, 'get_market_movers_report'):
+        if hasattr(provider, "get_market_movers_report"):
             return provider.get_market_movers_report(**kwargs)
         return None
-
-    def _get_extended_hours_from_provider(
-        self, provider: AssetDataProvider, provider_id: str, **kwargs
-    ) -> Optional[ExtendedHoursData]:
-        """Get extended hours data from a specific API provider"""
-        symbol = kwargs.get("symbol")
-        session = kwargs.get("session", MarketStatus.AFTER_HOURS)
-        
-        if not symbol:
-            return None
-            
-        asset = self._create_asset(symbol)
-        return provider.get_extended_hours_data(asset, session)
-
-    def _get_extended_hours_movers(
-        self, mover_type: str, limit: int, force_refresh: bool
-    ) -> List[Dict[str, any]]:
-        """Get extended hours movers using web scrapers with fallback strategy"""
-        providers = self.config_manager.get_providers_for_data_type(
-            DataSourceType.EXTENDED_HOURS
-        )
-        
-        # Filter to only web scrapers for movers data
-        scraper_providers = [
-            (provider_id, config) for provider_id, config in providers
-            if config.type == "web_scraper" and provider_id in self._scraper_instances
-        ]
-        
-        if not scraper_providers:
-            logger.warning("No web scraper providers available for extended hours movers")
-            return []
-        
-        # Use first success strategy for web scrapers
-        for provider_id, provider_config in scraper_providers:
-            try:
-                scraper = self._scraper_instances[provider_id]
-                logger.info(f"Attempting to get {mover_type} from {provider_id}")
-                
-                if mover_type == "gainers":
-                    result = scraper.get_after_hours_gainers(limit)
-                elif mover_type == "losers":
-                    result = scraper.get_after_hours_losers(limit)
-                else:
-                    continue
-                    
-                if result:
-                    logger.info(f"Successfully got {len(result)} {mover_type} from {provider_id}")
-                    self.config_manager.record_provider_success(provider_id)
-                    return result
-                    
-            except Exception as e:
-                logger.error(f"Error getting {mover_type} from {provider_id}: {e}")
-                self.config_manager.record_provider_failure(provider_id)
-                continue
-        
-        logger.warning(f"Failed to get {mover_type} from all available web scrapers")
-        return []
 
     def _get_current_market_status(self) -> MarketStatus:
         """Determine current market status"""
@@ -597,11 +502,11 @@ class SmartCoordinator:
         # Simple check - can be enhanced
         weekday = now.weekday()
         hour = now.hour
-        
+
         # Market closed on weekends
         if weekday >= 5:
             return MarketStatus.CLOSED
-            
+
         # Market hours: 9:30 AM - 4:00 PM ET
         if 9 <= hour < 16:
             return MarketStatus.OPEN
@@ -626,29 +531,6 @@ class SmartCoordinator:
         """Get status of all providers"""
         return self.config_manager.get_provider_status()
 
-    def get_extended_hours_data(
-        self, symbol: str, session: MarketStatus = MarketStatus.AFTER_HOURS
-    ) -> Optional[ExtendedHoursData]:
-        """Get extended hours trading data combining API providers and web scrapers"""
-        return self._get_data_with_strategy(
-            DataSourceType.EXTENDED_HOURS,
-            self._get_extended_hours_from_provider,
-            symbol=symbol,
-            session=session,
-        )
-    
-    def get_extended_hours_gainers(
-        self, limit: int = 20, force_refresh: bool = False
-    ) -> List[Dict[str, any]]:
-        """Get extended hours gainers using web scrapers"""
-        return self._get_extended_hours_movers("gainers", limit, force_refresh)
-    
-    def get_extended_hours_losers(
-        self, limit: int = 20, force_refresh: bool = False
-    ) -> List[Dict[str, any]]:
-        """Get extended hours losers using web scrapers"""
-        return self._get_extended_hours_movers("losers", limit, force_refresh)
-    
     def get_available_data_types(self) -> List[str]:
         """Get list of available data types"""
         return self.config_manager.list_data_types()
@@ -658,151 +540,160 @@ class SmartCoordinator:
         logger.info("Reloading smart coordinator configuration...")
         self.config_manager.reload_config()
         self._provider_instances.clear()
-        self._scraper_instances.clear()
         self._initialize_providers()
 
     # Gap Trading Analysis Methods
-    
+
     def get_daily_gap_suggestions(
         self, min_gap_percent: float = 2.0, max_suggestions: int = 5
     ) -> List[Dict[str, any]]:
         """
         Generate daily gap trading suggestions using integrated analysis workflow
-        
+
         Args:
             min_gap_percent: Minimum gap size to consider (default: 2.0%)
             max_suggestions: Maximum suggestions to return (default: 5)
-            
+
         Returns:
             List of gap trading suggestions with analysis
         """
         logger.info(f"Generating daily gap suggestions (min gap: {min_gap_percent}%)")
-        
+
         try:
             from ..analysis.gap_market_scanner import GapMarketScanner
             from ..analysis.gap_rules_engine import GapRulesEngine
             from ..analysis.academic_gap_analyzer import AcademicGapTypeAnalyzer
             from ..analysis.gap_suggestion_engine import GapTradeSuggestionEngine
             from decimal import Decimal
-            
+
             # Initialize gap analysis components
             gap_scanner = GapMarketScanner(self)
             rules_engine = GapRulesEngine()
             gap_analyzer = AcademicGapTypeAnalyzer()
             suggestion_engine = GapTradeSuggestionEngine()
-            
+
             # Step 1: Scan for gap candidates
-            gap_candidates = gap_scanner.scan_pre_market_gaps(Decimal(str(min_gap_percent)))
+            gap_candidates = gap_scanner.scan_pre_market_gaps(
+                Decimal(str(min_gap_percent))
+            )
             logger.info(f"Found {len(gap_candidates)} gap candidates")
-            
+
             if not gap_candidates:
                 return []
-            
+
             # Step 2: Apply binary classification rules
             approved_candidates = []
             for quote in gap_candidates:
                 evaluation = rules_engine.evaluate_gap_candidate(quote)
                 if evaluation["decision"] == "TRADE":
                     approved_candidates.append(quote)
-            
+
             logger.info(f"{len(approved_candidates)} candidates passed binary rules")
-            
+
             if not approved_candidates:
                 return []
-            
+
             # Step 3: Analyze gap types and generate suggestions
             gap_assessments = gap_analyzer.batch_analyze_candidates(approved_candidates)
-            
+
             # Step 4: Generate trade suggestions
             suggestions = []
             for i, assessment in enumerate(gap_assessments):
                 if i < len(approved_candidates) and assessment.is_tradeable:
                     analysis_data = {
                         "quote": approved_candidates[i],
-                        "gap_assessment": assessment
+                        "gap_assessment": assessment,
                     }
-                    
+
                     suggestion = suggestion_engine.generate_suggestion(
-                        approved_candidates[i].asset.symbol, 
-                        analysis_data
+                        approved_candidates[i].asset.symbol, analysis_data
                     )
-                    
+
                     if suggestion and suggestion_engine.validate_suggestion(suggestion):
-                        suggestions.append({
-                            "suggestion": suggestion,
-                            "assessment": assessment,
-                            "quote": approved_candidates[i]
-                        })
-            
+                        suggestions.append(
+                            {
+                                "suggestion": suggestion,
+                                "assessment": assessment,
+                                "quote": approved_candidates[i],
+                            }
+                        )
+
             # Step 5: Filter and rank suggestions
             final_suggestions = suggestion_engine.filter_suggestions(
-                [s["suggestion"] for s in suggestions], 
-                max_suggestions
+                [s["suggestion"] for s in suggestions], max_suggestions
             )
-            
+
             # Return enriched suggestions
             result = []
             for suggestion in final_suggestions:
                 # Find matching assessment and quote
                 matching_data = next(
-                    (s for s in suggestions if s["suggestion"].id == suggestion.id), 
-                    None
+                    (s for s in suggestions if s["suggestion"].id == suggestion.id),
+                    None,
                 )
                 if matching_data:
-                    result.append({
-                        "suggestion": suggestion,
-                        "assessment": matching_data["assessment"],
-                        "quote": matching_data["quote"],
-                        "analysis_summary": suggestion.analysis_summary
-                    })
-            
+                    result.append(
+                        {
+                            "suggestion": suggestion,
+                            "assessment": matching_data["assessment"],
+                            "quote": matching_data["quote"],
+                            "analysis_summary": suggestion.analysis_summary,
+                        }
+                    )
+
             logger.info(f"Generated {len(result)} daily gap trading suggestions")
             return result
-            
+
         except Exception as e:
             logger.error(f"Error generating gap suggestions: {e}")
             return []
-    
+
     def scan_gap_opportunities(self, min_gap_percent: float = 2.0) -> Dict[str, any]:
         """
         Comprehensive gap opportunity scan with detailed analysis
-        
+
         Args:
             min_gap_percent: Minimum gap percentage to scan for
-            
+
         Returns:
             Dictionary with gap scan results and statistics
         """
         logger.info(f"Scanning for gap opportunities >= {min_gap_percent}%")
-        
+
         try:
             from ..analysis.gap_market_scanner import GapMarketScanner
             from ..analysis.gap_rules_engine import GapRulesEngine
             from decimal import Decimal
-            
+
             # Initialize scanner and rules engine
             gap_scanner = GapMarketScanner(self)
             rules_engine = GapRulesEngine()
-            
+
             # Get comprehensive gap scan
-            scan_results = gap_scanner.get_comprehensive_gap_scan(Decimal(str(min_gap_percent)))
-            
+            scan_results = gap_scanner.get_comprehensive_gap_scan(
+                Decimal(str(min_gap_percent))
+            )
+
             # Apply rules to all candidates
             rules_analysis = []
             for quote in scan_results["gap_candidates"]:
                 evaluation = rules_engine.evaluate_gap_candidate(quote)
-                rules_analysis.append({
-                    "symbol": quote.asset.symbol,
-                    "evaluation": evaluation,
-                    "quote": quote
-                })
-            
+                rules_analysis.append(
+                    {
+                        "symbol": quote.asset.symbol,
+                        "evaluation": evaluation,
+                        "quote": quote,
+                    }
+                )
+
             # Compile statistics
             total_candidates = len(scan_results["gap_candidates"])
-            rules_approved = len([r for r in rules_analysis if r["evaluation"]["decision"] == "TRADE"])
+            rules_approved = len(
+                [r for r in rules_analysis if r["evaluation"]["decision"] == "TRADE"]
+            )
             volume_confirmed = len(scan_results["volume_confirmed"])
             high_quality = len(scan_results["high_quality"])
-            
+
             return {
                 "scan_results": scan_results,
                 "rules_analysis": rules_analysis,
@@ -811,11 +702,15 @@ class SmartCoordinator:
                     "rules_approved": rules_approved,
                     "volume_confirmed": volume_confirmed,
                     "high_quality": high_quality,
-                    "approval_rate": (rules_approved / total_candidates * 100) if total_candidates > 0 else 0
+                    "approval_rate": (
+                        (rules_approved / total_candidates * 100)
+                        if total_candidates > 0
+                        else 0
+                    ),
                 },
-                "timestamp": datetime.now()
+                "timestamp": datetime.now(),
             }
-            
+
         except Exception as e:
             logger.error(f"Error scanning gap opportunities: {e}")
             return {"error": str(e)}
@@ -833,7 +728,6 @@ if __name__ == "__main__":
 
     import os
 
-    os.environ["FINNHUB_API_KEY"] = "d1vutchr01qmbi8q9u50d1vutchr01qmbi8q9u5g"
 
     coordinator = create_smart_coordinator()
 
