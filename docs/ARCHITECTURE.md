@@ -2,16 +2,16 @@
 
 ## Overview
 
-TradeScout implements a sophisticated **API-first data collection architecture** that combines multiple financial data providers with intelligent routing. The system uses configuration-driven provider selection, intelligent fallback strategies, and comprehensive caching to handle rate-limited APIs effectively. The multi-provider architecture enables robust data collection even when individual providers fail or hit rate limits.
+TradeScout implements a **commercial-grade data collection architecture** using Polygon.io as the primary data provider. The system uses configuration-driven data type management, intelligent caching strategies, and comprehensive error handling to provide reliable market data. The single-provider architecture with commercial API access eliminates rate limiting concerns while maintaining enterprise-grade reliability.
 
 ## Core Architecture Principles
 
-1. **API-First Data Collection**: Multiple API providers with intelligent routing
-2. **Configuration-Driven**: YAML-based provider management and data type mapping
+1. **Commercial API Integration**: Single high-quality provider for all data types
+2. **Configuration-Driven**: YAML-based data type mapping and caching policies
 3. **Circuit Breaker Resilience**: Automatic failure detection and recovery
 4. **Interface-First Design**: All components implement abstract interfaces for testability
-5. **Quality-Based Routing**: Intelligent provider selection based on reliability ratings
-6. **Multi-Tier Caching**: Aggressive caching strategies to minimize API rate limit issues
+5. **Single-Provider Reliability**: Commercial-grade API eliminates fallback complexity
+6. **Multi-Tier Caching**: TTL-based caching strategies with automatic cleanup
 7. **Clean Data Models**: External data transformed to standardized internal models
 8. **Separation of Concerns**: Data collection, analysis, and storage are independent
 
@@ -19,21 +19,21 @@ TradeScout implements a sophisticated **API-first data collection architecture**
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                External Data Sources                    │
+│                External Data Source                     │
 ├─────────────────────────────────────────────────────────┤
-│                API Providers                            │
-│ • YFinance              • Polygon.io                    │
-│ • Finnhub               • Alpha Vantage                  │
-│ • NewsAPI               • (Future: Tiingo, StockData)    │
+│                 Polygon.io API                          │
+│ • Real-time market data     • Extended hours trading    │
+│ • Company fundamentals      • News & sentiment          │
+│ • Technical indicators      • Crypto & Forex data       │
 └─────────────────────────────────────────────────────────┘
                            │
                            ▼
 ┌─────────────────────────────────────────────────────────┐
 │              SmartCoordinator                           │
-│  • Configuration-driven routing                         │
-│  • Multi-provider management                            │
-│  • Circuit breaker pattern                              │
-│  • Reliability-based fallback strategies               │
+│  • Single-provider architecture                         │
+│  • Configuration-driven data type mapping               │
+│  • Circuit breaker pattern with exponential backoff     │
+│  • Intelligent caching with TTL policies                │
 └─────────────────────────────────────────────────────────┘
                            │
                            ▼
@@ -57,26 +57,27 @@ TradeScout implements a sophisticated **API-first data collection architecture**
 └─────────────┘  └─────────────────┘  └─────────────┘
 ```
 
-## Multi-Source Aggregator Architecture
+## Single-Provider Data Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              MultiSourceAggregator                     │
+│                Data Collection Layer                    │
 ├─────────────────────────────────────────────────────────┤
-│  Parallel API Execution:                               │
+│  Polygon.io API Integration:                            │
 │                                                         │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐      │
-│  │ YFinance    │ │ Polygon     │ │ Alpha Vant. │      │
-│  │ Gainers     │ │ Gainers     │ │ Gainers     │      │
-│  │ Losers      │ │ Losers      │ │ Losers      │      │
-│  └─────────────┘ └─────────────┘ └─────────────┘      │
+│  ┌─────────────────────────────────────────────────────┐ │
+│  │            Polygon.io REST API                      │ │
+│  │  • Market Movers    • Historical Data              │ │
+│  │  • Real-time Quotes • Company Fundamentals         │ │
+│  │  • Extended Hours   • News & Sentiment             │ │
+│  └─────────────────────────────────────────────────────┘ │
 │                                                         │
-│  ▼ Aggregation & Confidence Scoring ▼                  │
+│  ▼ Data Transformation & Caching ▼                     │
 │                                                         │
-│  ExtendedMarketMover objects with:                      │
-│  • Multi-source validation                              │
-│  • Confidence scoring                                   │
-│  • Source tracking                                      │
+│  Domain Model Objects with:                             │
+│  • Standardized data structure                          │
+│  • TTL-based caching                                    │
+│  • Error handling and recovery                          │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -84,74 +85,66 @@ TradeScout implements a sophisticated **API-first data collection architecture**
 
 ```yaml
 providers:
-  yfinance:
-    name: "Yahoo Finance"
-    type: "api" 
-    provider_type: "free"
-    rate_limit_per_minute: 60
-    priority: 2
-    quality_weight: 7
-
   polygon:
     name: "Polygon.io"
     type: "api"
-    provider_type: "freemium"
-    rate_limit_per_minute: 5
+    provider_type: "commercial"
+    rate_limit_per_minute: 300  # Commercial tier
     priority: 1
-    quality_weight: 10
-
-  finnhub:
-    name: "Finnhub"
+    enabled: true
+    supports_extended_hours: true
+    supports_market_movers: true
+    supports_news: true
+    supports_fundamentals: true
+    api_key_required: true
+    
+  tiingo:
+    name: "Tiingo"
     type: "api"
-    provider_type: "freemium"
-    rate_limit_per_minute: 60
-    priority: 3
-    quality_weight: 9
-
-  alpha_vantage:
-    name: "Alpha Vantage"
-    type: "api"
-    provider_type: "freemium"
-    rate_limit_per_day: 25
-    priority: 4
-    quality_weight: 6
+    provider_type: "commercial"
+    enabled: false  # Disabled - using Polygon
+    priority: 2
 
 data_types:
   current_quotes:
-    providers: ["yfinance", "finnhub", "polygon", "alpha_vantage"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
+    cache_ttl_minutes: 1
     
   market_movers:
-    providers: ["yfinance", "polygon", "alpha_vantage"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
+    cache_ttl_minutes: 15
     
   extended_hours:
-    providers: ["polygon", "yfinance"]
-    fallback_strategy: "first_success"
+    providers: ["polygon"]
+    cache_ttl_minutes: 5
+    
+  company_fundamentals:
+    providers: ["polygon"]
+    cache_ttl_days: 7
 ```
 
 ## SmartCoordinator Implementation
 
-The SmartCoordinator is the central orchestration layer that provides intelligent routing between API providers based on configuration-driven reliability ratings and fallback strategies.
+The SmartCoordinator is the central orchestration layer that provides intelligent data routing and caching for the single-provider Polygon.io architecture.
 
 **Key Features:**
-- **Multi-Provider Management**: Unified handling of API providers
-- **Configuration-Driven Selection**: YAML-based provider configuration with data type mapping
-- **Circuit Breaker Pattern**: Automatic provider failure detection and recovery
-- **Intelligent Fallback**: Quality-based provider selection with graceful degradation
+- **Single-Provider Management**: Streamlined architecture with commercial-grade API
+- **Configuration-Driven Mapping**: YAML-based data type configuration with caching policies
+- **Circuit Breaker Pattern**: Automatic failure detection with exponential backoff
+- **Intelligent Caching**: TTL-based caching with fallback to cached data
 
 ```python
 class SmartCoordinator:
     def __init__(self):
-        self._provider_instances = {}      # API provider implementations
+        self._provider_instances = {}      # Polygon and Tiingo providers
         self.config_manager = DataSourcesManager()
         self.cache_manager = APICacheManager()
     
     def get_current_quote(self, symbol: str) -> MarketQuote:
-        # API provider routing: polygon → yfinance → finnhub → alpha_vantage
+        # Single provider routing through Polygon.io with caching
         
     def get_market_movers(self, provider: str, mover_type: str) -> List[MarketMover]:
-        # Multi-source market mover aggregation
+        # Polygon.io market movers with intelligent caching
 ```
 
 ## Gap Trading Analysis Pipeline
@@ -160,10 +153,10 @@ class SmartCoordinator:
 ┌─────────────────────────────────────────────────────────┐
 │                Gap Trading Pipeline                     │
 ├─────────────────────────────────────────────────────────┤
-│  1. Multi-Source Market Movers Discovery               │
-│     ├── YFinance market movers                         │
-│     ├── Polygon gainers/losers                         │
-│     └── Alpha Vantage TOP_GAINERS_LOSERS              │
+│  1. Polygon.io Market Movers Discovery                 │
+│     ├── Real-time gainers/losers                       │
+│     ├── Most active stocks by volume                   │
+│     └── Extended hours pre-market activity             │
 │                                                         │
 │  2. True Gap Calculation                                │
 │     ├── Previous close vs current/premarket price      │
@@ -188,18 +181,18 @@ class SmartCoordinator:
 ## System Status & Metrics
 
 ### Current Implementation Status
-- **Data Providers**: 4 API providers operational
-- **SmartCoordinator**: Multi-provider routing with circuit breaker
-- **Configuration Management**: YAML-based provider selection
-- **Caching Strategy**: File-based API response caching
-- **Gap Analysis**: Complete academic implementation
-- **CLI Interface**: Rich interface with status monitoring
+- **Data Provider**: Single commercial-grade Polygon.io API integration
+- **SmartCoordinator**: Single-provider routing with circuit breaker protection
+- **Configuration Management**: YAML-based data type mapping and caching policies
+- **Caching Strategy**: TTL-based intelligent caching with automatic cleanup
+- **Gap Analysis**: Complete academic implementation operational
+- **CLI Interface**: Rich interface with comprehensive status monitoring
 
 ### Performance Characteristics
-- **API Providers**: 4 active providers with intelligent fallback
-- **Rate Limiting**: Configured per-provider limits with throttling
-- **Caching**: TTL-based caching for optimal performance
-- **Reliability**: Circuit breaker pattern for automatic failure recovery
+- **API Provider**: Commercial Polygon.io with 300+ calls/minute capacity
+- **Rate Limiting**: Commercial tier eliminates rate limiting concerns
+- **Caching**: Multi-tier TTL-based caching (1m quotes, 7d fundamentals)
+- **Reliability**: Circuit breaker pattern with exponential backoff retry logic
 
 ## Directory Structure
 
@@ -211,15 +204,14 @@ src/tradescout/
 │   └── yfinance_scanner.py           # YFinance-specific utilities
 │
 ├── data_sources_api/                  # API provider implementations  
-│   ├── asset_data_provider_yfinance.py
-│   ├── asset_data_provider_finnhub.py
-│   ├── asset_data_provider_polygon.py
-│   └── asset_data_provider_alpha_vantage.py
+│   ├── asset_data_provider_polygon.py  # Primary Polygon.io provider
+│   └── asset_data_provider_tiingo.py   # Alternative provider (disabled)
 │
 ├── config/                            # Configuration management
 │   ├── data_sources_config.yaml      # Provider configurations
+│   ├── cache_config.yaml             # Caching policies and TTL settings
 │   ├── data_sources_manager.py       # Configuration loader
-│   └── local_config.py              # Local settings
+│   └── local_config.py               # Local settings
 │
 ├── analysis/                          # Analysis implementations
 │   ├── multi_source_aggregator.py    # Multi-provider aggregation
@@ -237,17 +229,16 @@ src/tradescout/
 ├── storage/                          # Database interfaces
 │   └── sqlite_repository.py         # SQLite implementation
 │
-└── cli/                             # Command-line interface
-    ├── main.py                      # CLI entry point
-    └── suggest_command.py           # Gap trading suggestions
+└── scripts/                         # Command-line interface
+    └── cli.py                       # CLI entry point with all commands
 ```
 
 ## Future Enhancements
 
-### Planned API Integrations
-- **Tiingo**: Additional market data provider
-- **StockData.org**: News sentiment analysis
-- **IEX Cloud**: Alternative financial data source
+### Planned Enhancements
+- **Tiingo Integration**: Enable secondary provider for redundancy
+- **News Sentiment**: Enhanced sentiment analysis from Polygon news feeds
+- **Options Data**: Leverage Polygon's options chain and unusual activity data
 
 ### System Improvements
 - Enhanced caching strategies

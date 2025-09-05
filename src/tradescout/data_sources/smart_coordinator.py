@@ -19,6 +19,7 @@ from ..config.data_sources_manager import (
 from ..data_models.domain_models_core import (
     Asset,
     AssetType,
+    CompanyFundamentals,
     ExtendedHoursData,
     MarketQuote,
     MarketStatus,
@@ -68,7 +69,7 @@ class SmartCoordinator:
                         instance = self._create_provider_instance(provider_id)
                         if instance:
                             self._provider_instances[provider_id] = instance
-                            logger.info(f"Initialized API provider: {provider_id}")
+                            logger.debug(f"Initialized API provider: {provider_id}")
                 except Exception as e:
                     logger.error(f"Failed to initialize provider {provider_id}: {e}")
 
@@ -110,15 +111,17 @@ class SmartCoordinator:
                     env_file = project_root / ".env"
                     if env_file.exists():
                         try:
-                            with open(env_file, 'r') as f:
+                            with open(env_file, "r") as f:
                                 for line in f:
                                     line = line.strip()
-                                    if line.startswith("POLYGON_API_KEY=") and not line.startswith("POLYGON_API_KEY=your_"):
+                                    if line.startswith(
+                                        "POLYGON_API_KEY="
+                                    ) and not line.startswith("POLYGON_API_KEY=your_"):
                                         api_key = line.split("=", 1)[1]
                                         break
                         except Exception as e:
                             logger.debug(f"Error reading .env file: {e}")
-                
+
                 if api_key:
                     return AssetDataProviderPolygon(api_key)
                 else:
@@ -158,15 +161,12 @@ class SmartCoordinator:
             or []
         )
 
-    def get_company_fundamentals(self, symbol: str) -> Dict[str, Any]:
+    def get_company_fundamentals(self, symbol: str) -> Optional[CompanyFundamentals]:
         """Get company fundamental data using smart provider selection"""
-        return (
-            self._get_data_with_strategy(
-                DataSourceType.COMPANY_FUNDAMENTALS,
-                self._get_fundamentals_from_provider,
-                symbol=symbol,
-            )
-            or {}
+        return self._get_data_with_strategy(
+            DataSourceType.COMPANY_FUNDAMENTALS,
+            self._get_fundamentals_from_provider,
+            symbol=symbol,
         )
 
     def get_volume_leaders(self, symbols: List[str], **kwargs) -> List[MarketQuote]:
@@ -230,7 +230,7 @@ class SmartCoordinator:
                 logger.debug(f"Trying provider {provider_id}")
                 result = fetch_function(provider, provider_id, **kwargs)
                 if result is not None:
-                    logger.info(f"Got data from {provider_id}")
+                    logger.debug(f"Got data from {provider_id}")
                     self.config_manager.record_provider_success(provider_id)
                     return result
                 else:
@@ -339,7 +339,7 @@ class SmartCoordinator:
 
     def _get_fundamentals_from_provider(
         self, provider: AssetDataProvider, provider_id: str, symbol: str
-    ) -> Dict[str, Any]:
+    ) -> Optional[CompanyFundamentals]:
         """Get fundamental data from a specific provider"""
         asset = self._create_asset(symbol)
         return provider.get_fundamental_data(asset)
@@ -648,6 +648,7 @@ class SmartCoordinator:
             logger.error(f"Error generating gap suggestions: {e}")
             return []
 
+
     def scan_gap_opportunities(self, min_gap_percent: float = 2.0) -> Dict[str, any]:
         """
         Comprehensive gap opportunity scan with detailed analysis
@@ -727,7 +728,6 @@ if __name__ == "__main__":
     print("🧪 Testing Smart Coordinator...")
 
     import os
-
 
     coordinator = create_smart_coordinator()
 

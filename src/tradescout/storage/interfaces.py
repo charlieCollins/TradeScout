@@ -413,11 +413,6 @@ class DatabaseManager(ABC):
         pass
 
     # Repository access methods
-    @property
-    @abstractmethod
-    def quotes(self) -> QuoteRepository:
-        """Get quotes repository"""
-        pass
 
     @property
     @abstractmethod

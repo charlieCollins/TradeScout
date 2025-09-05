@@ -16,6 +16,6 @@ from .gap_suggestion_engine import GapTradeSuggestionEngine
 __all__ = [
     "AcademicGapTypeAnalyzer",
     "GapMarketScanner",
-    "GapRulesEngine", 
+    "GapRulesEngine",
     "GapTradeSuggestionEngine",
 ]

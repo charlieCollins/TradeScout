@@ -23,7 +23,6 @@ DATABASE_CONFIG = {
 }
 
 
-
 # Development Settings
 DEV_CONFIG = {
     "mock_trading": True,  # Paper trading mode

@@ -195,8 +195,8 @@ class DataSourcesManager:
                 if provider_id in self.config.providers:
                     self.config.providers[provider_id].quality_weight = weight
 
-            logger.info(f"Loaded data sources configuration from {self.config_path}")
-            logger.info(
+            logger.debug(f"Loaded data sources configuration from {self.config_path}")
+            logger.debug(
                 f"Configured {len(self.config.providers)} providers and {len(self.config.data_types)} data types"
             )
 

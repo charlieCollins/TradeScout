@@ -45,14 +45,29 @@ class CacheConfig:
 
     def __post_init__(self):
         if self.ttl_policies is None:
+            # Load from config file
+            import yaml
+
+            config_path = Path(__file__).parent.parent / "config" / "cache_config.yaml"
+            if not config_path.exists():
+                raise FileNotFoundError(f"Cache config file not found: {config_path}")
+
+            with open(config_path) as f:
+                config_data = yaml.safe_load(f)
+
+            if "cache_policies" not in config_data:
+                raise ValueError(
+                    "cache_policies section missing from cache_config.yaml"
+                )
+
             self.ttl_policies = {
-                CachePolicy.REAL_TIME: 15,  # 15 minutes for real-time pricing data
-                CachePolicy.INTRADAY: 15,  # 15 minutes for intraday pricing data
-                CachePolicy.PREMARKET: 15,  # 15 minutes for pre-market extended hours
-                CachePolicy.AFTERHOURS: 15,  # 15 minutes for after-hours extended hours
-                CachePolicy.DAILY: 240,  # 4 hours
-                CachePolicy.FUNDAMENTAL: 10080,  # 1 week
-                CachePolicy.HISTORICAL: 43200,  # 30 days
+                CachePolicy.REAL_TIME: config_data["cache_policies"]["real_time"],
+                CachePolicy.INTRADAY: config_data["cache_policies"]["intraday"],
+                CachePolicy.PREMARKET: config_data["cache_policies"]["premarket"],
+                CachePolicy.AFTERHOURS: config_data["cache_policies"]["afterhours"],
+                CachePolicy.DAILY: config_data["cache_policies"]["daily"],
+                CachePolicy.FUNDAMENTAL: config_data["cache_policies"]["fundamental"],
+                CachePolicy.HISTORICAL: config_data["cache_policies"]["historical"],
             }
 
 
@@ -140,7 +155,7 @@ class APICache:
                     cache_entry = json.load(f)
 
                 self.stats["hits"] += 1
-                logger.info(
+                logger.debug(
                     f"Cache HIT: {provider}:{endpoint} (age: {self._get_age_minutes(cache_path):.1f}m)"
                 )
 
@@ -152,7 +167,7 @@ class APICache:
                 cache_path.unlink(missing_ok=True)
 
         self.stats["misses"] += 1
-        logger.info(f"Cache MISS: {provider}:{endpoint}")
+        logger.debug(f"Cache MISS: {provider}:{endpoint}")
         return None
 
     def set(
@@ -241,7 +256,7 @@ class APICache:
 
         # Cache miss or force refresh - make API call
         call_reason = "force refresh" if force_refresh else "cache miss"
-        logger.info(f"API CALL: {provider}:{endpoint} ({call_reason})")
+        logger.debug(f"API CALL: {provider}:{endpoint} ({call_reason})")
         fresh_data = api_function()
 
         # Save to cache (even on force refresh)

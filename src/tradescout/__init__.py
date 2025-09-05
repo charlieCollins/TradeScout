@@ -26,7 +26,7 @@ from .data_sources_api.asset_data_provider_tiingo import AssetDataProviderTiingo
 __all__ = [
     "Asset",
     "Market",
-    "MarketSegment", 
+    "MarketSegment",
     "PriceData",
     "MarketQuote",
     "AssetType",

@@ -49,12 +49,12 @@ cp .env.template .env
 # Edit .env file with your API keys
 
 # Test the CLI using the convenient wrapper script
-./tradescout status
-./tradescout quote AAPL
+./tradescout system status
+./tradescout market quote AAPL
 
 # Or use the full Python module path
-python -m src.tradescout.scripts.cli status
-python -m src.tradescout.scripts.cli quote AAPL
+python -m src.tradescout.scripts.cli system status
+python -m src.tradescout.scripts.cli market quote AAPL
 
 # Run the exploration demos
 cd data/examples
@@ -70,32 +70,29 @@ pytest
 
 ```bash
 # System status with provider information
-./tradescout status
+./tradescout system status
 
 # Gap Trading - Academic Research-Based Suggestions ✅ OPERATIONAL
-./tradescout suggest --limit 5 --min-gap 2.0   # Daily gap trading opportunities
-./tradescout suggest --limit 10 --min-gap 3.0  # High-conviction gaps only
-./tradescout suggest --force                    # Force fresh market scan
+./tradescout market suggest --limit 5 --min-gap 2.0   # Daily gap trading opportunities
+./tradescout market suggest --limit 10 --min-gap 3.0  # High-conviction gaps only
+./tradescout market suggest --force                    # Force fresh market scan
 
 # Individual asset analysis
-./tradescout quote AAPL MSFT TSLA              # Current quotes
-./tradescout fundamentals AAPL                  # Company fundamentals
-./tradescout volume-leaders --symbols="AAPL,MSFT,GOOGL,TSLA"  # Volume analysis
-./tradescout history AAPL --days 7             # Historical data
+./tradescout market quote AAPL MSFT TSLA              # Current quotes
+./tradescout market fundamentals AAPL                  # Company fundamentals
 
 # Market-wide analysis
-./tradescout gainers --limit 10                # Top market gainers
-./tradescout losers --limit 10                 # Top market losers  
-./tradescout active --limit 10                 # Most active stocks
-./tradescout movers --limit 5                  # Complete market report
+./tradescout market gainers --limit 10                # Top market gainers
+./tradescout market losers --limit 10                 # Top market losers  
+./tradescout market movers --limit 5                  # Complete market report
 
-# Data management
-./tradescout quote AAPL MSFT --save            # Save to database
-./tradescout backup "backup-$(date +%Y%m%d).db"  # Create backup
+# System information
+./tradescout system status                             # System status and provider info
+./tradescout system universe --show-symbols           # Show screening universe
 
 # Advanced options
-./tradescout --verbose quote AAPL              # Show provider routing
-./tradescout gainers --force                   # Bypass cache (fresh data)
+./tradescout --verbose market quote AAPL              # Show provider routing
+./tradescout market gainers --force                   # Bypass cache (fresh data)
 ./tradescout --help                             # Get help
 ```
 
@@ -194,26 +191,26 @@ TradeScout/
 - **Rich CLI Interface**: Detailed analysis tables with entry/exit/stop levels, risk/reward ratios
 - **Multiple Data Sources**: Smart coordinator with API providers and intelligent routing
 
-### 🎯 **Smart Data Source Management**
-- **Configuration-Driven Routing**: YAML configuration controls which providers serve different data types
-- **Intelligent Fallback**: Automatic failover between providers with circuit breaker protection
-- **Multiple Strategies**: `first_success`, `merge_best`, `merge_all`, and `round_robin` routing
-- **Quality-Based Selection**: Higher quality providers preferred in merge operations
+### 🎯 **Smart Data Management**
+- **Configuration-Driven Architecture**: YAML configuration controls data types and caching policies
+- **Intelligent Caching**: TTL-based caching with automatic cleanup and size management
+- **Circuit Breaker Protection**: Automatic failure detection with exponential backoff
+- **Commercial-Grade Reliability**: Single high-quality provider eliminates multi-provider complexity
 
 ### 📈 **Market Analysis & CLI**
-- **Real-Time Quotes**: Multi-provider quote aggregation with automatic failover
-- **Company Fundamentals**: Comprehensive company data from multiple sources
+- **Real-Time Quotes**: Professional-grade real-time pricing via Polygon.io
+- **Company Fundamentals**: Comprehensive company data with financial statements
 - **Market-Wide Analysis**: Top gainers, losers, and most active stocks
-- **Bulk Market Data**: Alpha Vantage TOP_GAINERS_LOSERS API integration
-- **Volume Analysis**: Unusual volume detection and scanning
-- **Historical Data**: Multi-timeframe historical price data
+- **Extended Hours Coverage**: Pre-market and after-hours trading data
+- **Volume Analysis**: Unusual volume detection and institutional flow tracking
+- **Historical Data**: Multi-timeframe historical OHLCV data
 - **Rich CLI Interface**: Beautiful terminal interface with status displays
 
 ### ⚡ **Performance & Reliability**
-- **Smart Caching**: Different cache TTL for different data types (2m quotes, 7d fundamentals)
-- **Rate Limit Management**: Automatic respect for API limits across all providers
-- **Circuit Breaker**: Automatically disable failing providers with timed recovery
-- **Error Recovery**: Comprehensive error handling with detailed logging
+- **Smart Caching**: Different cache TTL for different data types (10m quotes, 7d fundamentals)
+- **Rate Limit Management**: Commercial-grade API with 300+ calls/minute capacity
+- **Circuit Breaker**: Automatic failure detection with exponential backoff retry
+- **Error Recovery**: Comprehensive error handling with fallback to cached data
 
 ### 🔌 **Architecture & Extensibility**
 - **Interface-First Design**: Clean abstractions prevent vendor lock-in
@@ -229,27 +226,30 @@ TradeScout/
 
 ## 💾 Data Sources
 
-### 📊 **Market Data Providers**
-- **Finnhub.io**: High-quality real-time data (60/min free) - Priority 3, Quality 9
-- **Yahoo Finance**: Reliable backup provider (unlimited free) - Priority 2, Quality 7
-- **Polygon.io**: Premium data when available (5/min free) - Priority 1, Quality 10
-- **Alpha Vantage**: Market movers & fundamentals (25/day free - very limited!) - Priority 4, Quality 6
+### 📊 **Primary Market Data Provider**
+- **Polygon.io**: Commercial-grade real-time data (300+ calls/min) - Priority 1, Quality 10
+  - Comprehensive market coverage (stocks, options, forex, crypto)
+  - Extended hours trading data (4AM-8PM EST)
+  - News, fundamentals, and technical indicators
+  - Professional-grade API with tick-level data streams
 
-### 🌐 **Extended Hours Data (APIs)**
-- **YFinance**: Extended hours via `prepost=True` parameter - Free, unlimited
-- **Polygon**: Pre-market and after-hours via API - Rate limited
+### 🌐 **Extended Hours Data**
+- **Polygon.io**: Pre-market (4:00 AM - 9:30 AM EST) and after-hours (4:00 PM - 8:00 PM EST)
+- Full market depth with sale conditions tracking
+- Real-time extended hours quotes and volume data
 
 ### 📰 **News & Sentiment**
-- **NewsAPI**: Company and market news (1000/day free) - Quality 8
-- **Finnhub News**: Integrated news from financial provider
+- **Polygon.io News**: Integrated company and market news
+- Social sentiment analysis capabilities
+- Analyst ratings and price target data
 
-### 🎛️ **Configuration Control**
-Each data type can be configured independently:
-- **Current Quotes**: `yfinance, finnhub` with `first_success` strategy
-- **Company Fundamentals**: `yfinance, finnhub` with `merge_best` strategy  
-- **Extended Hours**: `yfinance` only (provider capability filtering)
-- **Company News**: `finnhub` with `merge_all` strategy
-- **Volume Analysis**: `yfinance, finnhub` with smart volume detection
+### 🎛️ **Single-Provider Architecture**
+All data types route through Polygon.io with intelligent caching:
+- **Current Quotes**: Real-time pricing with 1-minute cache TTL
+- **Company Fundamentals**: Weekly cache refresh (7-day TTL)
+- **Extended Hours**: 5-minute cache TTL for pre/after-hours data
+- **Market Movers**: 15-minute cache TTL for gainers/losers
+- **Historical Data**: 24-hour cache TTL for historical price data
 
 ## 🔧 Development Tools & Standards
 
@@ -304,7 +304,7 @@ Each data type can be configured independently:
 - [x] Modern Python project structure with clean architecture
 - [x] Domain models and interfaces
 - [x] Smart Coordinator with configuration-driven routing
-- [x] Multi-provider ecosystem (YFinance, Finnhub, Polygon, Alpha Vantage)
+- [x] Commercial-grade Polygon.io API integration with Tiingo fallback
 - [x] YAML-based data source configuration
 - [x] Intelligent fallback strategies and circuit breaker protection
 - [x] Rich CLI interface with status monitoring
@@ -363,7 +363,7 @@ git commit -m "Your message"
 
 ```bash
 # 1. Scan for overnight gaps (run during pre-market hours)
-./tradescout suggest --limit 5 --min-gap 2.0
+./tradescout market suggest --limit 5 --min-gap 2.0
 
 # 2. Review suggestions with detailed analysis
 # - Gap size and direction
@@ -388,7 +388,7 @@ git commit -m "Your message"
 ### Weekend/After Hours Behavior
 ```bash
 # Expected output when markets are closed or no gaps present
-./tradescout suggest
+./tradescout market suggest
 # ⚠️  No gap candidates found >= 2.0%
 ```
 

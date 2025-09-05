@@ -278,6 +278,130 @@ class ExtendedHoursData:
 
 
 @dataclass
+class CompanyFundamentals:
+    """Comprehensive fundamental data for a publicly traded company"""
+    
+    asset: Asset
+    reporting_period: str  # e.g., "Q3 2024", "FY 2024", "TTM"
+    reporting_date: Optional[datetime] = None
+    fiscal_year: Optional[str] = None
+    
+    # Company Information
+    description: Optional[str] = None
+    sector: Optional[str] = None
+    industry: Optional[str] = None
+    website: Optional[str] = None
+    headquarters: Optional[str] = None
+    employees: Optional[int] = None
+    
+    # Market Data
+    market_cap: Optional[Decimal] = None
+    shares_outstanding: Optional[int] = None
+    float_shares: Optional[int] = None
+    
+    # Income Statement (in reporting currency)
+    total_revenue: Optional[Decimal] = None
+    gross_revenue: Optional[Decimal] = None
+    cost_of_revenue: Optional[Decimal] = None
+    gross_profit: Optional[Decimal] = None
+    operating_income: Optional[Decimal] = None
+    net_income: Optional[Decimal] = None
+    earnings_per_share: Optional[Decimal] = None
+    
+    # Balance Sheet
+    total_assets: Optional[Decimal] = None
+    current_assets: Optional[Decimal] = None
+    non_current_assets: Optional[Decimal] = None
+    total_liabilities: Optional[Decimal] = None
+    current_liabilities: Optional[Decimal] = None
+    long_term_debt: Optional[Decimal] = None
+    shareholders_equity: Optional[Decimal] = None
+    retained_earnings: Optional[Decimal] = None
+    
+    # Cash Flow Statement
+    operating_cash_flow: Optional[Decimal] = None
+    investing_cash_flow: Optional[Decimal] = None
+    financing_cash_flow: Optional[Decimal] = None
+    free_cash_flow: Optional[Decimal] = None
+    
+    # Financial Ratios (calculated or provided)
+    price_to_earnings: Optional[Decimal] = None
+    price_to_book: Optional[Decimal] = None
+    price_to_sales: Optional[Decimal] = None
+    debt_to_equity: Optional[Decimal] = None
+    current_ratio: Optional[Decimal] = None
+    quick_ratio: Optional[Decimal] = None
+    return_on_equity: Optional[Decimal] = None
+    return_on_assets: Optional[Decimal] = None
+    gross_margin: Optional[Decimal] = None
+    operating_margin: Optional[Decimal] = None
+    net_margin: Optional[Decimal] = None
+    
+    # Dividend Information
+    dividend_per_share: Optional[Decimal] = None
+    dividend_yield: Optional[Decimal] = None
+    payout_ratio: Optional[Decimal] = None
+    
+    # Growth Metrics (year-over-year percentages)
+    revenue_growth: Optional[Decimal] = None
+    earnings_growth: Optional[Decimal] = None
+    
+    # Data source metadata
+    data_source: str = "unknown"
+    data_quality: str = "good"  # "good", "stale", "estimated", "incomplete"
+    last_updated: datetime = field(default_factory=datetime.now)
+    
+    @property
+    def is_profitable(self) -> bool:
+        """Check if company is currently profitable"""
+        return self.net_income is not None and self.net_income > 0
+    
+    @property
+    def has_positive_cash_flow(self) -> bool:
+        """Check if company has positive operating cash flow"""
+        return self.operating_cash_flow is not None and self.operating_cash_flow > 0
+    
+    @property
+    def is_financially_healthy(self) -> bool:
+        """Basic financial health check"""
+        # Company is considered healthy if it has:
+        # 1. Positive net income OR positive operating cash flow
+        # 2. Current ratio > 1.0 (can pay short-term debts)
+        # 3. Reasonable debt levels (debt-to-equity < 2.0)
+        
+        income_healthy = self.is_profitable or self.has_positive_cash_flow
+        
+        liquidity_healthy = True
+        if self.current_ratio is not None:
+            liquidity_healthy = self.current_ratio >= Decimal("1.0")
+        
+        debt_healthy = True
+        if self.debt_to_equity is not None:
+            debt_healthy = self.debt_to_equity <= Decimal("2.0")
+            
+        return income_healthy and liquidity_healthy and debt_healthy
+    
+    @property
+    def market_cap_category(self) -> str:
+        """Categorize company by market cap"""
+        if self.market_cap is None:
+            return "unknown"
+        
+        market_cap_b = self.market_cap / Decimal("1000000000")  # Convert to billions
+        
+        if market_cap_b >= 200:
+            return "mega_cap"  # $200B+
+        elif market_cap_b >= 10:
+            return "large_cap"  # $10B-$200B
+        elif market_cap_b >= 2:
+            return "mid_cap"    # $2B-$10B
+        elif market_cap_b >= 0.3:
+            return "small_cap"  # $300M-$2B
+        else:
+            return "micro_cap"  # <$300M
+
+
+@dataclass
 class NewsItem:
     """News article that may affect one or more assets"""
 

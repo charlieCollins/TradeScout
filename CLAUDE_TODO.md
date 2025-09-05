@@ -1,10 +1,36 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-08-29 (Claude) - Jules implemented 3 new scrapers*
+*Last updated: 2025-09-03 (Claude) - Comprehensive system audit and documentation synchronization completed*
 
 This file tracks active development tasks and provides context for resuming work after session interruptions.
 
 ## 🎯 Active Development Tasks
+
+### ✅ Completed - System Audit & Documentation Synchronization (September 3, 2025)
+
+- [x] **Comprehensive codebase audit and documentation update** - ✅ Done
+  - Conducted deep technical audit of entire TradeScout system architecture and functionality
+  - Verified all CLI commands, gap trading system, market data features working correctly
+  - Fixed critical gap trading integration issue (method naming mismatch between engine and coordinator)
+  - Updated README.md with accurate cache TTL settings (corrected 10-minute claim to actual 1-minute for quotes)
+  - Synchronized all documentation with current implementation (CLI command structure, features, capabilities)
+
+- [x] **Fixed gap trading system integration** - ✅ Done
+  - Resolved method naming mismatch: engine calling get_gap_suggestions() vs coordinator having get_daily_gap_suggestions()
+  - Updated engine to call actual coordinator method instead of creating unnecessary alias
+  - Verified gap trading system now fully operational and scans complete 98-symbol universe
+  - Confirmed proper academic 6-factor binary classification working with real market data
+
+- [x] **Corrected CLI command documentation structure** - ✅ Done
+  - Updated all README examples from incorrect flat commands to proper command group structure
+  - Fixed examples: ./tradescout quote → ./tradescout market quote, ./tradescout suggest → ./tradescout market suggest
+  - Verified all documented commands match actual Click-based CLI implementation
+  - Removed references to non-existent volume-leaders command
+
+- [x] **Updated cache configuration documentation** - ✅ Done
+  - Corrected README cache TTL documentation to match actual configuration settings
+  - Updated: Current Quotes (1-minute, not 10-minute), Market Movers (15-minute), Historical Data (24-hour, not 30-day)
+  - Aligned documentation with actual data_sources_config.yaml settings
 
 ### ✅ Completed - Architecture Restructuring & Documentation Updates (August 31, 2025)
 
