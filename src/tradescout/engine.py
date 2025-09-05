@@ -119,12 +119,16 @@ class TradeScoutEngine:
                     change = f"[red]{change}[/red]"
                     change_pct = f"[red]{change_pct}[/red]"
 
-                table.add_row(quote.asset.symbol, price, change, change_pct, volume, timestamp)
+                table.add_row(
+                    quote.asset.symbol, price, change, change_pct, volume, timestamp
+                )
 
         # Add error rows for symbols that failed
         for symbol in symbols:
             if symbol.upper() not in quote_symbols:
-                table.add_row(symbol.upper(), "[red]Error[/red]", "N/A", "N/A", "N/A", "N/A")
+                table.add_row(
+                    symbol.upper(), "[red]Error[/red]", "N/A", "N/A", "N/A", "N/A"
+                )
 
         return table
 
@@ -140,7 +144,7 @@ class TradeScoutEngine:
         """
         try:
             fundamentals = self.coordinator.get_company_fundamentals(symbol.upper())
-                
+
             if not fundamentals:
                 return [f"[red]❌ No fundamental data found for {symbol.upper()}[/red]"]
 
@@ -167,52 +171,76 @@ class TradeScoutEngine:
             if fundamentals.market_cap:
                 market_cap = f"${fundamentals.market_cap:,.0f}"
                 info_text.append(f"[bold]Market Cap:[/bold] {market_cap}")
-                info_text.append(f"[bold]Size Category:[/bold] {fundamentals.market_cap_category.replace('_', ' ').title()}")
-            
+                info_text.append(
+                    f"[bold]Size Category:[/bold] {fundamentals.market_cap_category.replace('_', ' ').title()}"
+                )
+
             if fundamentals.employees:
                 info_text.append(f"[bold]Employees:[/bold] {fundamentals.employees:,}")
 
             # Financial performance (TTM data)
-            if any([fundamentals.total_revenue, fundamentals.net_income, fundamentals.operating_income]):
+            if any(
+                [
+                    fundamentals.total_revenue,
+                    fundamentals.net_income,
+                    fundamentals.operating_income,
+                ]
+            ):
                 info_text.append("")
-                info_text.append("[bold cyan]📈 Financial Performance (TTM)[/bold cyan]")
-                
+                info_text.append(
+                    "[bold cyan]📈 Financial Performance (TTM)[/bold cyan]"
+                )
+
                 if fundamentals.total_revenue:
                     revenue = f"${fundamentals.total_revenue:,.0f}"
                     info_text.append(f"[bold]Total Revenue:[/bold] {revenue}")
-                
+
                 if fundamentals.net_income:
                     net_income = f"${fundamentals.net_income:,.0f}"
                     color = "green" if fundamentals.net_income > 0 else "red"
-                    info_text.append(f"[bold]Net Income:[/bold] [{color}]{net_income}[/{color}]")
-                
+                    info_text.append(
+                        f"[bold]Net Income:[/bold] [{color}]{net_income}[/{color}]"
+                    )
+
                 if fundamentals.operating_income:
                     op_income = f"${fundamentals.operating_income:,.0f}"
                     color = "green" if fundamentals.operating_income > 0 else "red"
-                    info_text.append(f"[bold]Operating Income:[/bold] [{color}]{op_income}[/{color}]")
-                
+                    info_text.append(
+                        f"[bold]Operating Income:[/bold] [{color}]{op_income}[/{color}]"
+                    )
+
                 if fundamentals.net_margin:
                     margin = f"{fundamentals.net_margin:.2f}%"
                     color = "green" if fundamentals.net_margin > 0 else "red"
-                    info_text.append(f"[bold]Net Margin:[/bold] [{color}]{margin}[/{color}]")
+                    info_text.append(
+                        f"[bold]Net Margin:[/bold] [{color}]{margin}[/{color}]"
+                    )
 
             # Balance sheet metrics
-            if any([fundamentals.total_assets, fundamentals.shareholders_equity, fundamentals.current_ratio]):
+            if any(
+                [
+                    fundamentals.total_assets,
+                    fundamentals.shareholders_equity,
+                    fundamentals.current_ratio,
+                ]
+            ):
                 info_text.append("")
                 info_text.append("[bold cyan]🏦 Balance Sheet[/bold cyan]")
-                
+
                 if fundamentals.total_assets:
                     assets = f"${fundamentals.total_assets:,.0f}"
                     info_text.append(f"[bold]Total Assets:[/bold] {assets}")
-                
+
                 if fundamentals.shareholders_equity:
                     equity = f"${fundamentals.shareholders_equity:,.0f}"
                     info_text.append(f"[bold]Shareholders' Equity:[/bold] {equity}")
-                
+
                 if fundamentals.current_ratio:
                     ratio = f"{fundamentals.current_ratio:.2f}"
                     color = "green" if fundamentals.current_ratio >= 1.0 else "yellow"
-                    info_text.append(f"[bold]Current Ratio:[/bold] [{color}]{ratio}[/{color}]")
+                    info_text.append(
+                        f"[bold]Current Ratio:[/bold] [{color}]{ratio}[/{color}]"
+                    )
 
             # Cash flow
             if fundamentals.operating_cash_flow:
@@ -220,18 +248,30 @@ class TradeScoutEngine:
                 info_text.append("[bold cyan]💰 Cash Flow (TTM)[/bold cyan]")
                 ocf = f"${fundamentals.operating_cash_flow:,.0f}"
                 color = "green" if fundamentals.operating_cash_flow > 0 else "red"
-                info_text.append(f"[bold]Operating Cash Flow:[/bold] [{color}]{ocf}[/{color}]")
+                info_text.append(
+                    f"[bold]Operating Cash Flow:[/bold] [{color}]{ocf}[/{color}]"
+                )
 
             # Valuation metrics
-            if any([fundamentals.price_to_earnings, fundamentals.price_to_book, fundamentals.dividend_yield]):
+            if any(
+                [
+                    fundamentals.price_to_earnings,
+                    fundamentals.price_to_book,
+                    fundamentals.dividend_yield,
+                ]
+            ):
                 info_text.append("")
                 info_text.append("[bold cyan]💹 Valuation Metrics[/bold cyan]")
-                
+
                 if fundamentals.price_to_earnings:
-                    info_text.append(f"[bold]P/E Ratio:[/bold] {fundamentals.price_to_earnings:.2f}")
+                    info_text.append(
+                        f"[bold]P/E Ratio:[/bold] {fundamentals.price_to_earnings:.2f}"
+                    )
 
                 if fundamentals.price_to_book:
-                    info_text.append(f"[bold]P/B Ratio:[/bold] {fundamentals.price_to_book:.2f}")
+                    info_text.append(
+                        f"[bold]P/B Ratio:[/bold] {fundamentals.price_to_book:.2f}"
+                    )
 
                 if fundamentals.dividend_yield:
                     div_yield = f"{fundamentals.dividend_yield*100:.2f}%"
@@ -240,26 +280,40 @@ class TradeScoutEngine:
             # Financial health indicator
             if info_text:  # Only show if we have some data
                 info_text.append("")
-                health_status = "🟢 Healthy" if fundamentals.is_financially_healthy else "🟡 Needs Review"
-                health_color = "green" if fundamentals.is_financially_healthy else "yellow"
-                info_text.append(f"[bold]Financial Health:[/bold] [{health_color}]{health_status}[/{health_color}]")
+                health_status = (
+                    "🟢 Healthy"
+                    if fundamentals.is_financially_healthy
+                    else "🟡 Needs Review"
+                )
+                health_color = (
+                    "green" if fundamentals.is_financially_healthy else "yellow"
+                )
+                info_text.append(
+                    f"[bold]Financial Health:[/bold] [{health_color}]{health_status}[/{health_color}]"
+                )
 
             # Data source and period information
             if fundamentals.reporting_period:
                 info_text.append("")
-                info_text.append(f"[dim]📋 Data Period: {fundamentals.reporting_period}[/dim]")
-                info_text.append(f"[dim]📡 Source: {fundamentals.data_source.title()}[/dim]")
+                info_text.append(
+                    f"[dim]📋 Data Period: {fundamentals.reporting_period}[/dim]"
+                )
+                info_text.append(
+                    f"[dim]📡 Source: {fundamentals.data_source.title()}[/dim]"
+                )
 
             if info_text:
                 panel = Panel(
                     "\n".join(info_text),
                     title=f"[bold blue]📊 {symbol.upper()} Fundamentals[/bold blue]",
-                    border_style="blue"
+                    border_style="blue",
                 )
                 return [panel]
             else:
-                return [f"[yellow]⚠️  Limited fundamental data available for {symbol.upper()}[/yellow]"]
-                
+                return [
+                    f"[yellow]⚠️  Limited fundamental data available for {symbol.upper()}[/yellow]"
+                ]
+
         except Exception as e:
             return [f"[red]❌ Error: {str(e)}[/red]"]
 
@@ -391,7 +445,7 @@ class TradeScoutEngine:
                 "explanation": session_info.get("explanation", "Market gainers data"),
                 "cache_message": {
                     "refresh": "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]",
-                    "cached": "[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]",
+                    "cached": "[blue]💾 Data cached for 10 minutes. Use --force-refresh to get fresh data.[/blue]",
                 },
                 "force_refresh": force_refresh,
             }
@@ -449,12 +503,29 @@ class TradeScoutEngine:
                 "explanation": session_info.get("explanation", "Market losers data"),
                 "cache_message": {
                     "refresh": "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]",
-                    "cached": "[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]",
+                    "cached": "[blue]💾 Data cached for 10 minutes. Use --force-refresh to get fresh data.[/blue]",
                 },
                 "force_refresh": force_refresh,
             }
         except Exception as e:
             return {"error": str(e)}
+
+    def display_market_data_header(self) -> str:
+        """Get market data status header for display"""
+        if (
+            hasattr(self.coordinator, "_provider_instances")
+            and self.coordinator._provider_instances
+        ):
+            provider = list(self.coordinator._provider_instances.values())[0]
+            if hasattr(provider, "get_market_data_status"):
+                status = provider.get_market_data_status()
+                if status["status"] == "cached":
+                    return f"[cyan]📊 Market Data: {status['symbols']:,} symbols cached ({status['age_minutes']:.1f} min old)[/cyan]"
+                elif status["status"] == "empty":
+                    return "[cyan]📊 Market Data: Fetching fresh snapshot from Polygon API...[/cyan]"
+                else:
+                    return f"[cyan]📊 Market Data: {status['symbols']:,} symbols (stale, refreshing...)[/cyan]"
+        return ""
 
     def display_gainers(self, limit: int = 10, force_refresh: bool = False) -> List:
         """
@@ -472,7 +543,7 @@ class TradeScoutEngine:
             now = datetime.now()
             gainers = self.coordinator.get_market_gainers(limit, force_refresh)
             session_info = self._get_session_info(current_session, now, "gainers")
-            
+
             if not gainers:
                 return ["[yellow]⚠️  No gainers data available[/yellow]"]
 
@@ -480,7 +551,7 @@ class TradeScoutEngine:
             header_text = session_info.get("header", "🟢 Market Gainers")
             explanation = session_info.get("explanation", "Market gainers data")
             timing = session_info.get("timing", "REGULAR")
-            
+
             # Create Rich Table
             table = Table(
                 title=f"Top {len(gainers)} Market Gainers ({timing} Session)",
@@ -492,7 +563,7 @@ class TradeScoutEngine:
             table.add_column("Change", justify="right")
             table.add_column("Change %", justify="right", style="bold green")
             table.add_column("Volume", justify="right", style="dim")
-            
+
             # Format and add rows
             for gainer in gainers:
                 change_color = "green" if gainer.price_change >= 0 else "red"
@@ -501,7 +572,7 @@ class TradeScoutEngine:
                     if gainer.price_change >= 0
                     else f"{gainer.price_change:.2f}"
                 )
-                
+
                 table.add_row(
                     str(gainer.rank),
                     gainer.asset.symbol,
@@ -511,20 +582,22 @@ class TradeScoutEngine:
                     f"{gainer.volume:,}" if gainer.volume > 0 else "N/A",
                 )
 
-            # Add header and timestamp info
+            # Add header info
             info_lines = [f"[green]{header_text}[/green]", f"[dim]{explanation}[/dim]"]
-            if now:
-                info_lines.append(f"[bold green]Current Time: {now.strftime('%Y-%m-%d %H:%M:%S EST')}[/bold green]\n")
-            
+
             # Create display objects list
             display_objects = []
             display_objects.extend(info_lines)
             display_objects.append(table)
-            cache_msg = "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]" if force_refresh else "[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
+            cache_msg = (
+                "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]"
+                if force_refresh
+                else "[blue]💾 Data cached for 10 minutes. Use --force-refresh to get fresh data.[/blue]"
+            )
             display_objects.append(cache_msg)
-            
+
             return display_objects
-            
+
         except Exception as e:
             return [f"[red]❌ {str(e)}[/red]"]
 
@@ -544,7 +617,7 @@ class TradeScoutEngine:
             now = datetime.now()
             losers = self.coordinator.get_market_losers(limit, force_refresh)
             session_info = self._get_session_info(current_session, now, "losers")
-            
+
             if not losers:
                 return ["[yellow]⚠️  No losers data available[/yellow]"]
 
@@ -552,7 +625,7 @@ class TradeScoutEngine:
             header_text = session_info.get("header", "🔴 Market Losers")
             explanation = session_info.get("explanation", "Market losers data")
             timing = session_info.get("timing", "REGULAR")
-            
+
             # Create Rich Table
             table = Table(
                 title=f"Top {len(losers)} Market Losers ({timing} Session)",
@@ -564,7 +637,7 @@ class TradeScoutEngine:
             table.add_column("Change", justify="right")
             table.add_column("Change %", justify="right", style="bold red")
             table.add_column("Volume", justify="right", style="dim")
-            
+
             # Format and add rows
             for loser in losers:
                 change_color = "green" if loser.price_change >= 0 else "red"
@@ -573,7 +646,7 @@ class TradeScoutEngine:
                     if loser.price_change >= 0
                     else f"{loser.price_change:.2f}"
                 )
-                
+
                 table.add_row(
                     str(loser.rank),
                     loser.asset.symbol,
@@ -583,20 +656,22 @@ class TradeScoutEngine:
                     f"{loser.volume:,}" if loser.volume > 0 else "N/A",
                 )
 
-            # Add header and timestamp info
+            # Add header info
             info_lines = [f"[red]{header_text}[/red]", f"[dim]{explanation}[/dim]"]
-            if now:
-                info_lines.append(f"[bold green]Current Time: {now.strftime('%Y-%m-%d %H:%M:%S EST')}[/bold green]\n")
-            
+
             # Create display objects list
             display_objects = []
             display_objects.extend(info_lines)
             display_objects.append(table)
-            cache_msg = "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]" if force_refresh else "[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]"
+            cache_msg = (
+                "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]"
+                if force_refresh
+                else "[blue]💾 Data cached for 10 minutes. Use --force-refresh to get fresh data.[/blue]"
+            )
             display_objects.append(cache_msg)
-            
+
             return display_objects
-            
+
         except Exception as e:
             return [f"[red]❌ {str(e)}[/red]"]
 
@@ -675,7 +750,7 @@ class TradeScoutEngine:
                 "losers_title": f"Top {len(losers)} Market Losers ({session_info.get('timing', 'REGULAR')} Session)",
                 "cache_message": {
                     "refresh": "[yellow]🔄 Fresh data retrieved (cache bypassed)[/yellow]",
-                    "cached": "[blue]💾 Data cached for 15 minutes. Use --force-refresh to get fresh data.[/blue]",
+                    "cached": "[blue]💾 Data cached for 10 minutes. Use --force-refresh to get fresh data.[/blue]",
                 },
                 "force_refresh": force_refresh,
             }
@@ -698,12 +773,17 @@ class TradeScoutEngine:
         """
         try:
             return self.coordinator.get_daily_gap_suggestions(
-                min_gap_percent=min_gap, max_suggestions=limit
+                min_gap_percent=min_gap, movers_limit=limit
             )
         except Exception as e:
             return []
 
-    def display_trade_suggestions(self, limit: int = 5, force_refresh: bool = False, min_gap: float = 2.0) -> List:
+    def display_trade_suggestions(
+        self,
+        limit: Optional[int] = 5,
+        force_refresh: bool = False,
+        min_gap: float = 2.0,
+    ) -> List:
         """
         Get complete trade suggestions display objects.
 
@@ -720,48 +800,90 @@ class TradeScoutEngine:
             current_session = self.markets_manager.get_current_trading_session("nasdaq")
             now = datetime.now()
             session_info = self._get_session_info(current_session, now, "suggestions")
-            
+
             # Get suggestions with analysis details for header
-            suggestion_result = self.coordinator.get_daily_gap_suggestions(min_gap, limit)
-            suggestions = suggestion_result.get('suggestions', []) if isinstance(suggestion_result, dict) else suggestion_result or []
-            
+            # Pass limit as movers_limit to limit market movers analyzed
+            suggestion_result = self.coordinator.get_daily_gap_suggestions(
+                min_gap_percent=min_gap, movers_limit=limit
+            )
+            suggestions = (
+                suggestion_result.get("suggestions", [])
+                if isinstance(suggestion_result, dict)
+                else suggestion_result or []
+            )
+
             # Get analysis stats for display
-            gap_candidates = suggestion_result.get('gap_candidates', 0) if isinstance(suggestion_result, dict) else 0
-            approved_candidates = suggestion_result.get('approved_candidates', 0) if isinstance(suggestion_result, dict) else 0
-            
+            gap_candidates = (
+                suggestion_result.get("gap_candidates", 0)
+                if isinstance(suggestion_result, dict)
+                else 0
+            )
+            approved_candidates = (
+                suggestion_result.get("approved_candidates", 0)
+                if isinstance(suggestion_result, dict)
+                else 0
+            )
+            scanning_stats = (
+                suggestion_result.get("scanning_stats", {})
+                if isinstance(suggestion_result, dict)
+                else {}
+            )
+
             if not suggestions:
                 display_lines = []
                 display_lines.append(session_info["header"])
-                display_lines.append(f"[blue]📊 Analysis: {gap_candidates} gap candidates found, {approved_candidates} passed binary rules[/blue]")
-                display_lines.append(f"[yellow]⚠️  No gap trading suggestions found >= {min_gap}%[/yellow]")
+
+                # Show detailed processing stats
+                movers_analyzed = scanning_stats.get("movers_analyzed", 0)
+                data_available = scanning_stats.get("data_available", 0)
+
+                display_lines.append(
+                    f"[blue]📊 Analysis: Processed {movers_analyzed} market movers, {data_available} with gap data, {gap_candidates} candidates found, {approved_candidates} passed binary rules[/blue]"
+                )
+                display_lines.append(
+                    f"[yellow]⚠️  No gap trading suggestions found >= {min_gap}%[/yellow]"
+                )
                 return display_lines
-            
+
             display_lines = []
             display_lines.append(session_info["header"])
-            display_lines.append(f"[blue]📊 Analysis: {gap_candidates} gap candidates found, {approved_candidates} passed binary rules[/blue]")
-            display_lines.append(f"[green]✅ Generated {len(suggestions)} trade suggestions >= {min_gap}%[/green]")
-            
+
+            # Show detailed processing stats for successful results too
+            movers_analyzed = scanning_stats.get("movers_analyzed", 0)
+            data_available = scanning_stats.get("data_available", 0)
+
+            display_lines.append(
+                f"[blue]📊 Analysis: Processed {movers_analyzed} market movers, {data_available} with gap data, {gap_candidates} candidates found, {approved_candidates} passed binary rules[/blue]"
+            )
+            display_lines.append(
+                f"[green]✅ Generated {len(suggestions)} trade suggestions >= {min_gap}%[/green]"
+            )
+
             # Create summary table
             from rich.table import Table
             from rich import box
-            
+
             table = Table(title="Gap Trading Suggestions", box=box.ROUNDED)
             table.add_column("Rank", justify="center", width=4)
             table.add_column("Symbol", style="cyan")
             table.add_column("Gap %", justify="right")
             table.add_column("Direction", justify="center")
             table.add_column("Confidence", justify="center")
-            
+
             for i, suggestion_data in enumerate(suggestions, 1):
                 suggestion = suggestion_data.get("suggestion")
                 if not suggestion:
                     continue
-                    
+
                 gap_percent = float(suggestion.gap_percent or 0)
                 gap_color = "green" if gap_percent > 0 else "red"
                 direction = "📈 Long" if suggestion.side.value == "long" else "📉 Short"
-                confidence = float(suggestion.confidence_score * 100) if suggestion.confidence_score else 0
-                
+                confidence = (
+                    float(suggestion.confidence_score * 100)
+                    if suggestion.confidence_score
+                    else 0
+                )
+
                 table.add_row(
                     str(i),
                     suggestion.asset.symbol if suggestion.asset else "N/A",
@@ -769,24 +891,30 @@ class TradeScoutEngine:
                     direction,
                     f"{confidence:.1f}%",
                 )
-            
+
             # Note: This is a simplified version. The original CLI had much more complex
             # business logic that should ideally be refactored into proper domain services.
-            
-            cache_msg = "[yellow]🔄 Fresh data analysis completed[/yellow]" if force_refresh else "[blue]💾 Analysis cached. Market data refreshed at market close.[/blue]"
-            
+
+            cache_msg = (
+                "[yellow]🔄 Fresh data analysis completed[/yellow]"
+                if force_refresh
+                else "[blue]💾 Analysis cached. Market data refreshed at market close.[/blue]"
+            )
+
             # Create display objects list
             display_objects = []
             display_objects.extend(display_lines)
             display_objects.append(table)
             display_objects.append(cache_msg)
-            
+
             return display_objects
-            
+
         except Exception as e:
             return [f"[red]❌ Error generating gap trading suggestions: {str(e)}[/red]"]
 
-    def display_market_movers(self, limit: int = 10, force_refresh: bool = False) -> List:
+    def display_market_movers(
+        self, limit: int = 10, force_refresh: bool = False
+    ) -> List:
         """
         Get complete market movers display objects.
 
@@ -799,24 +927,22 @@ class TradeScoutEngine:
         """
         try:
             movers_data = self.get_market_movers(limit, force_refresh)
-            
+
             if "error" in movers_data:
                 return [f"[red]❌ {movers_data['error']}[/red]"]
-            
+
             # Get formatted data
             formatted_gainers = movers_data.get("formatted_gainers", [])
             formatted_losers = movers_data.get("formatted_losers", [])
             session_info = movers_data.get("session_info", {})
-            
+
             # Create header
             header = session_info.get("header", "🟢 Market Movers")
             data_explanation = session_info.get("explanation", "Current market data")
             timestamp = movers_data.get("timestamp")
-            
+
             header_lines = [f"[bold]{header}[/bold]", f"[dim]{data_explanation}[/dim]"]
-            if timestamp:
-                header_lines.append(f"[bold green]Current Time: {timestamp.strftime('%Y-%m-%d %H:%M:%S EST')}[/bold green]\n")
-                
+
             # Create gainers table
             gainers_table = None
             if formatted_gainers:
@@ -825,16 +951,22 @@ class TradeScoutEngine:
                 gainers_table.add_column("Symbol", style="cyan")
                 gainers_table.add_column("Price", justify="right", style="green")
                 gainers_table.add_column("Change", justify="right")
-                gainers_table.add_column("Change %", justify="right", style="bold green")
+                gainers_table.add_column(
+                    "Change %", justify="right", style="bold green"
+                )
                 gainers_table.add_column("Volume", justify="right", style="dim")
 
                 for row in formatted_gainers:
                     gainers_table.add_row(
-                        row["rank"], row["symbol"], row["price"],
-                        row["change"], row["change_pct"], row["volume"]
+                        row["rank"],
+                        row["symbol"],
+                        row["price"],
+                        row["change"],
+                        row["change_pct"],
+                        row["volume"],
                     )
-            
-            # Create losers table  
+
+            # Create losers table
             losers_table = None
             if formatted_losers:
                 losers_table = Table(box=box.ROUNDED)
@@ -847,62 +979,74 @@ class TradeScoutEngine:
 
                 for row in formatted_losers:
                     losers_table.add_row(
-                        row["rank"], row["symbol"], row["price"],
-                        row["change"], row["change_pct"], row["volume"]
+                        row["rank"],
+                        row["symbol"],
+                        row["price"],
+                        row["change"],
+                        row["change_pct"],
+                        row["volume"],
                     )
-            
+
             # Cache status
             cache_messages = movers_data.get("cache_message", {})
-            cache_msg = cache_messages.get("refresh", "Fresh data retrieved") if force_refresh else cache_messages.get("cached", "Data cached")
-            
+            cache_msg = (
+                cache_messages.get("refresh", "Fresh data retrieved")
+                if force_refresh
+                else cache_messages.get("cached", "Data cached")
+            )
+
             # Create display objects list
             display_objects = []
-            
+
             # Add header
             display_objects.extend(header_lines)
-            
+
             # Add gainers if available
             if formatted_gainers and gainers_table:
-                display_objects.append(f"\n[green]{movers_data.get('gainers_title', 'Market Gainers')}[/green]")
+                display_objects.append(
+                    f"\n[green]{movers_data.get('gainers_title', 'Market Gainers')}[/green]"
+                )
                 display_objects.append(gainers_table)
-            
-            # Add losers if available  
+
+            # Add losers if available
             if formatted_losers and losers_table:
-                display_objects.append(f"\n[red]{movers_data.get('losers_title', 'Market Losers')}[/red]")
+                display_objects.append(
+                    f"\n[red]{movers_data.get('losers_title', 'Market Losers')}[/red]"
+                )
                 display_objects.append(losers_table)
-            
+
             # Add footer
             display_objects.append(f"\n{cache_msg}")
-            
+
             return display_objects
-            
+
         except Exception as e:
             return [f"[red]❌ Error: {str(e)}[/red]"]
 
     def display_ohlc_data(self, symbols: List[str], date: str = None) -> List:
         """
         Get OHLC (Open, High, Low, Close) data display for symbols.
-        
+
         Args:
             symbols: List of stock symbols
             date: Date string (YYYY-MM-DD) or None for today
-            
+
         Returns:
             List of display objects (strings, Tables, Panels) ready for printing
         """
         try:
             display_objects = []
-            
+
             from rich.table import Table
             from rich import box
             from datetime import datetime
-            
+
             # Use today if no date specified
             if not date:
                 date = datetime.now().strftime("%Y-%m-%d")
-            
+
             display_objects.append(f"[bold blue]📊 OHLC Data for {date}[/bold blue]\n")
-            
+
             # Create table
             table = Table(title=f"Daily OHLC Data ({date})", box=box.ROUNDED)
             table.add_column("Symbol", style="cyan", no_wrap=True)
@@ -912,56 +1056,71 @@ class TradeScoutEngine:
             table.add_column("Close", justify="right", style="yellow")
             table.add_column("Volume", justify="right", style="dim")
             table.add_column("Change %", justify="right")
-            
+
             for symbol in symbols:
                 try:
                     # Get OHLC data from coordinator
                     ohlc_data = self.coordinator.get_daily_ohlc(symbol.upper(), date)
-                    
+
                     if ohlc_data:
                         # Format the data
                         open_price = f"${ohlc_data['open']:.2f}"
                         high_price = f"${ohlc_data['high']:.2f}"
                         low_price = f"${ohlc_data['low']:.2f}"
                         close_price = f"${ohlc_data['close']:.2f}"
-                        volume = f"{ohlc_data['volume']:,}" if ohlc_data['volume'] > 0 else "N/A"
-                        
+                        volume = (
+                            f"{ohlc_data['volume']:,}"
+                            if ohlc_data["volume"] > 0
+                            else "N/A"
+                        )
+
                         # Calculate change percentage
                         change_pct = "N/A"
-                        if 'prev_close' in ohlc_data and ohlc_data['prev_close']:
-                            pct_change = ((ohlc_data['close'] - ohlc_data['prev_close']) / ohlc_data['prev_close']) * 100
+                        if "prev_close" in ohlc_data and ohlc_data["prev_close"]:
+                            pct_change = (
+                                (ohlc_data["close"] - ohlc_data["prev_close"])
+                                / ohlc_data["prev_close"]
+                            ) * 100
                             color = "green" if pct_change >= 0 else "red"
                             sign = "+" if pct_change >= 0 else ""
                             change_pct = f"[{color}]{sign}{pct_change:.2f}%[/{color}]"
-                        
+
                         table.add_row(
                             symbol.upper(),
                             open_price,
-                            high_price, 
+                            high_price,
                             low_price,
                             close_price,
                             volume,
-                            change_pct
+                            change_pct,
                         )
                     else:
                         table.add_row(
                             symbol.upper(),
                             "[red]Error[/red]",
-                            "N/A", "N/A", "N/A", "N/A", "N/A"
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            "N/A",
+                            "N/A",
                         )
-                        
+
                 except Exception as e:
                     table.add_row(
                         symbol.upper(),
                         f"[red]Error[/red]",
-                        "N/A", "N/A", "N/A", "N/A", "N/A"
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        "N/A",
+                        "N/A",
                     )
-            
+
             display_objects.append(table)
             display_objects.append("\n[dim]📡 Data source: Polygon.io[/dim]")
-            
+
             return display_objects
-            
+
         except Exception as e:
             return [f"[red]❌ Error getting OHLC data: {str(e)}[/red]"]
 
@@ -974,28 +1133,36 @@ class TradeScoutEngine:
         """
         try:
             system_status = self.get_system_status()
-            
+
             if "error" in system_status:
                 return [f"[red]❌ {system_status['error']}[/red]"]
-            
+
             display_lines = ["[blue]📊 TradeScout System Status[/blue]"]
-            
+
             # Display database statistics
             database_stats = system_status.get("database", {})
             if database_stats:
                 display_lines.append("\n[bold]Database Statistics[/bold]")
-                display_lines.append(f"  Total Rows: {database_stats.get('total_rows', 'N/A')}")
-                display_lines.append(f"  Database Size: {database_stats.get('size', 'N/A')}")
+                display_lines.append(
+                    f"  Total Rows: {database_stats.get('total_rows', 'N/A')}"
+                )
+                display_lines.append(
+                    f"  Database Size: {database_stats.get('size', 'N/A')}"
+                )
 
             # Display market session
             market_session = system_status.get("market_session", "unknown")
-            display_lines.append(f"\n[bold]Market Session:[/bold] {market_session.title()}")
+            display_lines.append(
+                f"\n[bold]Market Session:[/bold] {market_session.title()}"
+            )
 
             # Display coordinator status
             coordinator_info = system_status.get("coordinator", {})
             if coordinator_info:
                 display_lines.append(f"\n[bold]Smart Coordinator[/bold]")
-                display_lines.append(f"  Active Providers: {coordinator_info.get('active_providers', 0)}")
+                display_lines.append(
+                    f"  Active Providers: {coordinator_info.get('active_providers', 0)}"
+                )
                 providers = coordinator_info.get("provider_names", [])
                 if providers:
                     display_lines.append(f"  Provider Names: {', '.join(providers)}")
@@ -1004,9 +1171,9 @@ class TradeScoutEngine:
             timestamp = system_status.get("timestamp", "")
             if timestamp:
                 display_lines.append(f"\n[dim]Status generated at: {timestamp}[/dim]")
-                
+
             return display_lines
-            
+
         except Exception as e:
             return [f"[red]❌ Error: {str(e)}[/red]"]
 
@@ -1071,12 +1238,18 @@ class TradeScoutEngine:
                 else [universe]
             )
 
+            # Get metadata from config
+            universe_metadata = universe_config.config.get(universe, {})
+
             result = {
                 "universe_name": universe,
                 "total_symbols": len(symbols),
                 "unique_symbols": len(set(symbols)),
                 "available_universes": available_universes,
                 "has_duplicates": len(symbols) != len(set(symbols)),
+                "source": universe_metadata.get("source", "Unknown"),
+                "last_updated": universe_metadata.get("last_updated", "Unknown"),
+                "description": universe_metadata.get("description", ""),
             }
 
             if show_symbols:
@@ -1084,11 +1257,8 @@ class TradeScoutEngine:
 
             # Symbol statistics
             if symbols:
-                symbol_lengths = [len(s) for s in symbols]
                 result["stats"] = {
-                    "min_symbol_length": min(symbol_lengths),
-                    "max_symbol_length": max(symbol_lengths),
-                    "avg_symbol_length": sum(symbol_lengths) / len(symbol_lengths),
+                    "total_count": len(symbols),
                 }
 
             return result
@@ -1096,7 +1266,9 @@ class TradeScoutEngine:
         except Exception as e:
             return {"error": str(e), "universe": universe}
 
-    def display_universe_info(self, universe: str = "default_liquid_universe", show_symbols: bool = False) -> List[str]:
+    def display_universe_info(
+        self, universe: str = "default_liquid_universe", show_symbols: bool = False
+    ) -> List[str]:
         """
         Get complete universe information display.
 
@@ -1109,53 +1281,295 @@ class TradeScoutEngine:
         """
         try:
             universe_info = self.get_universe_info(universe, show_symbols)
-            
+
             if "error" in universe_info:
                 return [f"[red]❌ {universe_info['error']}[/red]"]
-            
-            display_lines = ["[blue]🌐 Screening Universe Status[/blue]\n"]
-            
+
+            display_lines = ["[blue]🌐 Full Trading Universe[/blue]\n"]
+
             # Display universe information
-            display_lines.append(f"[bold]Universe:[/bold] {universe_info.get('universe_name', universe)}")
-            display_lines.append(f"[bold]Total Symbols:[/bold] {universe_info.get('total_symbols', 0)}")
-            display_lines.append(f"[bold]Unique Symbols:[/bold] {universe_info.get('unique_symbols', 0)}")
+            display_lines.append(
+                f"[bold]Total Symbols:[/bold] {universe_info.get('total_symbols', 0)}"
+            )
+            display_lines.append(
+                f"[bold]Last Updated:[/bold] {universe_info.get('last_updated', 'Unknown')}"
+            )
+            display_lines.append(
+                f"[bold]Source:[/bold] {universe_info.get('source', 'Manual curation')}"
+            )
 
             if universe_info.get("has_duplicates"):
-                display_lines.append("[yellow]⚠️  Universe contains duplicate symbols[/yellow]")
-
-            available_universes = universe_info.get("available_universes", [])
-            if available_universes:
-                display_lines.append(f"[bold]Available Universes:[/bold] {', '.join(available_universes)}")
-
-            stats = universe_info.get("stats", {})
-            if stats:
-                display_lines.append(f"\n[bold]Statistics:[/bold]")
-                display_lines.append(f"  Min Symbol Length: {stats.get('min_symbol_length', 'N/A')}")
-                display_lines.append(f"  Max Symbol Length: {stats.get('max_symbol_length', 'N/A')}")
-                display_lines.append(f"  Avg Symbol Length: {stats.get('avg_symbol_length', 0):.1f}")
+                display_lines.append(
+                    "[yellow]⚠️  Universe contains duplicate symbols[/yellow]"
+                )
 
             if show_symbols and universe_info.get("symbols"):
                 symbols = universe_info["symbols"]
                 display_lines.append(f"\n[bold]Symbols in {universe}:[/bold]")
-                display_lines.append(f"[dim]{', '.join(symbols[:50])}{'...' if len(symbols) > 50 else ''}[/dim]")
-                
+                display_lines.append(
+                    f"[dim]{', '.join(symbols[:50])}{'...' if len(symbols) > 50 else ''}[/dim]"
+                )
+
             return display_lines
-            
+
         except Exception as e:
             return [f"[red]❌ Error accessing universe: {str(e)}[/red]"]
+
+    def update_universe_from_polygon(
+        self,
+        universe: str = "default_liquid_universe",
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> List[str]:
+        """
+        Update universe with new symbols from Polygon all-tickers API.
+
+        Args:
+            universe: Universe name to update
+            dry_run: Show what would be added without making changes
+            limit: Maximum number of tickers to fetch from Polygon (None = ALL)
+
+        Returns:
+            List of formatted strings ready for display
+        """
+        try:
+            from datetime import datetime
+            from pathlib import Path
+            import yaml
+            import shutil
+            import requests
+            import time
+
+            # Get current universe symbols
+            from .config.screening_universe_config import get_screening_universe_config
+
+            config = get_screening_universe_config()
+            current_symbols = set(config.get_universe(universe))
+
+            display_lines = ["[blue]🔄 Updating Trading Universe[/blue]\n"]
+            display_lines.append(
+                f"[bold]Current symbols:[/bold] {len(current_symbols)}"
+            )
+
+            if limit is None:
+                display_lines.append(
+                    "[bold]Fetching ALL symbols from Polygon...[/bold]\n"
+                )
+                limit = float("inf")  # No limit
+            else:
+                display_lines.append(
+                    f"[bold]Fetching up to {limit} symbols from Polygon...[/bold]\n"
+                )
+
+            # Get Polygon API key from coordinator
+            polygon_provider = None
+            try:
+                if "polygon" not in self.coordinator._provider_instances:
+                    raise ValueError("Polygon provider not initialized")
+                polygon_provider = self.coordinator._provider_instances["polygon"]
+                api_key = polygon_provider.api_key
+            except Exception as e:
+                return [f"[red]❌ Could not access Polygon API: {str(e)}[/red]"]
+
+            # Fetch all tickers from Polygon with pagination
+            display_lines.append(
+                "[yellow]⏳ Fetching tickers from Polygon.io...[/yellow]"
+            )
+
+            all_polygon_tickers = []
+            next_url = None
+            page_count = 0
+            max_per_request = 1000  # Polygon max is always 1000
+            total_fetched = 0
+
+            # Initial request
+            url = "https://api.polygon.io/v3/reference/tickers"
+
+            while total_fetched < limit:
+                page_count += 1
+                if limit == float("inf"):
+                    request_limit = max_per_request  # 1000
+                else:
+                    remaining = limit - total_fetched
+                    request_limit = min(
+                        max_per_request, remaining
+                    )  # Don't exceed 1000 or remaining
+
+                if next_url:
+                    # Use pagination URL and add API key
+                    params = {"apikey": api_key}
+                    response = requests.get(next_url, params=params)
+                else:
+                    # Initial request
+                    params = {
+                        "apikey": api_key,
+                        "market": "stocks",
+                        "active": "true",
+                        "limit": request_limit,
+                    }
+                    response = requests.get(url, params=params)
+
+                time.sleep(0.5)  # Rate limiting
+
+                if response.status_code != 200:
+                    return [
+                        f"[red]❌ Polygon API error: {response.status_code} - {response.text}[/red]"
+                    ]
+
+                data = response.json()
+                page_results = data.get("results", [])
+
+                if not page_results:
+                    break  # No more results
+
+                # Add results, but don't exceed limit
+                if limit != float("inf") and total_fetched + len(page_results) > limit:
+                    # Take only what we need
+                    needed = limit - total_fetched
+                    all_polygon_tickers.extend(page_results[:needed])
+                    total_fetched += needed
+                    display_lines.append(
+                        f"[dim]Page {page_count}: Retrieved {needed} tickers (total: {total_fetched}, limit reached)[/dim]"
+                    )
+                    break
+                else:
+                    all_polygon_tickers.extend(page_results)
+                    total_fetched += len(page_results)
+                    display_lines.append(
+                        f"[dim]Page {page_count}: Retrieved {len(page_results)} tickers (total: {total_fetched})[/dim]"
+                    )
+
+                # Check for next page
+                next_url = data.get("next_url")
+                if not next_url or (limit != float("inf") and total_fetched >= limit):
+                    break
+
+            polygon_tickers = all_polygon_tickers
+
+            if not polygon_tickers:
+                return [f"[red]❌ No tickers returned from Polygon API[/red]"]
+
+            display_lines.append(
+                f"[green]✅ Retrieved {len(polygon_tickers)} total tickers from Polygon ({page_count} pages)[/green]"
+            )
+
+            # Filter for US stock symbols and exclude current universe
+            new_symbols = []
+            filtered_count = 0
+
+            for ticker in polygon_tickers:
+                symbol = ticker.get("ticker", "").upper()
+                ticker_type = ticker.get("type", "")
+                market = ticker.get("market", "")
+                primary_exchange = ticker.get("primary_exchange", "")
+
+                # Filter criteria:
+                # - Must be common stock (CS)
+                # - Must be on major US exchanges
+                # - Symbol length 1-5 characters (standard tickers)
+                # - Not already in universe
+                if (
+                    ticker_type == "CS"
+                    and market == "stocks"
+                    and primary_exchange in ["XNYS", "XNAS", "BATS"]
+                    and 1 <= len(symbol) <= 5
+                    and symbol.isalpha()
+                    and symbol not in current_symbols
+                ):
+                    new_symbols.append(symbol)
+                else:
+                    filtered_count += 1
+
+            display_lines.append(
+                f"[dim]Filtered out {filtered_count} tickers (non-stocks, duplicates, or invalid symbols)[/dim]"
+            )
+            display_lines.append(
+                f"[bold green]New symbols to add: {len(new_symbols)}[/bold green]\n"
+            )
+
+            if not new_symbols:
+                display_lines.append(
+                    "[yellow]⚠️  No new symbols to add to universe[/yellow]"
+                )
+                return display_lines
+
+            # Show first 20 symbols that would be added
+            if new_symbols:
+                display_lines.append("[bold]Sample of new symbols:[/bold]")
+                sample = new_symbols[:20]
+                display_lines.append(
+                    f"[cyan]{', '.join(sample)}{'...' if len(new_symbols) > 20 else ''}[/cyan]\n"
+                )
+
+            if dry_run:
+                display_lines.append("[yellow]🔍 DRY RUN - No changes made[/yellow]")
+                display_lines.append(
+                    f"[bold]Would add {len(new_symbols)} new symbols to '{universe}'[/bold]"
+                )
+                return display_lines
+
+            # Create backup and update universe file
+            config_path = config.config_path
+            backup_path = config_path.with_suffix(
+                f".bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            )
+
+            display_lines.append(
+                f"[yellow]💾 Creating backup: {backup_path.name}[/yellow]"
+            )
+            shutil.copy2(config_path, backup_path)
+
+            # Load current config
+            with open(config_path, "r") as f:
+                yaml_config = yaml.safe_load(f)
+
+            # Add new symbols to universe
+            if universe not in yaml_config:
+                display_lines.append(
+                    f"[red]❌ Universe '{universe}' not found in config[/red]"
+                )
+                return display_lines
+
+            current_universe_symbols = yaml_config[universe].get("symbols", [])
+            combined_symbols = sorted(list(set(current_universe_symbols + new_symbols)))
+
+            yaml_config[universe]["symbols"] = combined_symbols
+            yaml_config[universe]["last_updated"] = datetime.now().strftime("%Y-%m-%d")
+
+            # Add update note
+            old_source = yaml_config[universe].get("source", "")
+            yaml_config[universe][
+                "source"
+            ] = f"{old_source} + Polygon all-tickers API update"
+
+            # Write updated config
+            with open(config_path, "w") as f:
+                yaml.dump(yaml_config, f, default_flow_style=False, sort_keys=False)
+
+            display_lines.append(f"[green]✅ Successfully updated '{universe}'[/green]")
+            display_lines.append(f"[bold]Added {len(new_symbols)} new symbols[/bold]")
+            display_lines.append(
+                f"[bold]Total symbols now: {len(combined_symbols)}[/bold]"
+            )
+            display_lines.append(f"[dim]Backup saved: {backup_path.name}[/dim]")
+
+            return display_lines
+
+        except Exception as e:
+            return [f"[red]❌ Error updating universe: {str(e)}[/red]"]
 
     def display_initialization_status(self, verbose: bool = False) -> List[str]:
         """
         Get initialization status display messages.
-        
+
         Args:
             verbose: Whether to show verbose provider information
-            
+
         Returns:
             List of formatted status messages for display
         """
         display_messages = []
-        
+
         # Basic initialization status with provider names
         provider_count = len(self.coordinator._provider_instances)
         provider_names = ", ".join(self.coordinator._provider_instances.keys())
@@ -1167,14 +1581,15 @@ class TradeScoutEngine:
             display_messages.append(
                 f"[yellow]⚠️ Initialized TradeScout Engine with {provider_count} data providers[/yellow]"
             )
-        
+
         # Verbose provider status
         if verbose:
             try:
                 from ..config.data_sources_manager import get_data_sources_manager
+
                 data_manager = get_data_sources_manager()
                 status = data_manager.get_provider_status()
-                
+
                 display_messages.append(
                     f"[dim]Available providers: {status['summary']['available']}/{status['summary']['total_configured']}[/dim]"
                 )
@@ -1182,8 +1597,10 @@ class TradeScoutEngine:
                     f"[dim]Data types configured: {len(self.coordinator.get_available_data_types())}[/dim]"
                 )
             except Exception as e:
-                display_messages.append(f"[yellow]⚠️  Warning: Could not get detailed provider status: {e}[/yellow]")
-        
+                display_messages.append(
+                    f"[yellow]⚠️  Warning: Could not get detailed provider status: {e}[/yellow]"
+                )
+
         return display_messages
 
     # Helper Methods
@@ -1192,16 +1609,16 @@ class TradeScoutEngine:
         self, session: TradingSession, timestamp: datetime, market_type: str = "gainers"
     ) -> Dict[str, str]:
         """Get human-readable session information with current time and session details."""
-        
+
         # Format current time
         current_time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S EST")
-        
+
         # Determine detailed session description
         hour = timestamp.hour
         if session == TradingSession.PREMARKET:
             session_desc = "Extended Hours (Pre-Market)"
         elif session == TradingSession.AFTERHOURS:
-            session_desc = "Extended Hours (After-Hours)" 
+            session_desc = "Extended Hours (After-Hours)"
         elif session == TradingSession.REGULAR:
             session_desc = "Regular Trading Hours"
         else:
@@ -1210,47 +1627,47 @@ class TradeScoutEngine:
                 session_desc = "Market Closed [Extended Hours Inactive]"
             else:
                 session_desc = "Market Closed"
-        
+
         if market_type == "losers" or market_type == "suggestions":
             session_map = {
                 TradingSession.PREMARKET: {
-                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Pre-market prices vs yesterday's close",
                     "timing": "PRE-MARKET",
                 },
                 TradingSession.AFTERHOURS: {
-                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "After-hours prices vs today's close",
                     "timing": "AFTER-HOURS",
                 },
                 TradingSession.REGULAR: {
-                    "header": f"🔴 DAILY GAPS (Regular Session)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
-                    "explanation": "Current regular session vs previous session (DAILY GAPS)",
+                    "header": f"🔴 DAILY GAPS (Regular Session)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "explanation": "Current regular session vs previous session",
                     "timing": "DAILY",
                 },
             }
         else:  # gainers or default
             session_map = {
                 TradingSession.PREMARKET: {
-                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Pre-market prices vs yesterday's close",
                     "timing": "PRE-MARKET",
                 },
                 TradingSession.AFTERHOURS: {
-                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "After-hours prices vs today's close",
                     "timing": "AFTER-HOURS",
                 },
                 TradingSession.REGULAR: {
-                    "header": f"🟢 DAILY GAPS (Regular Session)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
-                    "explanation": "Current regular session vs previous session (DAILY GAPS)",
+                    "header": f"🟢 DAILY GAPS (Regular Session)\nCurrent Time: {current_time_str} ({session_desc})",
+                    "explanation": "Current regular session vs previous session",
                     "timing": "DAILY",
                 },
             }
 
         default_closed = {
-            "header": f"{'🔴' if market_type == 'losers' else '🟢'} DAILY GAPS (Market Closed)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
-            "explanation": "Most recent daily session vs previous session (DAILY GAPS)",
+            "header": f"{'🔴' if market_type == 'losers' else '🟢'} DAILY GAPS (Market Closed)\nCurrent Time: {current_time_str} ({session_desc})",
+            "explanation": "Most recent daily session vs previous session",
             "timing": "DAILY",
         }
 

@@ -10,7 +10,10 @@ gap_trading:
   
   # Minimum gap percentage to consider (Academic threshold from research)
   min_gap_percentage: 2.0  # 2% minimum gap - Plastun et al. (2019)
-  max_gap_percentage: 15.0  # 15% maximum gap (avoid extreme moves)
+  max_gap_percentage: 5.0   # 5% maximum gap (avoid exhaustion gaps per rules)
+  
+  # Market mover limits for gap candidate sourcing
+  market_movers_limit: 1000  # Fetch 1000 gainers + 1000 losers for gap analysis
   
   # Gap direction preferences
   gap_up_enabled: true     # Trade gap-up opportunities

@@ -50,11 +50,11 @@ cp .env.template .env
 
 # Test the CLI using the convenient wrapper script
 ./tradescout system status
-./tradescout market quote AAPL
+./tradescout asset quote AAPL
 
 # Or use the full Python module path
 python -m src.tradescout.scripts.cli system status
-python -m src.tradescout.scripts.cli market quote AAPL
+python -m src.tradescout.scripts.cli asset quote AAPL
 
 # Run the exploration demos
 cd data/examples
@@ -78,8 +78,10 @@ pytest
 ./tradescout market suggest --force                    # Force fresh market scan
 
 # Individual asset analysis
-./tradescout market quote AAPL MSFT TSLA              # Current quotes
-./tradescout market fundamentals AAPL                  # Company fundamentals
+./tradescout asset quote AAPL MSFT TSLA               # Current quotes
+./tradescout asset fundamentals AAPL                   # Company fundamentals
+./tradescout asset ohlc AMZN                          # Daily OHLC data
+./tradescout asset ohlc AMZN --date 2025-09-03        # Historical OHLC
 
 # Market-wide analysis
 ./tradescout market gainers --limit 10                # Top market gainers
@@ -91,7 +93,7 @@ pytest
 ./tradescout system universe --show-symbols           # Show screening universe
 
 # Advanced options
-./tradescout --verbose market quote AAPL              # Show provider routing
+./tradescout --verbose asset quote AAPL               # Show provider routing
 ./tradescout market gainers --force                   # Bypass cache (fresh data)
 ./tradescout --help                             # Get help
 ```
@@ -248,7 +250,7 @@ All data types route through Polygon.io with intelligent caching:
 - **Current Quotes**: Real-time pricing with 1-minute cache TTL
 - **Company Fundamentals**: Weekly cache refresh (7-day TTL)
 - **Extended Hours**: 5-minute cache TTL for pre/after-hours data
-- **Market Movers**: 15-minute cache TTL for gainers/losers
+- **Market Movers**: 10-minute cache TTL for gainers/losers
 - **Historical Data**: 24-hour cache TTL for historical price data
 
 ## 🔧 Development Tools & Standards

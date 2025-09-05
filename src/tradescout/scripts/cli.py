@@ -149,32 +149,61 @@ def status(ctx):
 @click.option(
     "--show-symbols", "-s", is_flag=True, help="Show all symbols in the universe"
 )
-@click.option(
-    "--universe",
-    "-u",
-    default="default_liquid_universe",
-    help="Universe name to display",
-)
 @click.pass_context
-def universe(ctx, show_symbols: bool, universe: str):
+def universe(ctx, show_symbols: bool):
     """
-    Display information about the screening universe.
+    Display information about the trading universe.
 
     Shows the size and composition of the stock universe used for scanning.
 
     Examples:
         tradescout system universe
         tradescout system universe --show-symbols
-        tradescout system universe --universe default_liquid_universe
     """
     engine = ctx.obj["engine"]
 
-    with console.status(f"[bold blue]Loading universe '{universe}'...", spinner="dots"):
-        display_objects = engine.display_universe_info(universe, show_symbols)
+    with console.status("[bold blue]Loading trading universe...", spinner="dots"):
+        display_objects = engine.display_universe_info("default_liquid_universe", show_symbols)
 
     for obj in display_objects:
         console.print(obj)
 
+    return
+
+
+@system.command()
+@click.option(
+    "--dry-run", 
+    is_flag=True,
+    help="Show what would be added without making changes"
+)
+@click.option(
+    "--limit",
+    default=None,
+    type=int,
+    help="Maximum number of tickers to fetch from Polygon (if not specified, gets ALL)"
+)
+@click.pass_context
+def universe_update(ctx, dry_run: bool, limit: Optional[int]):
+    """
+    Update trading universe with new symbols from Polygon all-tickers API.
+    
+    Creates backup of existing universe file before updating.
+    Only adds symbols not already present in the universe.
+    
+    Examples:
+        tradescout system universe-update
+        tradescout system universe-update --dry-run
+        tradescout system universe-update --limit 1000
+    """
+    engine = ctx.obj["engine"]
+    
+    with console.status("[bold blue]Updating universe from Polygon all-tickers API...", spinner="dots"):
+        display_objects = engine.update_universe_from_polygon("default_liquid_universe", dry_run, limit)
+        
+    for obj in display_objects:
+        console.print(obj)
+        
     return
 
 
@@ -196,8 +225,22 @@ def gainers(ctx, limit: int, force_refresh: bool):
     """
     engine = ctx.obj["engine"]
 
+    # Display market data header first (unless force refresh)
+    if not force_refresh:
+        market_header = engine.display_market_data_header()
+        if market_header:
+            console.print(market_header)
+    else:
+        console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
+    
     with console.status("[bold green]Fetching market gainers...", spinner="dots"):
         display_objects = engine.display_gainers(limit, force_refresh)
+
+    # Show updated market data status after force refresh
+    if force_refresh:
+        updated_header = engine.display_market_data_header()
+        if updated_header:
+            console.print(updated_header)
 
     for obj in display_objects:
         console.print(obj)
@@ -221,8 +264,22 @@ def losers(ctx, limit: int, force_refresh: bool):
     """
     engine = ctx.obj["engine"]
 
+    # Display market data header first (unless force refresh)
+    if not force_refresh:
+        market_header = engine.display_market_data_header()
+        if market_header:
+            console.print(market_header)
+    else:
+        console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
+    
     with console.status("[bold red]Fetching market losers...", spinner="dots"):
         display_objects = engine.display_losers(limit, force_refresh)
+
+    # Show updated market data status after force refresh
+    if force_refresh:
+        updated_header = engine.display_market_data_header()
+        if updated_header:
+            console.print(updated_header)
 
     for obj in display_objects:
         console.print(obj)
@@ -243,19 +300,33 @@ def movers(ctx, limit: int, force_refresh: bool):
     """
     engine = ctx.obj["engine"]
 
+    # Display market data header first (unless force refresh)
+    if not force_refresh:
+        market_header = engine.display_market_data_header()
+        if market_header:
+            console.print(market_header)
+    else:
+        console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
+    
     with console.status("[bold green]Fetching market movers...", spinner="dots"):
         display_objects = engine.display_market_movers(limit, force_refresh)
+
+    # Show updated market data status after force refresh
+    if force_refresh:
+        updated_header = engine.display_market_data_header()
+        if updated_header:
+            console.print(updated_header)
 
     for obj in display_objects:
         console.print(obj)
 
 
 @market.command()
-@click.option("--limit", default=5, help="Maximum number of suggestions (default: 5)")
+@click.option("--limit", default=None, type=int, help="Limit gainers/losers to analyze (default: analyze all)")
 @click.option("--force-refresh", "--force", is_flag=True, help="Force refresh data")
 @click.option("--min-gap", default=2.0, help="Minimum gap percentage (default: 2.0%)")
 @click.pass_context
-def suggest(ctx, limit: int, force_refresh: bool, min_gap: float):
+def suggest(ctx, limit: Optional[int], force_refresh: bool, min_gap: float):
     """
     Generate daily gap trading suggestions based on academic research.
 
@@ -266,12 +337,26 @@ def suggest(ctx, limit: int, force_refresh: bool, min_gap: float):
         tradescout market suggest --limit 10 --min-gap 2.5
     """
     engine = ctx.obj["engine"]
+
+    # Display market data header first (unless force refresh)
+    if not force_refresh:
+        market_header = engine.display_market_data_header()
+        if market_header:
+            console.print(market_header)
+    else:
+        console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
     
     with console.status(
         f"[bold blue]Generating gap trading suggestions >= {min_gap}%...",
         spinner="dots",
     ):
         display_objects = engine.display_trade_suggestions(limit, force_refresh, min_gap)
+
+    # Show updated market data status after force refresh
+    if force_refresh:
+        updated_header = engine.display_market_data_header()
+        if updated_header:
+            console.print(updated_header)
 
     for obj in display_objects:
         console.print(obj)

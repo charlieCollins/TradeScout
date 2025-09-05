@@ -304,17 +304,16 @@ class SuggestionEngine(ABC):
 
     @abstractmethod
     def filter_suggestions(
-        self, suggestions: List[TradeSuggestion], max_suggestions: int = 5
+        self, suggestions: List[TradeSuggestion]
     ) -> List[TradeSuggestion]:
         """
-        Filter suggestions to top candidates
+        Filter suggestions to valid candidates (no arbitrary limits)
 
         Args:
             suggestions: List of trade suggestions
-            max_suggestions: Maximum number to return
 
         Returns:
-            Filtered list of best suggestions
+            Filtered list of all valid suggestions
         """
         pass
 

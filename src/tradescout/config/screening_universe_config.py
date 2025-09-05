@@ -34,45 +34,14 @@ class ScreeningUniverseConfig:
 
     def _load_config(self) -> Dict:
         """Load screening universe configuration from YAML"""
-        try:
-            if not self.config_path.exists():
-                logger.error(f"Screening universe config not found: {self.config_path}")
-                return self._get_fallback_config()
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Screening universe config not found: {self.config_path}")
 
-            with open(self.config_path, "r") as f:
-                config = yaml.safe_load(f)
+        with open(self.config_path, "r") as f:
+            config = yaml.safe_load(f)
 
-            logger.debug(f"Loaded screening universe config from {self.config_path}")
-            return config
-
-        except Exception as e:
-            logger.error(f"Error loading screening universe config: {e}")
-            return self._get_fallback_config()
-
-    def _get_fallback_config(self) -> Dict:
-        """Provide fallback configuration if file loading fails"""
-        return {
-            "default_liquid_universe": {
-                "symbols": [
-                    "AAPL",
-                    "MSFT",
-                    "GOOGL",
-                    "AMZN",
-                    "TSLA",
-                    "META",
-                    "NVDA",
-                    "NFLX",
-                    "JPM",
-                    "JNJ",
-                    "V",
-                    "PG",
-                    "UNH",
-                    "HD",
-                    "MA",
-                    "BAC",
-                ]
-            }
-        }
+        logger.debug(f"Loaded screening universe config from {self.config_path}")
+        return config
 
     def get_universe(self, universe_name: str = "default_liquid_universe") -> List[str]:
         """
@@ -89,14 +58,7 @@ class ScreeningUniverseConfig:
             symbols = universe_config.get("symbols", [])
 
             if not symbols:
-                logger.warning(
-                    f"No symbols found for universe '{universe_name}', using fallback"
-                )
-                return (
-                    self.get_universe("default_liquid_universe")
-                    if universe_name != "default_liquid_universe"
-                    else []
-                )
+                raise ValueError(f"No symbols found for universe '{universe_name}'")
 
             logger.debug(
                 f"Retrieved {len(symbols)} symbols from universe '{universe_name}'"

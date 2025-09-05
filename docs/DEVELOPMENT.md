@@ -251,8 +251,13 @@ pytest --cov=tradescout --cov-report=html
 # Parallel execution (if you install pytest-xdist)
 pytest -n auto
 
-# Watch mode (if you install pytest-watch)
+# Watch mode (if you install pytest-watch)  
 ptw
+
+# Test the CLI commands
+./tradescout system status          # System status
+./tradescout asset quote AAPL       # Individual asset quote
+./tradescout market suggest --limit 5  # Gap trading suggestions
 ```
 
 ### Test Configuration

@@ -52,7 +52,7 @@ class TestCLI:
 
     def test_quote_command_help(self, cli_runner):
         """Test quote command help"""
-        result = cli_runner.invoke(main, ["market", "quote", "--help"])
+        result = cli_runner.invoke(main, ["asset", "quote", "--help"])
         assert result.exit_code == 0
         assert "Get current market quotes" in result.output
         assert "Examples:" in result.output
@@ -60,7 +60,7 @@ class TestCLI:
 
     def test_fundamentals_command_help(self, cli_runner):
         """Test fundamentals command help"""
-        result = cli_runner.invoke(main, ["market", "fundamentals", "--help"])
+        result = cli_runner.invoke(main, ["asset", "fundamentals", "--help"])
         assert result.exit_code == 0
         assert "Show fundamental data" in result.output
 
@@ -94,7 +94,7 @@ class TestCLIIntegration:
 
     def test_quote_command_no_symbols(self, cli_runner, temp_db_path):
         """Test quote command without symbols (should fail)"""
-        result = cli_runner.invoke(main, ["--db-path", temp_db_path, "market", "quote"])
+        result = cli_runner.invoke(main, ["--db-path", temp_db_path, "asset", "quote"])
         assert result.exit_code != 0
         assert "Missing argument" in result.output
 

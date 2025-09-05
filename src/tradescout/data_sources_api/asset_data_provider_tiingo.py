@@ -585,10 +585,7 @@ class AssetDataProviderTiingo(AssetDataProvider):
             liquid_universe = get_default_screening_universe()
 
             if not liquid_universe:
-                logger.error(
-                    "No screening universe loaded from config, using minimal fallback"
-                )
-                liquid_universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
+                raise RuntimeError("No screening universe loaded from config - cannot proceed")
 
             logger.info(
                 f"Using configured screening universe of {len(liquid_universe)} symbols"
@@ -599,10 +596,7 @@ class AssetDataProviderTiingo(AssetDataProvider):
 
         except Exception as e:
             logger.error(f"Error loading screening universe from config: {e}")
-            # Minimal fallback
-            fallback_universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "TSLA"]
-            logger.info(f"Using fallback universe of {len(fallback_universe)} symbols")
-            return fallback_universe
+            raise RuntimeError(f"Failed to load screening universe: {e}")
 
     def _get_previous_close(self, symbol: str) -> Optional[Dict[str, Any]]:
         """

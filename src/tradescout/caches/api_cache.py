@@ -21,8 +21,12 @@ logger = logging.getLogger(__name__)
 class CachePolicy(Enum):
     """Cache policies for different data types"""
 
-    REAL_TIME = "real_time"  # 15 minutes for real-time pricing data
-    INTRADAY = "intraday"  # 15 minutes for intraday pricing data
+    REAL_TIME = (
+        "real_time"  # 10 minutes for real-time pricing data (from cache_config.yaml)
+    )
+    INTRADAY = (
+        "intraday"  # 10 minutes for intraday pricing data (from cache_config.yaml)
+    )
     PREMARKET = "premarket"  # Pre-market hours (4 AM - 9:30 AM ET)
     AFTERHOURS = "afterhours"  # After-hours (4 PM - 8 PM ET)
     DAILY = "daily"  # 4-24 hours

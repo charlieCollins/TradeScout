@@ -3,6 +3,11 @@ Smart Data Collection Coordinator
 
 Uses the data sources configuration to intelligently route different types
 of data requests to appropriate providers with fallback strategies.
+
+IMPORTANT: This coordinator is PROVIDER AGNOSTIC and should NEVER make direct API calls.
+All data access must be delegated to provider implementations. This class contains
+zero networking code directly - all HTTP requests, authentication, and API-specific
+logic belongs in the provider layer.
 """
 
 import logging
@@ -357,7 +362,7 @@ class SmartCoordinator:
         return provider.scan_volume_leaders(assets, min_volume_ratio)
 
     def get_market_gainers(
-        self, limit: int = 20, force_refresh: bool = False
+        self, limit: Optional[int] = 20, force_refresh: bool = False
     ) -> List[MarketMover]:
         """
         Get top market gainers using smart provider selection
@@ -380,7 +385,7 @@ class SmartCoordinator:
         )
 
     def get_market_losers(
-        self, limit: int = 20, force_refresh: bool = False
+        self, limit: Optional[int] = 20, force_refresh: bool = False
     ) -> List[MarketMover]:
         """
         Get top market losers using smart provider selection
@@ -446,22 +451,10 @@ class SmartCoordinator:
             force_refresh=force_refresh,
         )
 
-        if report:
-            return report
+        if not report:
+            raise RuntimeError("No market movers data available from any provider")
 
-        # Fallback: build report from individual calls
-        logger.info("Building market movers report from individual calls")
-        gainers = self.get_market_gainers(limit, force_refresh)
-        losers = self.get_market_losers(limit, force_refresh)
-        most_active = self.get_most_active(limit, force_refresh)
-
-        return MarketMoversReport(
-            gainers=gainers,
-            losers=losers,
-            most_active=most_active,
-            timestamp=datetime.now(),
-            market_status=self._get_current_market_status(),
-        )
+        return report
 
     def _get_market_gainers_from_provider(
         self, provider: AssetDataProvider, provider_id: str, **kwargs
@@ -545,14 +538,14 @@ class SmartCoordinator:
     # Gap Trading Analysis Methods
 
     def get_daily_gap_suggestions(
-        self, min_gap_percent: float = 2.0, max_suggestions: int = 5
+        self, min_gap_percent: float = 2.0, movers_limit: Optional[int] = None
     ) -> List[Dict[str, any]]:
         """
         Generate daily gap trading suggestions using integrated analysis workflow
 
         Args:
             min_gap_percent: Minimum gap size to consider (default: 2.0%)
-            max_suggestions: Maximum suggestions to return (default: 5)
+            movers_limit: Limit market movers to analyze (overrides config if provided)
 
         Returns:
             List of gap trading suggestions with analysis
@@ -573,16 +566,17 @@ class SmartCoordinator:
             suggestion_engine = GapTradeSuggestionEngine()
 
             # Step 1: Scan for gap candidates
-            gap_candidates = gap_scanner.scan_pre_market_gaps(
-                Decimal(str(min_gap_percent))
+            gap_candidates, scanning_stats = gap_scanner.scan_pre_market_gaps(
+                Decimal(str(min_gap_percent)), movers_limit
             )
             logger.debug(f"Found {len(gap_candidates)} gap candidates")
 
             if not gap_candidates:
                 return {
-                    'suggestions': [],
-                    'gap_candidates': len(gap_candidates),
-                    'approved_candidates': 0
+                    "suggestions": [],
+                    "gap_candidates": len(gap_candidates),
+                    "approved_candidates": 0,
+                    "scanning_stats": scanning_stats,
                 }
 
             # Step 2: Apply binary classification rules
@@ -596,9 +590,10 @@ class SmartCoordinator:
 
             if not approved_candidates:
                 return {
-                    'suggestions': [],
-                    'gap_candidates': len(gap_candidates),
-                    'approved_candidates': len(approved_candidates)
+                    "suggestions": [],
+                    "gap_candidates": len(gap_candidates),
+                    "approved_candidates": len(approved_candidates),
+                    "scanning_stats": scanning_stats,
                 }
 
             # Step 3: Analyze gap types and generate suggestions
@@ -626,9 +621,9 @@ class SmartCoordinator:
                             }
                         )
 
-            # Step 5: Filter and rank suggestions
+            # Step 5: Filter and rank suggestions (no max limit - return ALL valid suggestions)
             final_suggestions = suggestion_engine.filter_suggestions(
-                [s["suggestion"] for s in suggestions], max_suggestions
+                [s["suggestion"] for s in suggestions]
             )
 
             # Return enriched suggestions
@@ -651,19 +646,25 @@ class SmartCoordinator:
 
             logger.debug(f"Generated {len(result)} daily gap trading suggestions")
             return {
-                'suggestions': result,
-                'gap_candidates': len(gap_candidates),
-                'approved_candidates': len(approved_candidates)
+                "suggestions": result,
+                "gap_candidates": len(gap_candidates),
+                "approved_candidates": len(approved_candidates),
+                "scanning_stats": scanning_stats,
             }
 
         except Exception as e:
             logger.error(f"Error generating gap suggestions: {e}")
             return {
-                'suggestions': [],
-                'gap_candidates': 0,
-                'approved_candidates': 0
+                "suggestions": [],
+                "gap_candidates": 0,
+                "approved_candidates": 0,
+                "scanning_stats": {
+                    "movers_analyzed": 0,
+                    "movers_processed": 0,
+                    "data_available": 0,
+                    "gap_candidates": 0,
+                },
             }
-
 
     def scan_gap_opportunities(self, min_gap_percent: float = 2.0) -> Dict[str, any]:
         """
@@ -734,80 +735,199 @@ class SmartCoordinator:
 
     def get_daily_ohlc(self, symbol: str, date: str = None) -> Optional[Dict[str, Any]]:
         """
-        Get daily OHLC data for a symbol using Polygon daily ticker summary endpoint.
-        
+        Get daily OHLC data for a symbol using provider delegation.
+
         Args:
-            symbol: Stock symbol  
+            symbol: Stock symbol
             date: Date string (YYYY-MM-DD), defaults to current date
-            
+
         Returns:
             Dictionary with OHLC data or None if error
         """
         try:
-            import requests
-            from datetime import datetime, timedelta
-            from decimal import Decimal
-            
-            # Determine the target date
-            if date:
-                target_date = date
-            else:
-                # Default to current date
-                target_date = datetime.now().strftime("%Y-%m-%d")
-            
-            # Use Polygon daily ticker summary endpoint
-            url = f"https://api.polygon.io/v1/open-close/{symbol.upper()}/{target_date}"
-            params = {
-                "adjusted": "true",
-                "apikey": self._get_polygon_api_key()
-            }
-            
-            logger.debug(f"Getting daily ticker summary for {symbol} on {target_date}")
-            
-            response = requests.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            if data.get("status") != "OK":
-                logger.warning(f"No daily ticker data found for {symbol} on {target_date}")
-                return None
-            
-            return {
-                "symbol": symbol.upper(),
-                "date": target_date,
-                "open": float(data.get("open", 0)),
-                "high": float(data.get("high", 0)),
-                "low": float(data.get("low", 0)),
-                "close": float(data.get("close", 0)),
-                "volume": int(data.get("volume", 0)),
-                "after_hours": float(data.get("afterHours", 0)) if data.get("afterHours") else None,
-                "pre_market": float(data.get("preMarket", 0)) if data.get("preMarket") else None,
-                "timestamp": 0  # Will be set from date if needed
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting daily ticker summary for {symbol}: {e}")
+            # Delegate to provider instead of direct API calls
+            polygon_provider = self._provider_instances.get("polygon")
+            if polygon_provider and hasattr(polygon_provider, "get_daily_ohlc"):
+                return polygon_provider.get_daily_ohlc(symbol, date)
+
+            # No fallback - coordinator should never make direct API calls
+            logger.error("No provider available for daily OHLC data")
             return None
-    
-    def _get_polygon_api_key(self) -> str:
-        """Get Polygon API key from environment"""
-        import os
-        return os.getenv("POLYGON_API_KEY", "")
-    
+
+        except Exception as e:
+            logger.error(f"Error getting daily OHLC for {symbol}: {e}")
+            return None
+
+    def get_full_market_snapshot(
+        self, force_refresh: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get full market snapshot for all US stocks using provider caching.
+
+        Returns current prices AND previous/today's close data for gap calculations.
+        Uses provider's intelligent caching to avoid unnecessary API calls.
+
+        Args:
+            force_refresh: Bypass cache and fetch fresh data
+
+        Returns:
+            Dictionary mapping symbol -> snapshot data, or None if error
+        """
+        try:
+            # Use provider's cached market data instead of direct API calls
+            polygon_provider = self._provider_instances.get("polygon")
+            if polygon_provider and hasattr(polygon_provider, "_get_fresh_market_data"):
+                return polygon_provider._get_fresh_market_data(
+                    force_refresh=force_refresh
+                )
+
+            # No fallback - coordinator should never make direct API calls
+            logger.error("No Polygon provider available for market snapshot")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting full market snapshot: {e}")
+            return None
+
+    def get_gap_data_from_snapshot(
+        self, symbol: str, snapshot_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract session-aware gap calculation data using hybrid approach:
+        - Snapshot data for reference prices (previous/today's close)
+        - Live quotes API for current extended hours pricing
+
+        Args:
+            symbol: Stock symbol to get gap data for
+            snapshot_data: Result from get_full_market_snapshot()
+
+        Returns:
+            Dict with current_price, reference_close, gap_percent, or None if not found
+        """
+        try:
+            from datetime import datetime
+
+            symbol = symbol.upper()
+            if symbol not in snapshot_data:
+                return None
+
+            ticker_data = snapshot_data[symbol]
+
+            # Always get reference closes from snapshot (reliable for all sessions)
+            previous_close = None
+            todays_close = None
+
+            if "prevDay" in ticker_data:
+                previous_close = ticker_data["prevDay"].get("c")  # Previous day close
+            if "day" in ticker_data:
+                todays_close = ticker_data["day"].get("c")  # Today's close
+
+            if previous_close is None:
+                return None
+
+            # Determine session and reference price
+            now = datetime.now()
+            current_hour = now.hour
+
+            if 4 <= current_hour < 16:  # Pre-market or regular hours (4 AM - 4 PM)
+                reference_close = previous_close
+                session_type = "premarket" if current_hour < 9.5 else "regular"
+                use_live_quote = (
+                    current_hour < 9.5
+                )  # Use live quotes for pre-market only
+            else:  # After-hours (after 4 PM) or late night (before 4 AM)
+                reference_close = todays_close if todays_close else previous_close
+                session_type = "afterhours"
+                use_live_quote = True  # Always use live quotes for after-hours
+
+            # Get current price - hybrid approach
+            current_price = None
+
+            if use_live_quote:
+                # Try live extended hours data first
+                live_data = self.get_live_extended_hours_quote(symbol)
+                if live_data and live_data.get("current_price"):
+                    current_price = live_data["current_price"]
+                    logger.debug(
+                        f"Using live extended hours price for {symbol}: ${current_price:.2f}"
+                    )
+                elif live_data and live_data.get("midpoint"):
+                    # Fallback to midpoint for backward compatibility
+                    current_price = live_data["midpoint"]
+                    logger.debug(
+                        f"Using live midpoint for {symbol}: ${current_price:.2f}"
+                    )
+
+            # Fallback to snapshot data if live quote failed or not needed
+            if current_price is None:
+                if "min" in ticker_data and ticker_data["min"].get("c", 0) > 0:
+                    current_price = ticker_data["min"]["c"]
+                elif "day" in ticker_data and ticker_data["day"].get("c", 0) > 0:
+                    current_price = ticker_data["day"]["c"]
+
+            if current_price is None:
+                return None
+
+            # Calculate gap percentage
+            gap_amount = current_price - reference_close
+            gap_percent = abs((gap_amount / reference_close) * 100)
+
+            return {
+                "current_price": current_price,
+                "reference_close": reference_close,
+                "gap_percent": gap_percent,
+                "gap_amount": gap_amount,
+                "session_type": session_type,
+                "previous_close": previous_close,
+                "todays_close": todays_close,
+                "used_live_quote": use_live_quote
+                and current_price != ticker_data.get("day", {}).get("c"),
+            }
+
+        except Exception as e:
+            logger.error(f"Error extracting gap data for {symbol}: {e}")
+            return None
+
+    def get_live_extended_hours_quote(self, symbol: str) -> Optional[Dict[str, Any]]:
+        """
+        Get live extended hours pricing for a single symbol using Polygon custom bars endpoint.
+        Uses hourly bars covering pre-market, regular market, and after-hours sessions.
+
+        Args:
+            symbol: Stock symbol to get live extended hours pricing for
+
+        Returns:
+            Dict with current extended hours price or None if error/no data
+        """
+        try:
+            # Delegate to provider instead of direct API calls
+            polygon_provider = self._provider_instances.get("polygon")
+            if polygon_provider and hasattr(
+                polygon_provider, "get_live_extended_hours_quote"
+            ):
+                return polygon_provider.get_live_extended_hours_quote(symbol)
+
+            # No fallback - coordinator should never make direct API calls
+            logger.error("No provider available for live extended hours quotes")
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting live extended hours data for {symbol}: {e}")
+            return None
+
     def _get_previous_business_day(self, date_str: str) -> str:
         """Get previous business day string"""
         from datetime import datetime, timedelta
-        
+
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-        
+
         # Go back one day, then skip weekends
         prev_date = date_obj - timedelta(days=1)
-        
+
         # If it's a weekend, go to Friday
         while prev_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
             prev_date -= timedelta(days=1)
-            
+
         return prev_date.strftime("%Y-%m-%d")
 
 

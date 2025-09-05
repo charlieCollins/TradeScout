@@ -160,20 +160,19 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         return ranked_suggestions
 
     def filter_suggestions(
-        self, suggestions: List[TradeSuggestion], max_suggestions: int = 5
+        self, suggestions: List[TradeSuggestion]
     ) -> List[TradeSuggestion]:
         """
-        Filter suggestions to top candidates
+        Filter suggestions to valid candidates (no arbitrary limits)
 
         Args:
             suggestions: List of trade suggestions
-            max_suggestions: Maximum number to return
 
         Returns:
-            Filtered list of best suggestions
+            Filtered list of all valid suggestions
         """
         logger.debug(
-            f"Filtering {len(suggestions)} suggestions to top {max_suggestions}"
+            f"Filtering {len(suggestions)} suggestions (no max limit)"
         )
 
         # First rank all suggestions
@@ -190,10 +189,6 @@ class GapTradeSuggestionEngine(SuggestionEngine):
                 ConfidenceLevel.VERY_HIGH,
             ]:
                 filtered_suggestions.append(suggestion)
-
-            # Stop when we have enough
-            if len(filtered_suggestions) >= max_suggestions:
-                break
 
         logger.info(f"Filtered to {len(filtered_suggestions)} high-quality suggestions")
 
@@ -482,7 +477,7 @@ class GapTradeSuggestionEngine(SuggestionEngine):
                 continue
 
         # Filter and rank suggestions
-        final_suggestions = self.filter_suggestions(suggestions, max_suggestions=10)
+        final_suggestions = self.filter_suggestions(suggestions)
 
         logger.info(f"Generated {len(final_suggestions)} daily trade suggestions")
 

@@ -34,35 +34,21 @@ class CandidatesConfig:
 
     def _load_config(self) -> Dict:
         """Load candidates configuration from YAML"""
-        try:
-            if not self.config_path.exists():
-                logger.error(f"Candidates config not found: {self.config_path}")
-                return self._get_fallback_config()
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Candidates config not found: {self.config_path}")
 
+        try:
             with open(self.config_path, "r") as f:
                 config = yaml.safe_load(f)
+
+            if config is None:
+                raise ValueError(f"Candidates config is empty or invalid: {self.config_path}")
 
             logger.info(f"Loaded candidates config from {self.config_path}")
             return config
 
         except Exception as e:
-            logger.error(f"Error loading candidates config: {e}")
-            return self._get_fallback_config()
-
-    def _get_fallback_config(self) -> Dict:
-        """Provide fallback configuration if file loading fails"""
-        return {
-            "gap_trading": {"min_gap_percentage": 1.0, "max_gap_percentage": 15.0},
-            "volume_analysis": {
-                "min_volume_surge_ratio": 3.0,
-                "minimum_absolute_volume": 100000,
-            },
-            "risk_management": {
-                "max_position_size_percent": 5.0,
-                "confidence_threshold": 0.70,
-            },
-            "scoring": {"max_suggestions_per_day": 5},
-        }
+            raise RuntimeError(f"Failed to load candidates config from {self.config_path}: {e}")
 
     def get_gap_trading_config(self) -> Dict[str, Any]:
         """Get gap trading rules and thresholds"""
@@ -107,54 +93,80 @@ class CandidatesConfig:
     # Convenience methods for commonly used values
     def get_min_gap_percentage(self) -> float:
         """Get minimum gap percentage threshold"""
-        return self.get_gap_trading_config().get("min_gap_percentage", 1.0)
+        gap_config = self.get_gap_trading_config()
+        if "min_gap_percentage" not in gap_config:
+            raise KeyError("min_gap_percentage not found in gap_trading config")
+        return gap_config["min_gap_percentage"]
 
     def get_max_gap_percentage(self) -> float:
         """Get maximum gap percentage threshold"""
-        return self.get_gap_trading_config().get("max_gap_percentage", 15.0)
+        gap_config = self.get_gap_trading_config()
+        if "max_gap_percentage" not in gap_config:
+            raise KeyError("max_gap_percentage not found in gap_trading config")
+        return gap_config["max_gap_percentage"]
 
     def get_min_volume_surge_ratio(self) -> float:
         """Get minimum volume surge ratio"""
-        return self.get_volume_analysis_config().get("min_volume_surge_ratio", 3.0)
+        volume_config = self.get_volume_analysis_config()
+        if "min_volume_surge_ratio" not in volume_config:
+            raise KeyError("min_volume_surge_ratio not found in volume_analysis config")
+        return volume_config["min_volume_surge_ratio"]
 
     def get_confidence_threshold(self) -> float:
         """Get minimum confidence threshold"""
-        return self.get_scoring_config().get("confidence_threshold", 0.70)
+        scoring_config = self.get_scoring_config()
+        if "confidence_threshold" not in scoring_config:
+            raise KeyError("confidence_threshold not found in scoring config")
+        return scoring_config["confidence_threshold"]
 
     def get_max_position_size_percent(self) -> float:
         """Get maximum position size percentage"""
-        return self.get_risk_management_config().get("max_position_size_percent", 5.0)
+        risk_config = self.get_risk_management_config()
+        if "max_position_size_percent" not in risk_config:
+            raise KeyError("max_position_size_percent not found in risk_management config")
+        return risk_config["max_position_size_percent"]
 
     def get_max_suggestions_per_day(self) -> int:
         """Get maximum suggestions per day"""
-        return self.get_scoring_config().get("max_suggestions_per_day", 5)
+        scoring_config = self.get_scoring_config()
+        if "max_suggestions_per_day" not in scoring_config:
+            raise KeyError("max_suggestions_per_day not found in scoring config")
+        return scoring_config["max_suggestions_per_day"]
+
+    def get_market_movers_limit(self) -> int:
+        """Get market movers limit for gap candidate sourcing"""
+        gap_config = self.get_gap_trading_config()
+        if "market_movers_limit" not in gap_config:
+            raise KeyError("market_movers_limit not found in gap_trading config")
+        return gap_config["market_movers_limit"]
 
     def get_minimum_absolute_volume(self) -> int:
         """Get minimum absolute volume threshold"""
-        return self.get_volume_analysis_config().get("minimum_absolute_volume", 100000)
+        volume_config = self.get_volume_analysis_config()
+        if "minimum_absolute_volume" not in volume_config:
+            raise KeyError("minimum_absolute_volume not found in volume_analysis config")
+        return volume_config["minimum_absolute_volume"]
 
     def get_min_market_cap_millions(self) -> float:
         """Get minimum market cap in millions"""
-        return self.get_liquidity_filters_config().get(
-            "min_market_cap_millions", 1000.0
-        )
+        liquidity_config = self.get_liquidity_filters_config()
+        if "min_market_cap_millions" not in liquidity_config:
+            raise KeyError("min_market_cap_millions not found in liquidity_filters config")
+        return liquidity_config["min_market_cap_millions"]
 
     def get_scoring_weights(self) -> Dict[str, float]:
         """Get scoring weights for different factors"""
-        return self.get_scoring_config().get(
-            "scoring_weights",
-            {
-                "volume_surge": 0.30,
-                "gap_size": 0.25,
-                "momentum": 0.20,
-                "liquidity": 0.15,
-                "technical_setup": 0.10,
-            },
-        )
+        scoring_config = self.get_scoring_config()
+        if "scoring_weights" not in scoring_config:
+            raise KeyError("scoring_weights not found in scoring config")
+        return scoring_config["scoring_weights"]
 
     def get_excluded_asset_types(self) -> List[str]:
         """Get list of excluded asset types"""
-        return self.get_exclusions_config().get("excluded_asset_types", [])
+        exclusions_config = self.get_exclusions_config()
+        if "excluded_asset_types" not in exclusions_config:
+            raise KeyError("excluded_asset_types not found in exclusions config")
+        return exclusions_config["excluded_asset_types"]
 
     def is_gap_trading_enabled(self, direction: str = "up") -> bool:
         """Check if gap trading is enabled for given direction"""
@@ -229,3 +241,8 @@ def get_max_position_size_percent() -> float:
 def get_max_suggestions_per_day() -> int:
     """Get maximum suggestions per day"""
     return get_candidates_config().get_max_suggestions_per_day()
+
+
+def get_market_movers_limit() -> int:
+    """Get market movers limit for gap candidate sourcing"""
+    return get_candidates_config().get_market_movers_limit()

@@ -328,7 +328,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
                     session_type=MarketStatus.PRE_MARKET,  # Use proper enum
                     price_data=quote.price_data,
                     regular_session_close=quote.previous_close
-                    or Decimal("100.0"),  # Fallback if missing
+                    or Decimal("0.0"),  # Default if missing
                 )
 
                 # Classify gap type
