@@ -137,10 +137,11 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 ### Technology Stack
 - **Backend**: Python CLI with Rich interface
 - **Database**: SQLite (implemented)
-- **APIs**: Multi-provider system (Polygon, YFinance, Finnhub, Alpha Vantage, NewsAPI)
+- **APIs**: Multi-provider system (Polygon PREMIUM SUBSCRIPTION - NOT FREE TIER, YFinance, Finnhub, Alpha Vantage, NewsAPI)
 - **Web Scrapers**: Extended hours data collection
 - **Platform**: Linux/Ubuntu/WSL2
-- **Budget**: $0-50/month (mostly free tier usage)
+- **Budget**: $0-50/month (includes POLYGON PREMIUM SUBSCRIPTION)
+- **IMPORTANT**: We have a PREMIUM Polygon subscription - NEVER assume free tier limitations
 
 ## Project Status
 - [x] Technical plan completed
@@ -161,9 +162,23 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 4. Portfolio optimization features
 5. Web interface development
 
-## Key Reminders
-- Always use TodoWrite for task management
+## Session Management
+
+### TODO File Management (CLAUDE_TODO.md)
+- Keep CLAUDE_TODO.md concise and forward-looking only
+- Remove completed tasks regularly - we don't need historical completed work cluttering the file
+- Focus on what's next to do, not what's already been accomplished
+- Completed work should be documented in CLAUDE_CONTEXT.md instead
+- The TODO file should be actionable and clean for the next session
 - **Sync TODOs to CLAUDE_TODO.md every hour** - For session continuity
+
+### TodoWrite Best Practices
+- Always use TodoWrite for task management
+- Mark tasks as completed immediately upon finishing
+- Clean up completed tasks from the list regularly
+- Keep active TODO list focused on current and upcoming work
+
+## Key Reminders
 - Run lint/typecheck before declaring done
 - Never commit unless explicitly asked
 - Cache API calls to avoid rate limits

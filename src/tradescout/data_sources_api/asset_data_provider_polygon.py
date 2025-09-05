@@ -198,9 +198,15 @@ class AssetDataProviderPolygon(AssetDataProvider):
             timestamp = datetime.now()
 
             # Get most recent price from minute data if available
+            has_min = "min" in snapshot_data
+            min_data_exists = snapshot_data.get("min") if has_min else None
+            logger.debug(f"Checking {asset.symbol}: has_min={has_min}, min_data={min_data_exists}")
+            
             if "min" in snapshot_data and snapshot_data["min"]:
                 min_data = snapshot_data["min"]
-                current_price = Decimal(str(min_data.get("c", 0)))
+                min_close = min_data.get("c", 0)
+                logger.warning(f"Found min data for {asset.symbol}: close={min_close}, type={type(min_close)}")
+                current_price = Decimal(str(min_close))
                 if "t" in min_data:
                     timestamp = datetime.fromtimestamp(min_data["t"] / 1000)
             elif "day" in snapshot_data and snapshot_data["day"]:
@@ -212,7 +218,7 @@ class AssetDataProviderPolygon(AssetDataProvider):
             volume = int(day_data.get("v", 0)) if day_data else 0
 
             if not current_price or current_price <= 0:
-                logger.warning(f"No valid price data in snapshot for {asset.symbol}")
+                logger.warning(f"No trading activity yet today for {asset.symbol} (price={current_price})")
                 return None
 
             # Get OHLC data from day or min data
