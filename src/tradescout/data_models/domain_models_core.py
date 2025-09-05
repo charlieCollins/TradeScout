@@ -218,6 +218,10 @@ class MarketQuote:
     price_change: Optional[Decimal] = field(init=False, default=None)
     price_change_percent: Optional[Decimal] = field(init=False, default=None)
     volume_ratio: Optional[Decimal] = field(init=False, default=None)
+    
+    # Gap analysis fields (dynamically assigned by gap scanner)
+    gap_size: Optional[Decimal] = field(init=False, default=None)
+    gap_direction: Optional[str] = field(init=False, default=None)
 
     def __post_init__(self):
         """Calculate derived fields"""

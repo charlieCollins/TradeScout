@@ -92,7 +92,7 @@ class GapTradeSuggestionEngine(SuggestionEngine):
 
             logger.info(
                 f"Generated trade suggestion for {symbol}: "
-                f"{suggestion.side.value} @ ${suggestion.entry_price:.2f}"
+                f"{suggestion.side.value} @ ${suggestion.suggested_entry:.2f}"
             )
 
             return suggestion
@@ -214,17 +214,17 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         validation_errors = []
 
         # Check entry price is reasonable
-        if suggestion.entry_price <= 0:
+        if suggestion.suggested_entry <= 0:
             validation_errors.append("Entry price must be positive")
 
         # Check stop loss is set appropriately
         if suggestion.side == TradeSide.LONG:
-            if suggestion.stop_loss >= suggestion.entry_price:
+            if suggestion.stop_loss >= suggestion.suggested_entry:
                 validation_errors.append(
                     "Stop loss must be below entry price for long trades"
                 )
         else:
-            if suggestion.stop_loss <= suggestion.entry_price:
+            if suggestion.stop_loss <= suggestion.suggested_entry:
                 validation_errors.append(
                     "Stop loss must be above entry price for short trades"
                 )
@@ -234,13 +234,13 @@ class GapTradeSuggestionEngine(SuggestionEngine):
             validation_errors.append("Risk/reward ratio too poor")
 
         # Check position sizing is reasonable
-        if suggestion.position_size <= 0:
+        if suggestion.position_size_percent <= 0:
             validation_errors.append("Position size must be positive")
 
-        if suggestion.position_size > int(
-            self.account_balance * self.max_position_size
-        ):
-            validation_errors.append("Position size exceeds maximum allowed")
+        # max_position_size is already in decimal (0.02 = 2%), position_size_percent is in percentage
+        max_allowed_percent = float(self.max_position_size * 100)  # Convert 0.02 to 2.0
+        if float(suggestion.position_size_percent) > max_allowed_percent:
+            validation_errors.append(f"Position size {suggestion.position_size_percent}% exceeds maximum {max_allowed_percent}%")
 
         # Check timing is within trading hours
         current_time = datetime.now().time()
@@ -264,7 +264,7 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         """Create trade suggestion from gap analysis"""
 
         # Determine trade direction based on gap
-        gap_direction = getattr(quote, "gap_direction", "up")
+        gap_direction = quote.gap_direction or "up"
         side = TradeSide.LONG if gap_direction == "up" else TradeSide.SHORT
 
         # Entry price (current price)
@@ -278,10 +278,7 @@ class GapTradeSuggestionEngine(SuggestionEngine):
             entry_price, stop_loss, side
         )
 
-        # Calculate position size
-        position_size = self._calculate_position_size(
-            entry_price, stop_loss, gap_assessment.position_sizing_percent
-        )
+        # Position size will be set as percentage in TradeSuggestion
 
         # Calculate risk metrics
         risk_reward_ratio = self._calculate_risk_reward_ratio(
@@ -289,38 +286,41 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         )
         stop_loss_distance = abs(entry_price - stop_loss) / entry_price
 
-        # Determine confidence level from assessment
-        confidence = gap_assessment.research_confidence
+        # Determine confidence level from gap classification
+        gap_confidence = float(gap_assessment.gap_classification.confidence_score)
+        if gap_confidence >= 0.85:
+            confidence = ConfidenceLevel.VERY_HIGH
+        elif gap_confidence >= 0.70:
+            confidence = ConfidenceLevel.HIGH
+        elif gap_confidence >= 0.50:
+            confidence = ConfidenceLevel.MEDIUM
+        else:
+            confidence = ConfidenceLevel.LOW
 
         # Create suggestion
         suggestion = TradeSuggestion(
             id=str(uuid.uuid4()),
             asset=quote.asset,
             side=side,
-            entry_price=entry_price,
+            suggested_entry=entry_price,
             stop_loss=stop_loss,
             take_profit_1=target_1,
             take_profit_2=target_2,
-            position_size=position_size,
             confidence=confidence,
-            risk_reward_ratio=float(risk_reward_ratio),
-            stop_loss_distance=float(stop_loss_distance),
-            expected_holding_period=timedelta(hours=6),  # Intraday only
-            status=TradeStatus.SUGGESTED,
-            analysis_summary=self._create_analysis_summary(quote, gap_assessment),
-            risk_factors=gap_assessment.risk_warnings,
-            catalysts=self._extract_catalysts(quote, gap_assessment),
-            created_at=datetime.now(),
-            expires_at=datetime.now()
-            + timedelta(hours=1),  # Suggestions expire in 1 hour
+            confidence_score=gap_assessment.gap_classification.confidence_score,
+            risk_reward_ratio=risk_reward_ratio,
+            position_size_percent=gap_assessment.suggested_position_size_percent,  # Already in percentage
+            rationale=self._create_analysis_summary(quote, gap_assessment),
+            risk_factors=gap_assessment.primary_risks,
+            supporting_factors=gap_assessment.key_success_factors,
+            gap_percent=quote.gap_size or abs(quote.price_change_percent or Decimal(0)),
+            stop_loss_distance=stop_loss_distance,
+            gap_size=quote.gap_size or abs(quote.price_change_percent or Decimal(0)),
+            gap_type=gap_assessment.recommended_strategy,
+            volume_ratio=quote.volume_ratio,
         )
 
-        # Add gap-specific attributes
-        suggestion.gap_size = getattr(
-            quote, "gap_size", abs(quote.price_change_percent or Decimal(0))
-        )
-        suggestion.gap_type = gap_assessment.recommended_strategy
-        suggestion.volume_ratio = getattr(quote, "volume_ratio", Decimal(1))
+        # Fields are now set properly in constructor - no dynamic assignment needed
 
         return suggestion
 
@@ -332,9 +332,7 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         # For gap trading, primary stop is gap fill level (previous close)
         # Secondary is percentage-based stop
 
-        gap_size = getattr(
-            quote, "gap_size", abs(quote.price_change_percent or Decimal(0))
-        )
+        gap_size = quote.gap_size or abs(quote.price_change_percent or Decimal(0))
         gap_size_decimal = gap_size / 100  # Convert to decimal
 
         if side == TradeSide.LONG:
@@ -411,16 +409,14 @@ class GapTradeSuggestionEngine(SuggestionEngine):
     ) -> str:
         """Create human-readable analysis summary"""
 
-        gap_size = getattr(
-            quote, "gap_size", abs(quote.price_change_percent or Decimal(0))
-        )
+        gap_size = quote.gap_size or abs(quote.price_change_percent or Decimal(0))
         volume_ratio = getattr(quote, "volume_ratio", Decimal(1))
 
         summary_parts = [
             f"Gap: {gap_size:.1f}% {'up' if quote.price_change_percent > 0 else 'down'}",
             f"Volume: {volume_ratio:.1f}x average",
             f"Strategy: {gap_assessment.recommended_strategy}",
-            f"Quality Score: {gap_assessment.overall_quality_score:.1f}/100",
+            f"Quality Score: {float(gap_assessment.trade_quality_score * 100):.1f}/100",
         ]
 
         return " | ".join(summary_parts)
@@ -433,16 +429,16 @@ class GapTradeSuggestionEngine(SuggestionEngine):
         catalysts = []
 
         # Add gap-specific catalysts
-        gap_size = getattr(quote, "gap_size", 0)
+        gap_size = quote.gap_size or Decimal(0)
         if gap_size >= 3.0:
             catalysts.append(f"Large {gap_size:.1f}% overnight gap")
 
-        volume_ratio = getattr(quote, "volume_ratio", 1)
+        volume_ratio = quote.volume_ratio or Decimal(1)
         if volume_ratio >= 3.0:
             catalysts.append(f"High volume confirmation ({volume_ratio:.1f}x)")
 
         # Add success factors as catalysts
-        catalysts.extend(gap_assessment.success_factors[:2])  # Top 2 factors
+        catalysts.extend(gap_assessment.key_success_factors[:2])  # Top 2 factors
 
         return catalysts
 

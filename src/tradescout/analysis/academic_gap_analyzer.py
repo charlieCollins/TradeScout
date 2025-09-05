@@ -116,7 +116,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
             asset=quote.asset,
             timestamp=datetime.now(),
             gap_type=final_type,
-            confidence_score=confidence,
+            confidence_score=Decimal(str(confidence / 100)),  # Convert to 0-1 scale
             gap_percent=gap_size,
             gap_amount=gap_amount,
             size_category=self._categorize_gap_size(gap_size),
@@ -192,8 +192,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
                 str(
                     self._calculate_strength_score(
                         volume_strength, technical_strength, catalyst_strength
-                    )
-                    / 100
+                    ) / 100.0
                 )
             ),
             market_alignment=market_context.get("market_alignment", False),
@@ -203,8 +202,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
                 str(
                     self._calculate_strength_score(
                         volume_strength, technical_strength, catalyst_strength
-                    )
-                    / 100
+                    ) / 100.0
                 )
             ),
         )
@@ -356,7 +354,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
                 continue
 
         # Sort by quality score (highest first)
-        assessments.sort(key=lambda x: x.overall_quality_score, reverse=True)
+        assessments.sort(key=lambda x: x.trade_quality_score, reverse=True)
 
         tradeable_count = sum(1 for a in assessments if a.is_tradeable)
         logger.info(
@@ -783,7 +781,7 @@ class AcademicGapTypeAnalyzer(CandidateGapTypeAnalyzer):
     ) -> float:
         """Calculate overall trade quality score (0-100)"""
 
-        base_score = float(gap_classification.expected_continuation_probability) * 100
+        base_score = float(gap_classification.expected_continuation_probability * Decimal("100"))
 
         # Adjust for strength
         strength_multiplier = {

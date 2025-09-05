@@ -557,7 +557,7 @@ class SmartCoordinator:
         Returns:
             List of gap trading suggestions with analysis
         """
-        logger.info(f"Generating daily gap suggestions (min gap: {min_gap_percent}%)")
+        logger.debug(f"Generating daily gap suggestions (min gap: {min_gap_percent}%)")
 
         try:
             from ..analysis.gap_market_scanner import GapMarketScanner
@@ -576,10 +576,14 @@ class SmartCoordinator:
             gap_candidates = gap_scanner.scan_pre_market_gaps(
                 Decimal(str(min_gap_percent))
             )
-            logger.info(f"Found {len(gap_candidates)} gap candidates")
+            logger.debug(f"Found {len(gap_candidates)} gap candidates")
 
             if not gap_candidates:
-                return []
+                return {
+                    'suggestions': [],
+                    'gap_candidates': len(gap_candidates),
+                    'approved_candidates': 0
+                }
 
             # Step 2: Apply binary classification rules
             approved_candidates = []
@@ -588,10 +592,14 @@ class SmartCoordinator:
                 if evaluation["decision"] == "TRADE":
                     approved_candidates.append(quote)
 
-            logger.info(f"{len(approved_candidates)} candidates passed binary rules")
+            logger.debug(f"{len(approved_candidates)} candidates passed binary rules")
 
             if not approved_candidates:
-                return []
+                return {
+                    'suggestions': [],
+                    'gap_candidates': len(gap_candidates),
+                    'approved_candidates': len(approved_candidates)
+                }
 
             # Step 3: Analyze gap types and generate suggestions
             gap_assessments = gap_analyzer.batch_analyze_candidates(approved_candidates)
@@ -637,16 +645,24 @@ class SmartCoordinator:
                             "suggestion": suggestion,
                             "assessment": matching_data["assessment"],
                             "quote": matching_data["quote"],
-                            "analysis_summary": suggestion.analysis_summary,
+                            "analysis_summary": suggestion.rationale,
                         }
                     )
 
-            logger.info(f"Generated {len(result)} daily gap trading suggestions")
-            return result
+            logger.debug(f"Generated {len(result)} daily gap trading suggestions")
+            return {
+                'suggestions': result,
+                'gap_candidates': len(gap_candidates),
+                'approved_candidates': len(approved_candidates)
+            }
 
         except Exception as e:
             logger.error(f"Error generating gap suggestions: {e}")
-            return []
+            return {
+                'suggestions': [],
+                'gap_candidates': 0,
+                'approved_candidates': 0
+            }
 
 
     def scan_gap_opportunities(self, min_gap_percent: float = 2.0) -> Dict[str, any]:
@@ -715,6 +731,84 @@ class SmartCoordinator:
         except Exception as e:
             logger.error(f"Error scanning gap opportunities: {e}")
             return {"error": str(e)}
+
+    def get_daily_ohlc(self, symbol: str, date: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Get daily OHLC data for a symbol using Polygon daily ticker summary endpoint.
+        
+        Args:
+            symbol: Stock symbol  
+            date: Date string (YYYY-MM-DD), defaults to current date
+            
+        Returns:
+            Dictionary with OHLC data or None if error
+        """
+        try:
+            import requests
+            from datetime import datetime, timedelta
+            from decimal import Decimal
+            
+            # Determine the target date
+            if date:
+                target_date = date
+            else:
+                # Default to current date
+                target_date = datetime.now().strftime("%Y-%m-%d")
+            
+            # Use Polygon daily ticker summary endpoint
+            url = f"https://api.polygon.io/v1/open-close/{symbol.upper()}/{target_date}"
+            params = {
+                "adjusted": "true",
+                "apikey": self._get_polygon_api_key()
+            }
+            
+            logger.debug(f"Getting daily ticker summary for {symbol} on {target_date}")
+            
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            if data.get("status") != "OK":
+                logger.warning(f"No daily ticker data found for {symbol} on {target_date}")
+                return None
+            
+            return {
+                "symbol": symbol.upper(),
+                "date": target_date,
+                "open": float(data.get("open", 0)),
+                "high": float(data.get("high", 0)),
+                "low": float(data.get("low", 0)),
+                "close": float(data.get("close", 0)),
+                "volume": int(data.get("volume", 0)),
+                "after_hours": float(data.get("afterHours", 0)) if data.get("afterHours") else None,
+                "pre_market": float(data.get("preMarket", 0)) if data.get("preMarket") else None,
+                "timestamp": 0  # Will be set from date if needed
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting daily ticker summary for {symbol}: {e}")
+            return None
+    
+    def _get_polygon_api_key(self) -> str:
+        """Get Polygon API key from environment"""
+        import os
+        return os.getenv("POLYGON_API_KEY", "")
+    
+    def _get_previous_business_day(self, date_str: str) -> str:
+        """Get previous business day string"""
+        from datetime import datetime, timedelta
+        
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        
+        # Go back one day, then skip weekends
+        prev_date = date_obj - timedelta(days=1)
+        
+        # If it's a weekend, go to Friday
+        while prev_date.weekday() >= 5:  # 5=Saturday, 6=Sunday
+            prev_date -= timedelta(days=1)
+            
+        return prev_date.strftime("%Y-%m-%d")
 
 
 # Convenience functions

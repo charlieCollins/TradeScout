@@ -15,6 +15,25 @@ This document tracks gap trading suggestions and their outcomes to measure predi
 
 ## September 2025 Predictions
 
+### 2025-09-05 (Thursday After-Hours) - INVALID PREDICTION REMOVED
+
+#### ❌ SYSTEM ERROR: False Gap Detection
+- **Issue**: Gap trading system incorrectly identified AMZN as having a 4.3% after-hours gap
+- **Root Cause**: System compared current price to previous day's close instead of current day's close
+- **Actual Gap**: Current after-hours price ($235.61) vs today's close ($235.68) = -0.03% (NO GAP!)
+- **System Bug**: Gap detection logic fundamentally flawed - treating regular session performance as gaps
+- **Status**: PREDICTION INVALIDATED - No actual gap existed
+- **Fix Required**: Gap detection logic needs complete overhaul to use proper session boundaries
+
+**Technical Details**:
+- Current after-hours: $235.61
+- Today's actual close: $235.68 (from OHLC data)
+- Yesterday's close: $225.99
+- Regular session performance: +4.3% (today vs yesterday)
+- After-hours gap: -0.03% (current vs today's close)
+
+---
+
 ### 2025-09-02 (Monday After-Hours)
 
 #### GOOG - Alphabet Inc.
@@ -44,17 +63,21 @@ This document tracks gap trading suggestions and their outcomes to measure predi
 
 ## Tracking Metrics
 
-### Overall Statistics (as of 2025-09-03)
-- Total Predictions: 1
-- Successful Gaps Maintained: 1
-- Binary Rules Passed: 0
-- Accuracy Rate (Gap Maintenance): 100%
-- Accuracy Rate (Full Rules): 0%
+### Overall Statistics (as of 2025-09-05)
+- Total Predictions: 1 (GOOG only - AMZN invalidated)
+- Successful Gaps Maintained: 1 (GOOG)
+- Binary Rules Passed: 0 (AMZN was false positive)
+- Accuracy Rate (Gap Maintenance): 100% (1/1 resolved)
+- System Errors: 1 (AMZN false gap detection)
 
 ### Key Learnings
 1. After-hours gaps can expand overnight (GOOG: 6% → 8.7%)
 2. Volume confirmation is critical - even large gaps fail without 2x volume
-3. Need to track more predictions to establish patterns
+3. **CRITICAL**: Gap detection logic is fundamentally broken - treats regular session performance as "gaps"
+4. **CRITICAL**: System needs proper session boundary detection (current vs today's close for after-hours)
+5. **CRITICAL**: Academic framework is useless without correct gap identification
+6. Quote command gets current/extended hours prices correctly
+7. OHLC command provides accurate daily session close prices
 
 ---
 

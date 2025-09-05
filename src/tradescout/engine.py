@@ -716,14 +716,30 @@ class TradeScoutEngine:
             List of display objects (strings, Tables, Panels) ready for printing
         """
         try:
-            suggestions = self.get_trade_suggestions(limit, force_refresh, min_gap)
+            # Get session information for consistent headers
+            current_session = self.markets_manager.get_current_trading_session("nasdaq")
+            now = datetime.now()
+            session_info = self._get_session_info(current_session, now, "suggestions")
+            
+            # Get suggestions with analysis details for header
+            suggestion_result = self.coordinator.get_daily_gap_suggestions(min_gap, limit)
+            suggestions = suggestion_result.get('suggestions', []) if isinstance(suggestion_result, dict) else suggestion_result or []
+            
+            # Get analysis stats for display
+            gap_candidates = suggestion_result.get('gap_candidates', 0) if isinstance(suggestion_result, dict) else 0
+            approved_candidates = suggestion_result.get('approved_candidates', 0) if isinstance(suggestion_result, dict) else 0
             
             if not suggestions:
-                return [f"[yellow]⚠️  No gap trading suggestions found >= {min_gap}%[/yellow]"]
+                display_lines = []
+                display_lines.append(session_info["header"])
+                display_lines.append(f"[blue]📊 Analysis: {gap_candidates} gap candidates found, {approved_candidates} passed binary rules[/blue]")
+                display_lines.append(f"[yellow]⚠️  No gap trading suggestions found >= {min_gap}%[/yellow]")
+                return display_lines
             
             display_lines = []
-            display_lines.append("[bold]📈 Daily Gap Trading Suggestions[/bold]")
-            display_lines.append(f"[blue]📊 Found {len(suggestions)} trade suggestions[/blue]")
+            display_lines.append(session_info["header"])
+            display_lines.append(f"[blue]📊 Analysis: {gap_candidates} gap candidates found, {approved_candidates} passed binary rules[/blue]")
+            display_lines.append(f"[green]✅ Generated {len(suggestions)} trade suggestions >= {min_gap}%[/green]")
             
             # Create summary table
             from rich.table import Table
@@ -736,16 +752,22 @@ class TradeScoutEngine:
             table.add_column("Direction", justify="center")
             table.add_column("Confidence", justify="center")
             
-            for i, suggestion in enumerate(suggestions, 1):
-                gap_color = "green" if suggestion.get("gap_percent", 0) > 0 else "red"
-                direction = "📈 Long" if suggestion.get("direction") == "long" else "📉 Short"
+            for i, suggestion_data in enumerate(suggestions, 1):
+                suggestion = suggestion_data.get("suggestion")
+                if not suggestion:
+                    continue
+                    
+                gap_percent = float(suggestion.gap_percent or 0)
+                gap_color = "green" if gap_percent > 0 else "red"
+                direction = "📈 Long" if suggestion.side.value == "long" else "📉 Short"
+                confidence = float(suggestion.confidence_score * 100) if suggestion.confidence_score else 0
                 
                 table.add_row(
                     str(i),
-                    suggestion.get("symbol", "N/A"),
-                    f"[{gap_color}]{suggestion.get('gap_percent', 0):.1f}%[/{gap_color}]",
+                    suggestion.asset.symbol if suggestion.asset else "N/A",
+                    f"[{gap_color}]{gap_percent:.1f}%[/{gap_color}]",
                     direction,
-                    f"{suggestion.get('confidence', 0):.1f}%",
+                    f"{confidence:.1f}%",
                 )
             
             # Note: This is a simplified version. The original CLI had much more complex
@@ -856,6 +878,92 @@ class TradeScoutEngine:
             
         except Exception as e:
             return [f"[red]❌ Error: {str(e)}[/red]"]
+
+    def display_ohlc_data(self, symbols: List[str], date: str = None) -> List:
+        """
+        Get OHLC (Open, High, Low, Close) data display for symbols.
+        
+        Args:
+            symbols: List of stock symbols
+            date: Date string (YYYY-MM-DD) or None for today
+            
+        Returns:
+            List of display objects (strings, Tables, Panels) ready for printing
+        """
+        try:
+            display_objects = []
+            
+            from rich.table import Table
+            from rich import box
+            from datetime import datetime
+            
+            # Use today if no date specified
+            if not date:
+                date = datetime.now().strftime("%Y-%m-%d")
+            
+            display_objects.append(f"[bold blue]📊 OHLC Data for {date}[/bold blue]\n")
+            
+            # Create table
+            table = Table(title=f"Daily OHLC Data ({date})", box=box.ROUNDED)
+            table.add_column("Symbol", style="cyan", no_wrap=True)
+            table.add_column("Open", justify="right", style="blue")
+            table.add_column("High", justify="right", style="green")
+            table.add_column("Low", justify="right", style="red")
+            table.add_column("Close", justify="right", style="yellow")
+            table.add_column("Volume", justify="right", style="dim")
+            table.add_column("Change %", justify="right")
+            
+            for symbol in symbols:
+                try:
+                    # Get OHLC data from coordinator
+                    ohlc_data = self.coordinator.get_daily_ohlc(symbol.upper(), date)
+                    
+                    if ohlc_data:
+                        # Format the data
+                        open_price = f"${ohlc_data['open']:.2f}"
+                        high_price = f"${ohlc_data['high']:.2f}"
+                        low_price = f"${ohlc_data['low']:.2f}"
+                        close_price = f"${ohlc_data['close']:.2f}"
+                        volume = f"{ohlc_data['volume']:,}" if ohlc_data['volume'] > 0 else "N/A"
+                        
+                        # Calculate change percentage
+                        change_pct = "N/A"
+                        if 'prev_close' in ohlc_data and ohlc_data['prev_close']:
+                            pct_change = ((ohlc_data['close'] - ohlc_data['prev_close']) / ohlc_data['prev_close']) * 100
+                            color = "green" if pct_change >= 0 else "red"
+                            sign = "+" if pct_change >= 0 else ""
+                            change_pct = f"[{color}]{sign}{pct_change:.2f}%[/{color}]"
+                        
+                        table.add_row(
+                            symbol.upper(),
+                            open_price,
+                            high_price, 
+                            low_price,
+                            close_price,
+                            volume,
+                            change_pct
+                        )
+                    else:
+                        table.add_row(
+                            symbol.upper(),
+                            "[red]Error[/red]",
+                            "N/A", "N/A", "N/A", "N/A", "N/A"
+                        )
+                        
+                except Exception as e:
+                    table.add_row(
+                        symbol.upper(),
+                        f"[red]Error[/red]",
+                        "N/A", "N/A", "N/A", "N/A", "N/A"
+                    )
+            
+            display_objects.append(table)
+            display_objects.append("\n[dim]📡 Data source: Polygon.io[/dim]")
+            
+            return display_objects
+            
+        except Exception as e:
+            return [f"[red]❌ Error getting OHLC data: {str(e)}[/red]"]
 
     def display_system_status(self) -> List[str]:
         """
@@ -1083,21 +1191,40 @@ class TradeScoutEngine:
     def _get_session_info(
         self, session: TradingSession, timestamp: datetime, market_type: str = "gainers"
     ) -> Dict[str, str]:
-        """Get human-readable session information."""
-        if market_type == "losers":
+        """Get human-readable session information with current time and session details."""
+        
+        # Format current time
+        current_time_str = timestamp.strftime("%Y-%m-%d %H:%M:%S EST")
+        
+        # Determine detailed session description
+        hour = timestamp.hour
+        if session == TradingSession.PREMARKET:
+            session_desc = "Extended Hours (Pre-Market)"
+        elif session == TradingSession.AFTERHOURS:
+            session_desc = "Extended Hours (After-Hours)" 
+        elif session == TradingSession.REGULAR:
+            session_desc = "Regular Trading Hours"
+        else:
+            # Market closed
+            if 20 <= hour or hour < 4:  # 8 PM - 4 AM
+                session_desc = "Market Closed [Extended Hours Inactive]"
+            else:
+                session_desc = "Market Closed"
+        
+        if market_type == "losers" or market_type == "suggestions":
             session_map = {
                 TradingSession.PREMARKET: {
-                    "header": "🌅 PRE-MARKET EXTENDED HOURS GAPS",
+                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Pre-market prices vs yesterday's close",
                     "timing": "PRE-MARKET",
                 },
                 TradingSession.AFTERHOURS: {
-                    "header": "🌆 AFTER-HOURS EXTENDED HOURS GAPS",
+                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "After-hours prices vs today's close",
                     "timing": "AFTER-HOURS",
                 },
                 TradingSession.REGULAR: {
-                    "header": "🔴 DAILY GAPS (Regular Session)",
+                    "header": f"🔴 DAILY GAPS (Regular Session)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Current regular session vs previous session (DAILY GAPS)",
                     "timing": "DAILY",
                 },
@@ -1105,24 +1232,24 @@ class TradeScoutEngine:
         else:  # gainers or default
             session_map = {
                 TradingSession.PREMARKET: {
-                    "header": "🌅 PRE-MARKET EXTENDED HOURS GAPS",
+                    "header": f"🌅 DAILY GAPS (Pre-Market Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Pre-market prices vs yesterday's close",
                     "timing": "PRE-MARKET",
                 },
                 TradingSession.AFTERHOURS: {
-                    "header": "🌆 AFTER-HOURS EXTENDED HOURS GAPS",
+                    "header": f"🌆 DAILY GAPS (After-Hours Extended Hours)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "After-hours prices vs today's close",
                     "timing": "AFTER-HOURS",
                 },
                 TradingSession.REGULAR: {
-                    "header": "🟢 DAILY GAPS (Regular Session)",
+                    "header": f"🟢 DAILY GAPS (Regular Session)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
                     "explanation": "Current regular session vs previous session (DAILY GAPS)",
                     "timing": "DAILY",
                 },
             }
 
         default_closed = {
-            "header": f"{'🔴' if market_type == 'losers' else '🟢'} DAILY GAPS (Market Closed)",
+            "header": f"{'🔴' if market_type == 'losers' else '🟢'} DAILY GAPS (Market Closed)\nMost recent daily session vs previous session (DAILY GAPS)\nCurrent Time: {current_time_str} ({session_desc})",
             "explanation": "Most recent daily session vs previous session (DAILY GAPS)",
             "timing": "DAILY",
         }

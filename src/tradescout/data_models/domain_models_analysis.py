@@ -151,6 +151,12 @@ class TradeSuggestion:
     volume_surge: bool = False
     news_catalyst: bool = False
     technical_setup: bool = False
+    
+    # Additional calculated fields (used by suggestion engine)
+    stop_loss_distance: Decimal = Decimal(0)  # Distance from entry to stop loss as percentage
+    gap_size: Optional[Decimal] = None  # Gap size percentage
+    gap_type: Optional[str] = None  # Type of gap strategy
+    volume_ratio: Optional[Decimal] = None  # Volume ratio for this stock
 
     # Performance tracking
     status: TradeStatus = TradeStatus.SUGGESTED

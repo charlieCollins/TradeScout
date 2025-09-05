@@ -79,7 +79,14 @@ def system(ctx):
     pass
 
 
-@market.command()
+@main.group()
+@click.pass_context
+def asset(ctx):
+    """Individual asset data and analysis commands"""
+    pass
+
+
+@asset.command()
 @click.argument("symbols", nargs=-1, required=True)
 @click.pass_context
 def quote(ctx, symbols: tuple):
@@ -87,8 +94,8 @@ def quote(ctx, symbols: tuple):
     Get current market quotes for one or more symbols.
 
     Examples:
-        tradescout market quote AAPL
-        tradescout market quote AAPL MSFT GOOGL
+        tradescout asset quote AAPL
+        tradescout asset quote AAPL MSFT GOOGL
     """
     engine = ctx.obj["engine"]
 
@@ -100,7 +107,7 @@ def quote(ctx, symbols: tuple):
     console.print(table)
 
 
-@market.command()
+@asset.command()
 @click.argument("symbol")
 @click.pass_context
 def fundamentals(ctx, symbol: str):
@@ -108,7 +115,7 @@ def fundamentals(ctx, symbol: str):
     Show fundamental data for a symbol.
 
     Example:
-        tradescout market fundamentals AAPL
+        tradescout asset fundamentals AAPL
     """
     engine = ctx.obj["engine"]
 
@@ -266,6 +273,30 @@ def suggest(ctx, limit: int, force_refresh: bool, min_gap: float):
     ):
         display_objects = engine.display_trade_suggestions(limit, force_refresh, min_gap)
 
+    for obj in display_objects:
+        console.print(obj)
+
+
+@asset.command()
+@click.argument("symbols", nargs=-1, required=True)
+@click.option("--date", default=None, help="Date for OHLC data (YYYY-MM-DD), defaults to today")
+@click.pass_context
+def ohlc(ctx, symbols: tuple, date: str):
+    """
+    Get OHLC (Open, High, Low, Close) data for one or more symbols.
+    
+    Shows daily open, high, low, close, volume data from Polygon API.
+    
+    Examples:
+        tradescout asset ohlc AMZN
+        tradescout asset ohlc AMZN GOOGL TSLA
+        tradescout asset ohlc AMZN --date 2025-09-05
+    """
+    engine = ctx.obj["engine"]
+    
+    with console.status(f"[bold blue]Getting OHLC data for {len(symbols)} symbols...", spinner="dots"):
+        display_objects = engine.display_ohlc_data(list(symbols), date)
+    
     for obj in display_objects:
         console.print(obj)
 

@@ -58,7 +58,21 @@ class GapMarketScanner(MarketScanner):
         Returns:
             List of stocks with significant overnight gaps
         """
-        logger.info(f"Scanning for pre-market gaps >= {min_gap_percent}%")
+        # Determine current market session for appropriate logging
+        from datetime import datetime
+        now = datetime.now()
+        current_hour = now.hour
+        
+        if 4 <= current_hour < 9:  # Pre-market (4 AM - 9:30 AM ET)
+            session_name = "pre-market gaps"
+        elif 9 <= current_hour < 16:  # Regular hours (9:30 AM - 4 PM ET)
+            session_name = "intraday gaps"
+        elif 16 <= current_hour < 20:  # After-hours (4 PM - 8 PM ET)
+            session_name = "after-hours gaps"
+        else:  # Extended hours or uncertain
+            session_name = "extended hours gaps"
+        
+        logger.debug(f"Scanning for {session_name} >= {min_gap_percent}%")
 
         gap_candidates = []
 
@@ -75,24 +89,61 @@ class GapMarketScanner(MarketScanner):
             if losers:
                 all_movers.extend(losers)
 
-            logger.info(f"Analyzing {len(all_movers)} market movers for gap patterns")
+            logger.debug(f"Analyzing {len(all_movers)} market movers for gap patterns")
 
             for mover in all_movers:
                 try:
-                    # Calculate gap size from price change percentage
-                    # Market movers already represent overnight gaps
-                    gap_percent = abs(mover.price_change_percent)
+                    # Get current quote and OHLC data for proper gap calculation
+                    quote = self.coordinator.get_current_quote(mover.asset.symbol)
+                    if not quote:
+                        continue
+                    
+                    # Get PREVIOUS session's close for proper gap calculation
+                    # Current price (from quote) vs Previous session's close
+                    from datetime import datetime, timedelta
+                    
+                    now = datetime.now()
+                    current_hour = now.hour
+                    
+                    # Determine which session's close to use as reference
+                    if 4 <= current_hour < 16:  # Pre-market or regular hours (4 AM - 4 PM)
+                        # Use yesterday's close as reference
+                        reference_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+                    else:  # After-hours (after 4 PM) or late night (before 4 AM)
+                        # Use today's close as reference (if markets closed today)
+                        reference_date = now.strftime("%Y-%m-%d")
+                    
+                    # Get the reference session's OHLC data
+                    ohlc_data = self.coordinator.get_daily_ohlc(mover.asset.symbol, reference_date)
+                    
+                    # If no reference data found, try yesterday as fallback
+                    if not ohlc_data:
+                        reference_date = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+                        ohlc_data = self.coordinator.get_daily_ohlc(mover.asset.symbol, reference_date)
+                    
+                    if not ohlc_data:
+                        # Fallback to using mover data (still incorrect but better than crash)
+                        logger.warning(f"No OHLC data for {mover.asset.symbol}, using fallback")
+                        gap_percent = abs(mover.price_change_percent)
+                    else:
+                        # PROPER GAP CALCULATION: Current price vs Previous session's close
+                        current_price = float(quote.price_data.price)
+                        reference_close = ohlc_data['close']
+                        
+                        # Calculate actual gap percentage
+                        gap_amount = current_price - reference_close
+                        gap_percent = abs((gap_amount / reference_close) * 100)
+                        
+                        logger.debug(f"{mover.asset.symbol}: Current=${current_price:.2f}, Reference Close ({reference_date})=${reference_close:.2f}, Gap={gap_percent:.2f}%")
 
                     if gap_percent >= min_gap_percent:
-                        # Get current quote for additional data
-                        quote = self.coordinator.get_current_quote(mover.asset.symbol)
-
-                        if quote and self._meets_basic_criteria(quote, gap_percent):
-                            # Add gap information to quote
-                            quote.gap_size = gap_percent
-                            quote.gap_direction = (
-                                "up" if mover.price_change_percent > 0 else "down"
-                            )
+                        if self._meets_basic_criteria(quote, gap_percent):
+                            # Add gap information to quote (using proper calculation)
+                            quote.gap_size = Decimal(str(gap_percent))
+                            if ohlc_data:
+                                quote.gap_direction = "up" if gap_amount > 0 else "down"
+                            else:
+                                quote.gap_direction = "up" if mover.price_change_percent > 0 else "down"
                             gap_candidates.append(quote)
 
                             logger.debug(
@@ -107,7 +158,7 @@ class GapMarketScanner(MarketScanner):
         except Exception as e:
             logger.error(f"Error scanning for pre-market gaps: {e}")
 
-        logger.info(f"Found {len(gap_candidates)} gap candidates >= {min_gap_percent}%")
+        logger.debug(f"Found {len(gap_candidates)} gap candidates >= {min_gap_percent}%")
         return gap_candidates
 
     def scan_volume_spikes(
