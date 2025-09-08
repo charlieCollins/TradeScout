@@ -133,33 +133,50 @@ class AssetDataProviderPolygon(AssetDataProvider):
     def _get_fresh_market_data(
         self, force_refresh: bool = False
     ) -> Optional[Dict[str, Any]]:
-        """Get fresh market snapshot data, fetching from API if needed"""
-        if not force_refresh and self._is_market_data_fresh():
-            age_minutes = (
-                datetime.now() - self._market_snapshot_timestamp
-            ).total_seconds() / 60
-            logger.debug(
-                f"Using cached market data ({len(self._market_snapshot_data):,} symbols, {age_minutes:.1f} min old)"
-            )
+        """Get market snapshot data, using database as primary cache"""
+        try:
+            from ..storage.asset_universe_manager import AssetUniverseManager
+            manager = AssetUniverseManager()
+            
+            # Check if we need fresh data (database-based cache check)
+            needs_fresh_data = force_refresh or self._is_database_cache_stale()
+            
+            if not needs_fresh_data:
+                # Try to load from database first
+                cached_data = self._load_from_database_cache()
+                if cached_data:
+                    logger.debug(f"Using database cached market data ({len(cached_data):,} symbols)")
+                    self._market_snapshot_data = cached_data
+                    return cached_data
+            
+            # Need fresh data - fetch from API
+            logger.debug("Fetching fresh market snapshot from Polygon API...")
+            snapshot_data = self._get_full_market_snapshot()
+
+            if snapshot_data:
+                self._market_snapshot_data = snapshot_data
+                self._market_snapshot_timestamp = datetime.now()
+                logger.debug(f"Refreshed market data: {len(snapshot_data):,} symbols")
+
+                # Save to database (primary cache) and disk (backup)
+                self._save_to_database_cache(snapshot_data)
+                self._save_market_cache_to_disk()
+                
+            else:
+                logger.warning("Failed to fetch market snapshot, trying database fallback")
+                # Fallback to database even if stale
+                fallback_data = self._load_from_database_cache()
+                if fallback_data:
+                    logger.info(f"Using stale database cache ({len(fallback_data):,} symbols)")
+                    self._market_snapshot_data = fallback_data
+                    return fallback_data
+
+            return snapshot_data
+            
+        except Exception as e:
+            logger.error(f"Error in _get_fresh_market_data: {e}")
+            # Final fallback to in-memory cache
             return self._market_snapshot_data
-
-        # Fetch fresh data
-        logger.debug("Fetching fresh market snapshot from Polygon API...")
-        snapshot_data = self._get_full_market_snapshot()
-
-        if snapshot_data:
-            self._market_snapshot_data = snapshot_data
-            self._market_snapshot_timestamp = datetime.now()
-            logger.debug(f"Refreshed market data: {len(snapshot_data):,} symbols")
-
-            # Save to disk for persistence between CLI runs
-            self._save_market_cache_to_disk()
-        else:
-            logger.warning(
-                "Failed to fetch market snapshot, using stale data if available"
-            )
-
-        return snapshot_data
 
     def get_market_data_status(self) -> Dict[str, Any]:
         """Get current market data cache status for display"""
@@ -233,6 +250,290 @@ class AssetDataProviderPolygon(AssetDataProvider):
 
         except Exception as e:
             logger.warning(f"Error saving market cache to disk: {e}")
+
+    def _update_database_with_snapshot(self, snapshot_data: Dict[str, Any]) -> None:
+        """Update database with new symbols from market snapshot"""
+        try:
+            from ..storage.asset_universe_manager import AssetUniverseManager
+            manager = AssetUniverseManager()
+            
+            new_symbols_count = 0
+            updated_symbols_count = 0
+            
+            # Process each symbol in the snapshot
+            for symbol, ticker_data in snapshot_data.items():
+                if not symbol or not isinstance(symbol, str):
+                    continue
+                
+                # Check if asset exists in database
+                existing_asset = manager.get_asset(symbol)
+                
+                if not existing_asset:
+                    # Add new asset to database
+                    try:
+                        # Extract basic info from ticker data
+                        asset_id = manager.add_asset(
+                            symbol=symbol,
+                            name=None,  # Polygon snapshot doesn't include company names
+                            asset_type="COMMON_STOCK",
+                            is_active=True,
+                            is_tradeable=True
+                        )
+                        
+                        # Add to default universe for discovery
+                        manager.add_to_universe(
+                            symbol, 
+                            "default_liquid_universe", 
+                            "Auto-added from market snapshot"
+                        )
+                        
+                        new_symbols_count += 1
+                        logger.debug(f"Added new symbol to database: {symbol}")
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to add symbol {symbol} to database: {e}")
+                        continue
+                
+                # Save current market snapshot data
+                try:
+                    snapshot_time = datetime.now()
+                    
+                    # Extract price data from ticker structure
+                    price = None
+                    change_percent = None
+                    change_dollars = None
+                    volume = None
+                    day_open = None
+                    day_high = None  
+                    day_low = None
+                    previous_close = None
+                    
+                    # Parse ticker data structure
+                    if "day" in ticker_data and ticker_data["day"]:
+                        day_data = ticker_data["day"]
+                        price = day_data.get("c")  # close price
+                        day_open = day_data.get("o")
+                        day_high = day_data.get("h")
+                        day_low = day_data.get("l")
+                        volume = day_data.get("v")
+                    
+                    if "prevDay" in ticker_data and ticker_data["prevDay"]:
+                        previous_close = ticker_data["prevDay"].get("c")
+                    
+                    change_percent = ticker_data.get("todaysChangePerc")
+                    change_dollars = ticker_data.get("todaysChange")
+                    
+                    # Prepare snapshot data
+                    snapshot_item = {
+                        'symbol': symbol,
+                        'price': price,
+                        'change_percent': change_percent,
+                        'change_dollars': change_dollars,
+                        'volume': volume,
+                        'day_open': day_open,
+                        'day_high': day_high,
+                        'day_low': day_low,
+                        'previous_close': previous_close
+                    }
+                    
+                    # Skip saving individual snapshots - do it in batch at the end
+                    # This is just for tracking updated symbols count
+                    if any([price, change_percent, volume]):  # Only count if we have meaningful data
+                        updated_symbols_count += 1
+                    
+                except Exception as e:
+                    logger.debug(f"Failed to save snapshot data for {symbol}: {e}")
+                    continue
+            
+            if new_symbols_count > 0 or updated_symbols_count > 0:
+                logger.info(f"Database updated: {new_symbols_count} new symbols, {updated_symbols_count} snapshots saved")
+            else:
+                logger.debug("No database updates needed for market snapshot")
+                
+        except Exception as e:
+            logger.warning(f"Error updating database with snapshot: {e}")
+
+    def _is_database_cache_stale(self) -> bool:
+        """Check if database cache is stale (older than TTL)"""
+        try:
+            from ..storage.asset_universe_manager import AssetUniverseManager
+            manager = AssetUniverseManager()
+            conn = manager._get_connection()
+            cursor = conn.cursor()
+            
+            # Get most recent snapshot time
+            cursor.execute("""
+                SELECT MAX(snapshot_time) as latest_snapshot
+                FROM market_snapshots
+            """)
+            
+            result = cursor.fetchone()
+            conn.close()
+            
+            if not result or not result['latest_snapshot']:
+                return True  # No cache data exists
+            
+            latest_snapshot = datetime.fromisoformat(result['latest_snapshot'])
+            age_minutes = (datetime.now() - latest_snapshot).total_seconds() / 60
+            
+            return age_minutes >= self._market_data_ttl_minutes
+            
+        except Exception as e:
+            logger.debug(f"Error checking database cache staleness: {e}")
+            return True  # Assume stale on error
+
+    def _load_from_database_cache(self) -> Optional[Dict[str, Any]]:
+        """Load market snapshot from database cache"""
+        try:
+            from ..storage.asset_universe_manager import AssetUniverseManager
+            manager = AssetUniverseManager()
+            conn = manager._get_connection()
+            cursor = conn.cursor()
+            
+            # Get the most recent snapshot time
+            cursor.execute("""
+                SELECT MAX(snapshot_time) as latest_snapshot
+                FROM market_snapshots
+            """)
+            
+            result = cursor.fetchone()
+            if not result or not result['latest_snapshot']:
+                conn.close()
+                return None
+            
+            latest_snapshot_time = result['latest_snapshot']
+            
+            # Get all symbols from that snapshot time
+            cursor.execute("""
+                SELECT a.symbol, ms.*
+                FROM market_snapshots ms
+                JOIN assets a ON ms.asset_id = a.id
+                WHERE ms.snapshot_time = ?
+            """, (latest_snapshot_time,))
+            
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                return None
+            
+            # Convert to the format expected by the rest of the system
+            snapshot_data = {}
+            for row in rows:
+                symbol = row['symbol']
+                # Create ticker data structure similar to Polygon API
+                snapshot_data[symbol] = {
+                    'ticker': symbol,
+                    'todaysChangePerc': row['change_percent'],
+                    'todaysChange': row['change_dollars'],
+                    'day': {
+                        'c': row['price'],  # close
+                        'o': row['day_open'],  # open
+                        'h': row['day_high'],  # high
+                        'l': row['day_low'],   # low
+                        'v': row['volume']     # volume
+                    } if row['price'] else None,
+                    'prevDay': {
+                        'c': row['previous_close']
+                    } if row['previous_close'] else None
+                }
+            
+            # Update in-memory timestamp
+            self._market_snapshot_timestamp = datetime.fromisoformat(latest_snapshot_time)
+            
+            return snapshot_data
+            
+        except Exception as e:
+            logger.debug(f"Error loading from database cache: {e}")
+            return None
+
+    def _save_to_database_cache(self, snapshot_data: Dict[str, Any]) -> None:
+        """Save market snapshot to database cache and add new symbols"""
+        try:
+            from ..storage.asset_universe_manager import AssetUniverseManager
+            manager = AssetUniverseManager()
+            
+            snapshot_time = datetime.now()
+            new_symbols_count = 0
+            snapshot_records = []
+            
+            # Process each symbol in the snapshot
+            for symbol, ticker_data in snapshot_data.items():
+                if not symbol or not isinstance(symbol, str):
+                    continue
+                
+                # Check if asset exists, add if not
+                existing_asset = manager.get_asset(symbol)
+                
+                if not existing_asset:
+                    try:
+                        # Add new symbol to database
+                        manager.add_asset(
+                            symbol=symbol,
+                            name=None,  # Polygon snapshot doesn't include names
+                            asset_type="COMMON_STOCK",
+                            is_active=True,
+                            is_tradeable=True
+                        )
+                        
+                        # Add to default universe for discovery
+                        manager.add_to_universe(
+                            symbol, 
+                            "default_liquid_universe", 
+                            "Auto-added from market snapshot"
+                        )
+                        
+                        new_symbols_count += 1
+                        logger.debug(f"Added new symbol to database: {symbol}")
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to add symbol {symbol}: {e}")
+                        continue
+                
+                # Prepare snapshot record
+                price = None
+                change_percent = None
+                change_dollars = None
+                volume = None
+                day_open = None
+                day_high = None  
+                day_low = None
+                previous_close = None
+                
+                # Parse ticker data structure
+                if "day" in ticker_data and ticker_data["day"]:
+                    day_data = ticker_data["day"]
+                    price = day_data.get("c")
+                    day_open = day_data.get("o")
+                    day_high = day_data.get("h")
+                    day_low = day_data.get("l")
+                    volume = day_data.get("v")
+                
+                if "prevDay" in ticker_data and ticker_data["prevDay"]:
+                    previous_close = ticker_data["prevDay"].get("c")
+                
+                change_percent = ticker_data.get("todaysChangePerc")
+                change_dollars = ticker_data.get("todaysChange")
+                
+                snapshot_records.append({
+                    'symbol': symbol,
+                    'price': price,
+                    'change_percent': change_percent,
+                    'change_dollars': change_dollars,
+                    'volume': volume,
+                    'day_open': day_open,
+                    'day_high': day_high,
+                    'day_low': day_low,
+                    'previous_close': previous_close
+                })
+            
+            # Save all snapshot records in batch
+            if snapshot_records:
+                saved_count = manager.save_market_snapshot(snapshot_records, snapshot_time)
+                logger.info(f"Database cache updated: {new_symbols_count} new symbols, {saved_count} snapshots saved")
+            
+        except Exception as e:
+            logger.warning(f"Error saving to database cache: {e}")
 
     def _get_ticker_data(
         self, symbol: str, force_refresh: bool = False

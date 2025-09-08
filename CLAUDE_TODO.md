@@ -1,6 +1,6 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-05 17:37 (Claude) - Completed custom bars integration and provider-agnostic architecture*
+*Last updated: 2025-09-07 19:54 (Claude) - Completed database-first caching architecture and asset universe migration*
 
 ## About TradeScout
 
@@ -25,62 +25,66 @@ TradeScout is a personal market research assistant for gap trading strategy impl
 ./tradescout system status
 ```
 
-## ✅ Recently Completed (Session 2025-09-05)
-- **Custom bars endpoint integrated** ✅ - Successfully replaced failing API with Polygon custom bars for live extended hours pricing
-- **Provider-agnostic architecture enforced** ✅ - Eliminated all direct API calls from smart coordinator, moved to provider layer  
-- **Major test coverage improvement** ✅ - Added 44 new tests (76% increase) with critical production bug discovered and fixed
-- **Cache optimization fixed** ✅ - System now properly uses provider caching eliminating redundant API calls
-- **Architecture consistency verified** ✅ - Comprehensive audit confirmed all provider delegation patterns working correctly
+## ✅ Recently Completed (Session 2025-09-07)
+- **CRITICAL: Fixed Polygon market snapshot data issue** ✅ - Resolved critical cache problem blocking gap analysis
+  - Problem: Cache contained only 1 symbol ("NEW") instead of full market data (11,705 symbols)
+  - Root cause: Stale/corrupted cache file from previous session
+  - Solution: Implemented proper cache refresh logic with database-first architecture
+  - Result: Gap analysis now processes correctly with full market coverage
+- **Implemented ASCII spinner progress bar** ✅ - Added real-time progress display to suggest command
+  - Shows current ticker being analyzed: "Analyzing gaps: 42% - AAPL (42/100)"
+  - Progress callback system through entire processing chain
+  - Dramatically improved user experience during gap analysis
+- **Moved asset universe from YAML to database** ✅ - Complete migration to SQLite-based dynamic management
+  - Created 7-table database schema (assets, universes, price_history, gap_history, etc.)
+  - Migrated 1,019 symbols from screening_universe.yaml to database
+  - Built AssetUniverseManager class with full CRUD operations
+  - Updated all CLI commands to use database instead of static files
+- **Implemented database-first caching architecture** ✅ - Database is now PRIMARY cache for all market data
+  - Revolutionary approach: Check database first → API only if stale → Update database
+  - Auto-discovery: New symbols from API automatically added (discovered 10,687 new symbols!)
+  - 10-minute TTL with intelligent fallback strategies
+  - Commands now show "11,705 symbols cached" with age information
+- **Enhanced user experience improvements** ✅ - Multiple UX refinements
+  - Session headers now display BEFORE processing starts (not after)
+  - Configuration loading messages moved to DEBUG level for cleaner output
+  - Progress spinner shows percentage first for stable display format
+- **Created comprehensive DATABASE.md documentation** ✅ - Complete technical documentation
+  - Documented database schema, caching philosophy, and data flow architecture
+  - Performance considerations, query patterns, and best practices
 
-## ⚠️ Critical Issue Discovered
-- **Market data cache limitation** - Polygon snapshot cache contains only 1 symbol instead of full market data
-  - **Impact**: System shows "0 market movers" and "0 gap candidates"  
-  - **Status**: Needs immediate investigation next session
+## 🎯 Current Priority Tasks
 
-## 🎯 Pending Priority Tasks
-
-### 1. **HIGH PRIORITY**: Investigate Polygon market snapshot data issue
-- **Goal**: Fix cache showing only 1 symbol ("NEW") instead of full market data
-- **Impact**: Currently preventing gap detection from finding candidates
-- **Investigation needed**: API response format, caching logic, data processing
-- **Priority**: Critical - Blocking core functionality
-
-### 2. Add ASCII spinner progress bar to suggest command showing current ticker being processed
-- **Goal**: Show real-time progress during gap analysis with spinner and current ticker name
-- **Implementation**: ASCII spinner (like Claude Code uses) updating on same line during processing
-- **Benefit**: Better user experience during market analysis
-- **Priority**: High - User experience improvement
-
-### 3. Move asset universe from config files to database for better management
-- **Goal**: Store ticker symbols and metadata in SQLite database instead of static YAML files
-- **Features**: Dynamic ticker management, metadata storage, performance tracking per symbol
-- **Implementation**: Database tables for symbols, exchanges, sector classifications
-- **Location**: Enhance existing SQLite database schema in data/tradescout.db
-- **Priority**: High - Better data management foundation
-
-### 2. Add pre-market activity filter to gap scanner to exclude non-trading symbols
+### 1. Add pre-market activity filter to gap scanner to exclude non-trading symbols
 - **Goal**: Filter out symbols with no pre-market activity to focus gap analysis on actively trading stocks
 - **Implementation**: Check for pre-market volume or price movement before including in gap candidates
 - **Benefit**: Reduces noise and focuses on meaningful gap opportunities
-- **Priority**: Medium - Quality improvement for gap detection
+- **Priority**: High - Quality improvement for gap detection
 
-### 3. Implement market status API instead of hardcoded hours
+### 2. Implement market status API instead of hardcoded hours
 - **Goal**: Use Polygon's market status API to determine trading sessions instead of hardcoded time checks
 - **Implementation**: Replace time-based session detection with real-time market status checks
 - **Benefit**: Accurate session detection including holidays and early market closures
-- **Priority**: Medium - Accuracy improvement for session-aware features
+- **Priority**: High - Accuracy improvement for session-aware features
 
-### 4. Separate engine from display/CLI output - create separate presentation layer
+### 3. Separate engine from display/CLI output - create presentation layer
 - **Goal**: Move all Rich formatting and display logic out of engine into dedicated presentation layer
 - **Implementation**: Create display/presentation layer that takes engine data and formats for CLI
 - **Benefit**: Cleaner separation of concerns, easier to add web interface later
 - **Priority**: Medium - Architecture improvement
 
-### 5. Audit entire codebase for magic numbers and config values that should not be hardcoded
+### 4. Audit codebase for magic numbers and config values that should not be hardcoded
 - **Goal**: Find all hardcoded values and move them to configuration files where appropriate
 - **Scope**: Search for numeric literals, hardcoded URLs, thresholds, timeouts
 - **Implementation**: Move found values to appropriate config files with documentation
-- **Priority**: Low - Code quality improvement
+- **Priority**: Medium - Code quality improvement
+
+### 5. Plan and implement gap database tracking system
+- **Goal**: Auto-store detected gaps in gap_history table, track fill rates, add CLI commands for gap analysis
+- **Details**: Schema ready (gap_history table exists), need integration in GapMarketScanner to store ~50-200 qualifying gaps per day
+- **Implementation**: Add _store_gap_event() calls after gap detection, track gap fills, create CLI gap analysis commands
+- **Benefit**: Historical gap performance tracking, strategy optimization, backtesting capabilities
+- **Priority**: Medium - Analytics and tracking foundation
 
 ---
 

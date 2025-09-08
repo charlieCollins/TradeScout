@@ -13,7 +13,7 @@ logic belongs in the provider layer.
 import logging
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from ..config.data_sources_manager import (
     DataSourcesManager,
@@ -538,7 +538,8 @@ class SmartCoordinator:
     # Gap Trading Analysis Methods
 
     def get_daily_gap_suggestions(
-        self, min_gap_percent: float = 2.0, movers_limit: Optional[int] = None
+        self, min_gap_percent: float = 2.0, movers_limit: Optional[int] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None
     ) -> List[Dict[str, any]]:
         """
         Generate daily gap trading suggestions using integrated analysis workflow
@@ -546,6 +547,7 @@ class SmartCoordinator:
         Args:
             min_gap_percent: Minimum gap size to consider (default: 2.0%)
             movers_limit: Limit market movers to analyze (overrides config if provided)
+            progress_callback: Optional callback for progress updates (symbol, current, total)
 
         Returns:
             List of gap trading suggestions with analysis
@@ -567,7 +569,7 @@ class SmartCoordinator:
 
             # Step 1: Scan for gap candidates
             gap_candidates, scanning_stats = gap_scanner.scan_pre_market_gaps(
-                Decimal(str(min_gap_percent)), movers_limit
+                Decimal(str(min_gap_percent)), movers_limit, progress_callback
             )
             logger.debug(f"Found {len(gap_candidates)} gap candidates")
 

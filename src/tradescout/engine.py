@@ -7,7 +7,7 @@ This module contains the business logic that CLI and other interfaces can use.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Callable
 
 from rich.console import Console
 from rich.table import Table
@@ -778,11 +778,19 @@ class TradeScoutEngine:
         except Exception as e:
             return []
 
+    def get_session_header(self, market_type: str = "suggestions") -> str:
+        """Get just the session header for display before processing."""
+        current_session = self.markets_manager.get_current_trading_session("nasdaq")
+        now = datetime.now()
+        session_info = self._get_session_info(current_session, now, market_type)
+        return session_info["header"]
+    
     def display_trade_suggestions(
         self,
         limit: Optional[int] = 5,
         force_refresh: bool = False,
         min_gap: float = 2.0,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> List:
         """
         Get complete trade suggestions display objects.
@@ -791,6 +799,7 @@ class TradeScoutEngine:
             limit: Maximum number of suggestions
             force_refresh: Force refresh of data
             min_gap: Minimum gap percentage
+            progress_callback: Optional callback for progress updates
 
         Returns:
             List of display objects (strings, Tables, Panels) ready for printing
@@ -804,7 +813,7 @@ class TradeScoutEngine:
             # Get suggestions with analysis details for header
             # Pass limit as movers_limit to limit market movers analyzed
             suggestion_result = self.coordinator.get_daily_gap_suggestions(
-                min_gap_percent=min_gap, movers_limit=limit
+                min_gap_percent=min_gap, movers_limit=limit, progress_callback=progress_callback
             )
             suggestions = (
                 suggestion_result.get("suggestions", [])
@@ -831,7 +840,8 @@ class TradeScoutEngine:
 
             if not suggestions:
                 display_lines = []
-                display_lines.append(session_info["header"])
+                # Don't duplicate session header since CLI shows it upfront
+                # display_lines.append(session_info["header"])
 
                 # Show detailed processing stats
                 movers_analyzed = scanning_stats.get("movers_analyzed", 0)
@@ -846,7 +856,8 @@ class TradeScoutEngine:
                 return display_lines
 
             display_lines = []
-            display_lines.append(session_info["header"])
+            # Don't duplicate session header since CLI shows it upfront
+            # display_lines.append(session_info["header"])
 
             # Show detailed processing stats for successful results too
             movers_analyzed = scanning_stats.get("movers_analyzed", 0)

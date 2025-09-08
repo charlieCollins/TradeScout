@@ -8,7 +8,7 @@ Implements MarketScanner interface to detect gap trading opportunities.
 import logging
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 from ..data_models.domain_models_core import (
     Asset,
     AssetType,
@@ -56,6 +56,7 @@ class GapMarketScanner(MarketScanner):
         self,
         min_gap_percent: Decimal = Decimal("2.0"),
         movers_limit: Optional[int] = None,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> Tuple[List[MarketQuote], Dict[str, int]]:
         """
         Scan for significant pre-market gaps using market movers data
@@ -63,6 +64,7 @@ class GapMarketScanner(MarketScanner):
         Args:
             min_gap_percent: Minimum gap percentage (default from research: 2.0%)
             movers_limit: Limit market movers to analyze (overrides config if provided)
+            progress_callback: Optional callback for progress updates (symbol, current, total)
 
         Returns:
             Tuple of (gap candidates list, analysis stats dict)
@@ -127,9 +129,14 @@ class GapMarketScanner(MarketScanner):
                 return [], stats
 
             # Process each mover using centralized snapshot data
-            for mover in all_movers:
+            total_movers = len(all_movers)
+            for idx, mover in enumerate(all_movers):
                 try:
                     stats["movers_processed"] += 1
+                    
+                    # Call progress callback if provided
+                    if progress_callback:
+                        progress_callback(mover.asset.symbol, idx + 1, total_movers)
 
                     # Get gap data from centralized snapshot
                     gap_data = self.coordinator.get_gap_data_from_snapshot(

@@ -149,26 +149,137 @@ def status(ctx):
 @click.option(
     "--show-symbols", "-s", is_flag=True, help="Show all symbols in the universe"
 )
+@click.option(
+    "--name", "-n", default="default_liquid_universe", help="Universe name to display"
+)
 @click.pass_context
-def universe(ctx, show_symbols: bool):
+def universe(ctx, show_symbols: bool, name: str):
     """
-    Display information about the trading universe.
+    Display information about the trading universe (from database).
 
     Shows the size and composition of the stock universe used for scanning.
 
     Examples:
         tradescout system universe
         tradescout system universe --show-symbols
+        tradescout system universe --name gap_trading
     """
-    engine = ctx.obj["engine"]
-
-    with console.status("[bold blue]Loading trading universe...", spinner="dots"):
-        display_objects = engine.display_universe_info("default_liquid_universe", show_symbols)
-
-    for obj in display_objects:
-        console.print(obj)
-
+    from ..storage.asset_universe_manager import AssetUniverseManager
+    manager = AssetUniverseManager()
+    
+    try:
+        # Get universe symbols from database
+        symbols = manager.get_universe_symbols(name)
+        
+        if not symbols:
+            console.print(f"[yellow]Universe '{name}' not found or empty[/yellow]")
+            return
+        
+        # Create display panel
+        from rich.panel import Panel
+        from rich.text import Text
+        
+        info_text = Text()
+        info_text.append(f"Universe: ", style="bold")
+        info_text.append(f"{name}\n", style="cyan")
+        info_text.append(f"Total Symbols: ", style="bold")
+        info_text.append(f"{len(symbols):,}\n", style="green")
+        info_text.append(f"Source: ", style="bold")
+        info_text.append("SQLite Database\n")
+        
+        panel = Panel(info_text, title="Trading Universe", border_style="cyan")
+        console.print(panel)
+        
+        if show_symbols:
+            # Create table for symbols
+            from rich.table import Table
+            from rich import box
+            
+            table = Table(title=f"Symbols in {name}", box=box.ROUNDED)
+            table.add_column("Index", justify="right", style="dim")
+            table.add_column("Symbol", style="cyan")
+            
+            for i, symbol in enumerate(symbols, 1):
+                table.add_row(str(i), symbol)
+            
+            console.print(table)
+    
+    except Exception as e:
+        console.print(f"[red]Error loading universe: {e}[/red]")
+    
     return
+
+
+@system.command("universe-list")
+@click.pass_context
+def universe_list(ctx):
+    """List all available universes"""
+    from ..storage.asset_universe_manager import AssetUniverseManager
+    manager = AssetUniverseManager()
+    
+    conn = manager._get_connection()
+    cursor = conn.cursor()
+    
+    try:
+        cursor.execute("""
+            SELECT u.name, u.description, 
+                   COUNT(DISTINCT um.asset_id) as asset_count,
+                   u.min_market_cap_millions, u.min_avg_volume
+            FROM universes u
+            LEFT JOIN universe_membership um ON u.name = um.universe_name AND um.is_active = 1
+            WHERE u.is_active = 1
+            GROUP BY u.name
+            ORDER BY asset_count DESC
+        """)
+        
+        universes = cursor.fetchall()
+        
+        # Create table
+        from rich.table import Table
+        from rich import box
+        
+        table = Table(title="Asset Universes", box=box.ROUNDED)
+        table.add_column("Universe", style="cyan")
+        table.add_column("Assets", justify="right")
+        table.add_column("Min Market Cap", justify="right")
+        table.add_column("Min Volume", justify="right")
+        table.add_column("Description", max_width=40)
+        
+        for univ in universes:
+            market_cap = f"${univ['min_market_cap_millions']:.0f}M" if univ['min_market_cap_millions'] else "-"
+            volume = f"{univ['min_avg_volume']:,.0f}" if univ['min_avg_volume'] else "-"
+            
+            table.add_row(
+                univ['name'],
+                str(univ['asset_count']),
+                market_cap,
+                volume,
+                univ['description'] or ""
+            )
+        
+        console.print(table)
+        
+    finally:
+        conn.close()
+
+
+@system.command("universe-add")
+@click.argument('symbol')
+@click.argument('universe_name') 
+@click.option('--reason', help='Reason for adding')
+@click.pass_context
+def universe_add(ctx, symbol: str, universe_name: str, reason: str):
+    """Add a symbol to a universe"""
+    from ..storage.asset_universe_manager import AssetUniverseManager
+    manager = AssetUniverseManager()
+    
+    try:
+        if manager.add_to_universe(symbol, universe_name, reason):
+            console.print(f"[green]✅ Added {symbol} to {universe_name}[/green]")
+        else:
+            console.print(f"[red]Failed to add {symbol} to {universe_name}[/red]")
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
 
 
 @system.command()
@@ -346,11 +457,27 @@ def suggest(ctx, limit: Optional[int], force_refresh: bool, min_gap: float):
     else:
         console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
     
-    with console.status(
+    # Display session header before starting the spinner
+    session_header = engine.get_session_header("suggestions")
+    console.print(session_header)
+    
+    # Create a progress callback for the spinner
+    spinner_status = console.status(
         f"[bold blue]Generating gap trading suggestions >= {min_gap}%...",
         spinner="dots",
-    ):
-        display_objects = engine.display_trade_suggestions(limit, force_refresh, min_gap)
+    )
+    
+    def update_progress(symbol: str, current: int, total: int):
+        """Update spinner with current ticker being processed"""
+        percentage = (current / total * 100) if total > 0 else 0
+        spinner_status.update(
+            f"[bold blue]Analyzing gaps: {percentage:3.0f}% - {symbol} ({current}/{total})[/bold blue]"
+        )
+    
+    with spinner_status:
+        display_objects = engine.display_trade_suggestions(
+            limit, force_refresh, min_gap, progress_callback=update_progress
+        )
 
     # Show updated market data status after force refresh
     if force_refresh:

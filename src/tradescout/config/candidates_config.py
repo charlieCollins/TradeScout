@@ -44,7 +44,7 @@ class CandidatesConfig:
             if config is None:
                 raise ValueError(f"Candidates config is empty or invalid: {self.config_path}")
 
-            logger.info(f"Loaded candidates config from {self.config_path}")
+            logger.debug(f"Loaded candidates config from {self.config_path}")
             return config
 
         except Exception as e:
