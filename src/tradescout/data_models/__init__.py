@@ -9,51 +9,42 @@ Core domain models and interfaces for TradeScout:
 """
 
 # Analysis models
-from .domain_models_analysis import (
-    ActualTrade,
+from .models_analysis import (
     ConfidenceLevel,
-    MarketEvent,
-    PerformanceMetrics,
-    TechnicalIndicators,
     TradeSide,
     TradeStatus,
     TradeSuggestion,
 )
 
-# Core domain models
-from .domain_models_core import (
+# Asset models
+from .models_asset import (
     Asset,
     AssetType,
-    ExtendedHoursData,
-    Market,
     MarketQuote,
-    MarketSegment,
-    MarketStatus,
-    MarketType,
-    NewsItem,
     PriceData,
-    SocialSentiment,
 )
 
-# Factory classes
-from .factories import (
-    AssetFactory,
-    MarketFactory,
-    MarketSegmentFactory,
-    get_common_assets,
-    get_tech_segments,
-    get_us_stock_market,
+# Base models
+from .models_base import (
+    Market,
+    MarketStatus,
 )
 
-# Abstract interfaces
-from .interfaces import (
-    AssetDataProvider,
-    DataCache,
-    DataCollectionCoordinator,
-    NewsProvider,
-    RateLimiter,
-    SentimentProvider,
+# Market models  
+from .models_market import (
+    MarketMover,
 )
+
+# Sentiment models
+from .models_sentiment import (
+    NewsItem,
+    SocialMention,
+    AssetSentiment,
+    MarketSentiment,
+)
+
+# Factory classes moved to tests directory since only tests use fake data
+
 
 # Future adapter implementations will be imported here:
 # Legacy adapter references - now handled by data_sources_api package

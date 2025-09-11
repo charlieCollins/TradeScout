@@ -99,9 +99,26 @@ def quote(ctx, symbols: tuple):
     """
     engine = ctx.obj["engine"]
 
+    # Display market data header first
+    market_header = engine.display_market_data_header()
+    if market_header:
+        console.print(market_header)
+
     console.print(f"[blue]📈 Getting quotes for: {', '.join(symbols)}[/blue]")
     
-    with console.status("[bold blue]Fetching quotes...", spinner="dots"):
+    from ..utils.progress_context import progress_context
+    
+    # Create a progress callback for database operations
+    spinner_status = console.status("[bold blue]Fetching quotes...", spinner="dots")
+    
+    def update_progress(symbol: str, current: int, total: int):
+        """Update spinner with current ticker being processed for database"""
+        percentage = (current / total * 100) if total > 0 else 0
+        spinner_status.update(
+            f"[bold blue]Initializing database: {percentage:3.0f}% - {symbol} ({current}/{total})[/bold blue]"
+        )
+    
+    with spinner_status, progress_context(update_progress):
         table = engine.display_quotes(list(symbols))
     
     console.print(table)
@@ -118,6 +135,11 @@ def fundamentals(ctx, symbol: str):
         tradescout asset fundamentals AAPL
     """
     engine = ctx.obj["engine"]
+
+    # Display market data header first
+    market_header = engine.display_market_data_header()
+    if market_header:
+        console.print(market_header)
 
     console.print(f"[blue]📋 Fundamental data for {symbol.upper()}[/blue]")
 
@@ -344,7 +366,19 @@ def gainers(ctx, limit: int, force_refresh: bool):
     else:
         console.print("[cyan]📊 Market Data: Force refreshing from Polygon API...[/cyan]")
     
-    with console.status("[bold green]Fetching market gainers...", spinner="dots"):
+    from ..utils.progress_context import progress_context
+    
+    # Create a progress callback for database operations
+    spinner_status = console.status("[bold green]Fetching market gainers...", spinner="dots")
+    
+    def update_progress(symbol: str, current: int, total: int):
+        """Update spinner with current ticker being processed for database"""
+        percentage = (current / total * 100) if total > 0 else 0
+        spinner_status.update(
+            f"[bold green]Initializing database: {percentage:3.0f}% - {symbol} ({current}/{total})[/bold green]"
+        )
+    
+    with spinner_status, progress_context(update_progress):
         display_objects = engine.display_gainers(limit, force_refresh)
 
     # Show updated market data status after force refresh
@@ -432,6 +466,40 @@ def movers(ctx, limit: int, force_refresh: bool):
         console.print(obj)
 
 
+@market.command("suggest-single")
+@click.argument("symbol", type=str)
+@click.option("--force-refresh", "--force", is_flag=True, help="Force refresh data")
+@click.pass_context
+def suggest_single(ctx, symbol: str, force_refresh: bool):
+    """
+    Analyze gap trading potential for a SINGLE symbol.
+    
+    Shows detailed gap analysis including:
+    - Previous session close
+    - Current real-time price (including extended hours)
+    - Gap percentage and direction
+    - Binary classification results
+    - Trading recommendation if qualified
+    
+    Example:
+        tradescout market suggest-single AAPL
+        tradescout market suggest-single TSLA --force
+    """
+    engine = ctx.obj["engine"]
+    symbol = symbol.upper()
+    
+    # Display session header
+    session_header = engine.get_session_header("single_symbol_analysis")
+    console.print(session_header)
+    console.print(f"[bold cyan]Analyzing {symbol}...[/bold cyan]\n")
+    
+    with console.status(f"[bold blue]Fetching real-time data for {symbol}...", spinner="dots"):
+        display_objects = engine.analyze_single_symbol_gap(symbol, force_refresh)
+    
+    for obj in display_objects:
+        console.print(obj)
+
+
 @market.command()
 @click.option("--limit", default=None, type=int, help="Limit gainers/losers to analyze (default: analyze all)")
 @click.option("--force-refresh", "--force", is_flag=True, help="Force refresh data")
@@ -461,6 +529,8 @@ def suggest(ctx, limit: Optional[int], force_refresh: bool, min_gap: float):
     session_header = engine.get_session_header("suggestions")
     console.print(session_header)
     
+    from ..utils.progress_context import progress_context
+    
     # Create a progress callback for the spinner
     spinner_status = console.status(
         f"[bold blue]Generating gap trading suggestions >= {min_gap}%...",
@@ -474,10 +544,8 @@ def suggest(ctx, limit: Optional[int], force_refresh: bool, min_gap: float):
             f"[bold blue]Analyzing gaps: {percentage:3.0f}% - {symbol} ({current}/{total})[/bold blue]"
         )
     
-    with spinner_status:
-        display_objects = engine.display_trade_suggestions(
-            limit, force_refresh, min_gap, progress_callback=update_progress
-        )
+    with spinner_status, progress_context(update_progress):
+        display_objects = engine.display_trade_suggestions(limit, force_refresh, min_gap)
 
     # Show updated market data status after force refresh
     if force_refresh:
@@ -505,6 +573,11 @@ def ohlc(ctx, symbols: tuple, date: str):
         tradescout asset ohlc AMZN --date 2025-09-05
     """
     engine = ctx.obj["engine"]
+    
+    # Display market data header first
+    market_header = engine.display_market_data_header()
+    if market_header:
+        console.print(market_header)
     
     with console.status(f"[bold blue]Getting OHLC data for {len(symbols)} symbols...", spinner="dots"):
         display_objects = engine.display_ohlc_data(list(symbols), date)

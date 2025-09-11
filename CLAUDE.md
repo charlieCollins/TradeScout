@@ -33,36 +33,6 @@
 - Early returns to reduce nesting
 - No comments unless asked
 
-### Example Data Management
-Save API results to `data/examples/` to avoid repeated calls:
-```python
-def fetch_and_cache_example_data(symbol: str):
-    save_path = f"data/examples/{symbol.lower()}_data_{date.today()}.json"
-    if os.path.exists(save_path):
-        return json.load(open(save_path))
-    
-    data = fetch_from_api(symbol)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    json.dump(data, open(save_path, 'w'), indent=2)
-    return data
-```
-
-### API Caching Strategy
-Use cache wrapper for rate-limited APIs:
-```python
-from data_collection.api_cache import cached_api_call, CachePolicy
-
-def get_stock_quote(symbol: str):
-    return cached_api_call(
-        provider="polygon",
-        endpoint="get_quote", 
-        params={"symbol": symbol},
-        api_function=lambda: polygon_client.get_last_quote(symbol),
-        policy=CachePolicy.REAL_TIME
-    )
-```
-
-Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 
 ## Testing & Quality
 
@@ -118,16 +88,20 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 
 ## Project Architecture
 
-### Data Pipeline
-```python
-# Multi-provider system with smart fallback → Analysis → Suggestions → CLI
-# - Polygon.io: Premium data (5 calls/min free)
-# - YFinance: Real-time prices, backup (unlimited)
-# - Finnhub: High-quality data (60 calls/min free)
-# - Alpha Vantage: Market movers, fundamentals (25 calls/day - very limited!)
-# - NewsAPI: 1000 articles/day
-# - API Sources: Extended hours data via YFinance and Polygon
-```
+### Critical Data Rules - PRICE COMPARISONS
+
+**ALWAYS:**
+1. **Previous SESSION close** = Last regular trading session close (could be today, yesterday, 3 days ago - doesn't matter)
+   - Get from bulk snapshot API
+   
+2. **Current REAL-TIME price** = The price RIGHT NOW (pre-market, regular, after-hours - doesn't matter)
+   - Get from individual real-time quote API
+
+**The calculation is ALWAYS:**
+- Change = Current real-time price - Previous session close
+- Change % = (Change / Previous session close) × 100
+
+**PERIOD. That's it.**
 
 ### Development vs Production Separation
 - **Production** (`src/tradescout/`): Clean code, standard cache
@@ -143,32 +117,13 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 - **Budget**: $0-50/month (includes POLYGON PREMIUM SUBSCRIPTION)
 - **IMPORTANT**: We have a PREMIUM Polygon subscription - NEVER assume free tier limitations
 
-## Project Status
-- [x] Technical plan completed
-- [x] Data sources identified and implemented
-- [x] Architecture designed and implemented
-- [x] Development environment setup
-- [x] Multi-provider data system operational
-- [x] Gap trading system operational
-- [x] Academic research-based trading rules
-- [x] Rich CLI interface
-- [x] Comprehensive testing suite
-- [x] Smart coordinator with fallback strategies
-
-## Next Steps
-1. News sentiment integration for gap catalyst validation
-2. Performance tracking system
-3. Advanced technical indicators
-4. Portfolio optimization features
-5. Web interface development
-
 ## Session Management
 
 ### TODO File Management (CLAUDE_TODO.md)
 - Keep CLAUDE_TODO.md concise and forward-looking only
 - Remove completed tasks regularly - we don't need historical completed work cluttering the file
 - Focus on what's next to do, not what's already been accomplished
-- Completed work should be documented in CLAUDE_CONTEXT.md instead
+- Completed work and session based information should be documented in CLAUDE_CONTEXT.md instead of elsewhere
 - The TODO file should be actionable and clean for the next session
 - **Sync TODOs to CLAUDE_TODO.md every hour** - For session continuity
 
@@ -179,7 +134,6 @@ Cache locations: `data/cache/polygon/`, `data/cache/yfinance/`, etc.
 - Keep active TODO list focused on current and upcoming work
 
 ## Key Reminders
-- Run lint/typecheck before declaring done
 - Never commit unless explicitly asked
 - Cache API calls to avoid rate limits
 - Save example data to avoid repeated API calls

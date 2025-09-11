@@ -1,1 +1,3 @@
-"""Tests for TradeScout"""
+"""
+TradeScout test package
+"""

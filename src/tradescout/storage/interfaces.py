@@ -1,240 +1,311 @@
 """
 TradeScout Storage Interfaces
 
-Abstract interfaces for data persistence.
-Supports both local SQLite and cloud database implementations
-with seamless migration capability.
+Abstract interfaces for data persistence that align with our current domain models.
+Supports local SQLite and future cloud database implementations.
 """
 
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
-from ..data_models.domain_models_analysis import (
-    ActualTrade,
-    MarketEvent,
-    PerformanceMetrics,
-    TechnicalIndicators,
+from ..data_models import (
+    Asset,
+    MarketQuote,
+    PriceData,
     TradeSuggestion,
 )
-from ..data_models.domain_models_core import (
-    Asset,
-    ExtendedHoursData,
-    MarketQuote,
-    NewsItem,
-    SocialSentiment,
-)
+from ..data_models.models_asset import Fundamentals
+from ..data_models.models_base import Market, MarketSegment
 
 
-class QuoteRepository(ABC):
-    """Abstract interface for storing market quotes"""
+class DatabaseManager(ABC):
+    """Abstract interface for database connection management"""
+
+    @abstractmethod
+    def get_connection(self):
+        """Get database connection"""
+        pass
+
+    @abstractmethod
+    def execute_migration(self, name: str, sql: str) -> None:
+        """Execute a database migration"""
+        pass
+
+    @abstractmethod
+    def execute_migration_file(self, file_path: str) -> None:
+        """Execute migration from SQL file"""
+        pass
+
+
+class MarketRepository(ABC):
+    """Repository interface for market/exchange data"""
+
+    @abstractmethod
+    def create_market(self, market: Market) -> Optional[str]:
+        """Create a new market, return market ID"""
+        pass
+
+    @abstractmethod
+    def get_market_by_id(self, market_id: str) -> Optional[Market]:
+        """Get market by ID"""
+        pass
+
+    @abstractmethod
+    def get_all_markets(self) -> List[Market]:
+        """Get all available markets"""
+        pass
+
+    @abstractmethod
+    def update_market(self, market: Market) -> bool:
+        """Update market information"""
+        pass
+
+
+class MarketSegmentRepository(ABC):
+    """Repository interface for market segments"""
+
+    @abstractmethod
+    def create_segment(self, segment: MarketSegment) -> Optional[int]:
+        """Create a new market segment"""
+        pass
+
+    @abstractmethod
+    def get_segment_by_id(self, segment_id: int) -> Optional[MarketSegment]:
+        """Get segment by ID"""
+        pass
+
+    @abstractmethod
+    def get_segments_by_type(self, segment_type: str) -> List[MarketSegment]:
+        """Get segments by type (e.g., 'sector', 'cap_size')"""
+        pass
+
+    @abstractmethod
+    def get_all_segments(self) -> List[MarketSegment]:
+        """Get all market segments"""
+        pass
+
+
+class AssetRepository(ABC):
+    """Repository interface for asset management"""
+
+    @abstractmethod
+    def create_asset(self, asset: Asset) -> Optional[int]:
+        """Create a new asset, return asset ID"""
+        pass
+
+    @abstractmethod
+    def get_asset_by_id(self, asset_id: int) -> Optional[Asset]:
+        """Get asset by database ID"""
+        pass
+
+    @abstractmethod
+    def get_asset_by_symbol(self, symbol: str) -> Optional[Asset]:
+        """Get asset by symbol"""
+        pass
+
+    @abstractmethod
+    def update_asset(self, asset: Asset) -> bool:
+        """Update asset information"""
+        pass
+
+    @abstractmethod
+    def deactivate_asset(self, symbol: str) -> bool:
+        """Mark asset as inactive"""
+        pass
+
+    @abstractmethod
+    def get_assets_by_market(self, market_id: str) -> List[Asset]:
+        """Get all assets in a specific market"""
+        pass
+
+    @abstractmethod
+    def get_active_assets(self) -> List[Asset]:
+        """Get all active assets"""
+        pass
+
+    @abstractmethod
+    def add_asset_to_segment(self, symbol: str, segment_name: str) -> bool:
+        """Add asset to a market segment"""
+        pass
+
+    @abstractmethod
+    def remove_asset_from_segment(self, symbol: str, segment_name: str) -> bool:
+        """Remove asset from a market segment"""
+        pass
+
+    @abstractmethod
+    def get_asset_segments(self, symbol: str) -> Set[MarketSegment]:
+        """Get all segments an asset belongs to"""
+        pass
+
+    @abstractmethod
+    def get_segment_assets(self, segment_name: str) -> List[Asset]:
+        """Get all assets in a segment"""
+        pass
+
+
+class PriceDataRepository(ABC):
+    """Repository interface for price data storage"""
+
+    @abstractmethod
+    def save_price_data(self, price_data: PriceData) -> bool:
+        """Save price data point"""
+        pass
+
+    @abstractmethod
+    def bulk_save_price_data(self, price_data_list: List[PriceData]) -> int:
+        """Bulk save price data, return count saved"""
+        pass
+
+    @abstractmethod
+    def get_latest_price(self, symbol: str) -> Optional[PriceData]:
+        """Get most recent price for symbol"""
+        pass
+
+    @abstractmethod
+    def get_historical_prices(
+        self,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+        data_source: Optional[str] = None
+    ) -> List[PriceData]:
+        """Get historical prices in date range"""
+        pass
+
+    @abstractmethod
+    def get_prices_by_timeframe(
+        self,
+        symbol: str,
+        hours_back: int,
+        data_source: Optional[str] = None
+    ) -> List[PriceData]:
+        """Get prices from last N hours"""
+        pass
+
+    @abstractmethod
+    def delete_old_prices(self, older_than_days: int) -> int:
+        """Delete price data older than specified days"""
+        pass
+
+
+class MarketQuoteRepository(ABC):
+    """Repository interface for current market quotes"""
 
     @abstractmethod
     def save_quote(self, quote: MarketQuote) -> bool:
-        """
-        Save a market quote
-
-        Args:
-            quote: Market quote to save
-
-        Returns:
-            True if saved successfully
-        """
+        """Save/update current market quote"""
         pass
 
     @abstractmethod
-    def get_latest_quote(self, symbol: str) -> Optional[MarketQuote]:
-        """
-        Get the most recent quote for a symbol
-
-        Args:
-            symbol: Stock symbol
-
-        Returns:
-            Latest quote or None if not found
-        """
+    def get_current_quote(self, symbol: str) -> Optional[MarketQuote]:
+        """Get current quote for symbol"""
         pass
 
     @abstractmethod
-    def get_quotes_by_timeframe(
-        self, symbol: str, start_time: datetime, end_time: datetime
-    ) -> List[MarketQuote]:
-        """
-        Get quotes within a time range
-
-        Args:
-            symbol: Stock symbol
-            start_time: Start of time range
-            end_time: End of time range
-
-        Returns:
-            List of quotes in timeframe
-        """
+    def get_multiple_quotes(self, symbols: List[str]) -> Dict[str, MarketQuote]:
+        """Get current quotes for multiple symbols"""
         pass
 
     @abstractmethod
-    def get_historical_quotes(self, symbol: str, days_back: int) -> List[MarketQuote]:
-        """
-        Get historical quotes for analysis
-
-        Args:
-            symbol: Stock symbol
-            days_back: Number of days to look back
-
-        Returns:
-            List of historical quotes
-        """
+    def bulk_update_quotes(self, quotes: List[MarketQuote]) -> int:
+        """Bulk update current quotes"""
         pass
 
     @abstractmethod
-    def bulk_save_quotes(self, quotes: List[MarketQuote]) -> int:
-        """
-        Save multiple quotes efficiently
+    def get_quotes_updated_since(self, since: datetime) -> List[MarketQuote]:
+        """Get quotes updated after specific time"""
+        pass
 
-        Args:
-            quotes: List of quotes to save
 
-        Returns:
-            Number of quotes saved
-        """
+class FundamentalsRepository(ABC):
+    """Repository interface for fundamental data"""
+
+    @abstractmethod
+    def save_fundamentals(self, fundamentals: Fundamentals) -> bool:
+        """Save fundamental data for an asset"""
         pass
 
     @abstractmethod
-    def delete_old_quotes(self, older_than_days: int) -> int:
-        """
-        Delete quotes older than specified days
-
-        Args:
-            older_than_days: Delete quotes older than this
-
-        Returns:
-            Number of quotes deleted
-        """
-        pass
-
-
-class ExtendedHoursRepository(ABC):
-    """Abstract interface for storing extended hours data"""
-
-    @abstractmethod
-    def save_extended_hours_data(self, data: ExtendedHoursData) -> bool:
-        """Save extended hours trading data"""
+    def get_latest_fundamentals(self, symbol: str) -> Optional[Fundamentals]:
+        """Get most recent fundamentals for symbol"""
         pass
 
     @abstractmethod
-    def get_latest_extended_hours(self, symbol: str) -> Optional[ExtendedHoursData]:
-        """Get latest extended hours data for symbol"""
+    def get_fundamentals_by_date(
+        self,
+        symbol: str,
+        report_date: datetime
+    ) -> Optional[Fundamentals]:
+        """Get fundamentals for specific report date"""
         pass
 
     @abstractmethod
-    def get_pre_market_gaps(
-        self, min_gap_percent: Decimal, date: Optional[datetime] = None
-    ) -> List[ExtendedHoursData]:
-        """
-        Get stocks with significant pre-market gaps
-
-        Args:
-            min_gap_percent: Minimum gap percentage
-            date: Specific date (default: today)
-
-        Returns:
-            List of stocks with gaps
-        """
-        pass
-
-
-class NewsRepository(ABC):
-    """Abstract interface for storing news data"""
-
-    @abstractmethod
-    def save_news_item(self, news: NewsItem) -> bool:
-        """Save a news item"""
+    def get_fundamentals_history(
+        self,
+        symbol: str,
+        quarters_back: int = 4
+    ) -> List[Fundamentals]:
+        """Get historical fundamentals"""
         pass
 
     @abstractmethod
-    def get_news_by_symbol(self, symbol: str, hours_back: int = 24) -> List[NewsItem]:
-        """Get recent news for a symbol"""
+    def get_fundamentals_for_screening(
+        self,
+        min_market_cap: Optional[Decimal] = None,
+        max_pe_ratio: Optional[Decimal] = None,
+        min_roe: Optional[Decimal] = None
+    ) -> List[Fundamentals]:
+        """Get fundamentals matching screening criteria"""
+        pass
+
+
+class MarketSnapshotRepository(ABC):
+    """Repository interface for bulk market snapshot data"""
+
+    @abstractmethod
+    def save_market_snapshot(
+        self,
+        snapshot_time: datetime,
+        snapshot_data: Dict[str, Dict[str, Any]]
+    ) -> int:
+        """Save complete market snapshot, return count saved"""
         pass
 
     @abstractmethod
-    def get_news_by_timeframe(
-        self, start_time: datetime, end_time: datetime
-    ) -> List[NewsItem]:
-        """Get news within time range"""
+    def get_latest_snapshot_time(self) -> Optional[datetime]:
+        """Get timestamp of most recent snapshot"""
         pass
 
     @abstractmethod
-    def search_news_by_keywords(
-        self, keywords: List[str], limit: int = 50
-    ) -> List[NewsItem]:
-        """Search news by keywords"""
+    def get_snapshot_data(
+        self,
+        snapshot_time: datetime,
+        symbols: Optional[List[str]] = None
+    ) -> Dict[str, Dict[str, Any]]:
+        """Get snapshot data for specific time and symbols"""
         pass
 
     @abstractmethod
-    def bulk_save_news(self, news_items: List[NewsItem]) -> int:
-        """Bulk save news items"""
+    def get_top_movers(
+        self,
+        snapshot_time: datetime,
+        limit: int = 20,
+        mover_type: str = "gainers"  # "gainers", "losers", "active"
+    ) -> List[Dict[str, Any]]:
+        """Get top movers from snapshot"""
         pass
 
     @abstractmethod
-    def get_news_sentiment_summary(
-        self, symbol: str, hours_back: int = 24
-    ) -> Dict[str, Any]:
-        """Get aggregated sentiment from news"""
+    def cleanup_old_snapshots(self, keep_days: int = 7) -> int:
+        """Remove snapshots older than specified days"""
         pass
 
 
-class SentimentRepository(ABC):
-    """Abstract interface for storing sentiment data"""
-
-    @abstractmethod
-    def save_sentiment_data(self, sentiment: SocialSentiment) -> bool:
-        """Save sentiment data"""
-        pass
-
-    @abstractmethod
-    def get_latest_sentiment(self, symbol: str) -> Optional[SocialSentiment]:
-        """Get latest sentiment for symbol"""
-        pass
-
-    @abstractmethod
-    def get_sentiment_timeline(
-        self, symbol: str, start_time: datetime, end_time: datetime
-    ) -> List[SocialSentiment]:
-        """Get sentiment data over time"""
-        pass
-
-    @abstractmethod
-    def get_trending_symbols(self, limit: int = 20) -> List[str]:
-        """Get symbols with highest sentiment activity"""
-        pass
-
-
-class TechnicalRepository(ABC):
-    """Abstract interface for storing technical indicators"""
-
-    @abstractmethod
-    def save_technical_indicators(self, indicators: TechnicalIndicators) -> bool:
-        """Save technical indicators"""
-        pass
-
-    @abstractmethod
-    def get_latest_indicators(
-        self, symbol: str, timeframe: str
-    ) -> Optional[TechnicalIndicators]:
-        """Get latest technical indicators"""
-        pass
-
-    @abstractmethod
-    def get_indicator_history(
-        self, symbol: str, timeframe: str, days_back: int
-    ) -> List[TechnicalIndicators]:
-        """Get historical technical indicators"""
-        pass
-
-
-class SuggestionRepository(ABC):
-    """Abstract interface for storing trade suggestions"""
+class TradeSuggestionRepository(ABC):
+    """Repository interface for trade suggestions"""
 
     @abstractmethod
     def save_suggestion(self, suggestion: TradeSuggestion) -> bool:
@@ -247,246 +318,71 @@ class SuggestionRepository(ABC):
         pass
 
     @abstractmethod
-    def get_suggestions_by_date(self, date: datetime) -> List[TradeSuggestion]:
-        """Get all suggestions for a specific date"""
+    def get_suggestions_by_date(
+        self,
+        date: datetime,
+        analysis_type: Optional[str] = None
+    ) -> List[TradeSuggestion]:
+        """Get suggestions for specific date, optionally filtered by type"""
         pass
 
     @abstractmethod
     def get_active_suggestions(self) -> List[TradeSuggestion]:
-        """Get currently active suggestions"""
+        """Get all suggestions that are still valid/active"""
         pass
 
     @abstractmethod
-    def update_suggestion_performance(
+    def get_suggestions_by_symbol(
+        self,
+        symbol: str,
+        days_back: int = 30
+    ) -> List[TradeSuggestion]:
+        """Get recent suggestions for a symbol"""
+        pass
+
+    @abstractmethod
+    def update_suggestion_status(
         self,
         suggestion_id: str,
-        max_profit: Decimal,
-        max_loss: Decimal,
-        current_price: Decimal,
+        new_status: str
     ) -> bool:
-        """Update suggestion with current performance"""
-        pass
-
-    @abstractmethod
-    def get_suggestion_performance_history(
-        self, days_back: int = 30
-    ) -> List[TradeSuggestion]:
-        """Get suggestion performance history"""
+        """Update suggestion status (executed, expired, etc.)"""
         pass
 
     @abstractmethod
     def get_suggestions_by_confidence(
-        self, min_confidence: Decimal
+        self,
+        min_confidence: str,  # ConfidenceLevel enum value
+        limit: int = 50
     ) -> List[TradeSuggestion]:
-        """Get suggestions above confidence threshold"""
+        """Get high-confidence suggestions"""
         pass
 
 
-class TradeRepository(ABC):
-    """Abstract interface for storing actual trades"""
+class CacheMetadataRepository(ABC):
+    """Repository interface for cache metadata (TTL tracking, etc.)"""
 
     @abstractmethod
-    def save_trade(self, trade: ActualTrade) -> bool:
-        """Save an actual trade"""
-        pass
-
-    @abstractmethod
-    def get_trade_by_id(self, trade_id: str) -> Optional[ActualTrade]:
-        """Get trade by ID"""
-        pass
-
-    @abstractmethod
-    def get_open_trades(self) -> List[ActualTrade]:
-        """Get all open trades"""
-        pass
-
-    @abstractmethod
-    def get_trades_by_date_range(
-        self, start_date: datetime, end_date: datetime
-    ) -> List[ActualTrade]:
-        """Get trades within date range"""
-        pass
-
-    @abstractmethod
-    def update_trade_exit(
-        self, trade_id: str, exit_price: Decimal, exit_time: datetime, exit_reason: str
+    def set_cache_metadata(
+        self,
+        cache_type: str,
+        last_updated: datetime,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> bool:
-        """Update trade with exit information"""
+        """Set cache metadata with timestamp"""
         pass
 
     @abstractmethod
-    def get_trade_statistics(self, days_back: int = 30) -> Dict[str, Any]:
-        """Get trading statistics"""
-        pass
-
-
-class PerformanceRepository(ABC):
-    """Abstract interface for storing performance metrics"""
-
-    @abstractmethod
-    def save_performance_metrics(self, metrics: PerformanceMetrics) -> bool:
-        """Save performance metrics"""
+    def get_cache_metadata(self, cache_type: str) -> Optional[Dict[str, Any]]:
+        """Get cache metadata including last_updated timestamp"""
         pass
 
     @abstractmethod
-    def get_latest_performance(self) -> Optional[PerformanceMetrics]:
-        """Get latest performance metrics"""
+    def is_cache_valid(self, cache_type: str, ttl_minutes: int) -> bool:
+        """Check if cache is still valid based on TTL"""
         pass
 
     @abstractmethod
-    def get_performance_history(self, months_back: int = 6) -> List[PerformanceMetrics]:
-        """Get performance history"""
-        pass
-
-    @abstractmethod
-    def calculate_rolling_performance(self, days: int = 30) -> PerformanceMetrics:
-        """Calculate rolling performance metrics"""
-        pass
-
-
-class EventRepository(ABC):
-    """Abstract interface for storing market events"""
-
-    @abstractmethod
-    def save_event(self, event: MarketEvent) -> bool:
-        """Save a market event"""
-        pass
-
-    @abstractmethod
-    def get_upcoming_events(
-        self, symbol: str, days_ahead: int = 7
-    ) -> List[MarketEvent]:
-        """Get upcoming events for symbol"""
-        pass
-
-    @abstractmethod
-    def get_events_by_date(self, date: datetime) -> List[MarketEvent]:
-        """Get events for specific date"""
-        pass
-
-    @abstractmethod
-    def get_earnings_calendar(
-        self, start_date: datetime, end_date: datetime
-    ) -> List[MarketEvent]:
-        """Get earnings events in date range"""
-        pass
-
-
-class DatabaseManager(ABC):
-    """Main database manager interface"""
-
-    @abstractmethod
-    def initialize_database(self) -> bool:
-        """Initialize database schema"""
-        pass
-
-    @abstractmethod
-    def migrate_schema(self, target_version: str) -> bool:
-        """Migrate database schema to target version"""
-        pass
-
-    @abstractmethod
-    def backup_database(self, backup_path: str) -> bool:
-        """Create database backup"""
-        pass
-
-    @abstractmethod
-    def restore_database(self, backup_path: str) -> bool:
-        """Restore database from backup"""
-        pass
-
-    @abstractmethod
-    def get_database_stats(self) -> Dict[str, Any]:
-        """Get database statistics"""
-        pass
-
-    @abstractmethod
-    def cleanup_old_data(self, retention_days: int = 90) -> int:
-        """Clean up old data beyond retention period"""
-        pass
-
-    @abstractmethod
-    def execute_raw_query(
-        self, query: str, params: Optional[List] = None
-    ) -> List[Dict]:
-        """Execute raw SQL query"""
-        pass
-
-    # Repository access methods
-
-    @property
-    @abstractmethod
-    def extended_hours(self) -> ExtendedHoursRepository:
-        """Get extended hours repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def news(self) -> NewsRepository:
-        """Get news repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def sentiment(self) -> SentimentRepository:
-        """Get sentiment repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def technical(self) -> TechnicalRepository:
-        """Get technical repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def suggestions(self) -> SuggestionRepository:
-        """Get suggestions repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def trades(self) -> TradeRepository:
-        """Get trades repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def performance(self) -> PerformanceRepository:
-        """Get performance repository"""
-        pass
-
-    @property
-    @abstractmethod
-    def events(self) -> EventRepository:
-        """Get events repository"""
-        pass
-
-
-class CacheManager(ABC):
-    """Abstract interface for data caching"""
-
-    @abstractmethod
-    def get_cached_quote(self, symbol: str) -> Optional[MarketQuote]:
-        """Get cached quote if available and fresh"""
-        pass
-
-    @abstractmethod
-    def cache_quote(self, quote: MarketQuote, ttl_seconds: int = 60) -> None:
-        """Cache a quote with TTL"""
-        pass
-
-    @abstractmethod
-    def invalidate_symbol_cache(self, symbol: str) -> None:
-        """Invalidate all cached data for a symbol"""
-        pass
-
-    @abstractmethod
-    def clear_expired_cache(self) -> int:
-        """Clear expired cache entries"""
-        pass
-
-    @abstractmethod
-    def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache hit/miss statistics"""
+    def cleanup_expired_metadata(self) -> int:
+        """Remove expired cache metadata entries"""
         pass

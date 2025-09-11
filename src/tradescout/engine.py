@@ -5,6 +5,7 @@ Main application driver that provides high-level API for all TradeScout function
 This module contains the business logic that CLI and other interfaces can use.
 """
 
+import os
 from datetime import datetime
 from decimal import Decimal
 from typing import Dict, List, Optional, Any, Union, Callable
@@ -14,9 +15,9 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from .data_models.domain_models_core import Asset, AssetType, MarketQuote
-from .data_models.factories import MarketFactory
-from .data_sources.smart_coordinator import SmartCoordinator
+from .config.universe_config import get_major_us_exchanges
+from .data_models import Asset, AssetType, MarketQuote
+from .data_sources.data_provider import DataProviderCoordinator
 from .storage.sqlite_repository import SQLiteDatabaseManager
 from .config.markets_manager import get_markets_manager, TradingSession
 
@@ -58,8 +59,6 @@ class TradeScoutEngine:
         # Initialize markets manager
         self.markets_manager = get_markets_manager()
 
-        # Initialize market factory
-        self.market_factory = MarketFactory()
 
     # Market Data Methods
 
@@ -82,19 +81,10 @@ class TradeScoutEngine:
         table.add_column("Volume", justify="right")
         table.add_column("Time", style="dim")
 
-        nasdaq = self.market_factory.create_nasdaq_market()
         quote_symbols = set()
 
         for symbol in symbols:
-            asset = Asset(
-                symbol=symbol.upper(),
-                name=f"{symbol.upper()} Corp",
-                asset_type=AssetType.COMMON_STOCK,
-                market=nasdaq,
-                currency="USD",
-            )
-
-            quote = self.coordinator.get_current_quote(asset.symbol)
+            quote = self.coordinator.get_current_quote(symbol.upper())
             if quote:
                 quote_symbols.add(quote.asset.symbol)
 
@@ -520,11 +510,15 @@ class TradeScoutEngine:
             if hasattr(provider, "get_market_data_status"):
                 status = provider.get_market_data_status()
                 if status["status"] == "cached":
-                    return f"[cyan]📊 Market Data: {status['symbols']:,} symbols cached ({status['age_minutes']:.1f} min old)[/cyan]"
+                    time_left = status.get('time_left_minutes', 0)
+                    if time_left > 0:
+                        return f"[cyan]📊 Market Data: {status['symbols']:,} symbols cached ({status['age_minutes']:.1f}m old, {time_left:.1f}m left)[/cyan]"
+                    else:
+                        return f"[cyan]📊 Market Data: {status['symbols']:,} symbols cached ({status['age_minutes']:.1f}m old)[/cyan]"
                 elif status["status"] == "empty":
                     return "[cyan]📊 Market Data: Fetching fresh snapshot from Polygon API...[/cyan]"
                 else:
-                    return f"[cyan]📊 Market Data: {status['symbols']:,} symbols (stale, refreshing...)[/cyan]"
+                    return f"[cyan]📊 Market Data: {status['symbols']:,} symbols (stale {status['age_minutes']:.1f}m, refreshing...)[/cyan]"
         return ""
 
     def display_gainers(self, limit: int = 10, force_refresh: bool = False) -> List:
@@ -785,12 +779,157 @@ class TradeScoutEngine:
         session_info = self._get_session_info(current_session, now, market_type)
         return session_info["header"]
     
+    def analyze_single_symbol_gap(self, symbol: str, force_refresh: bool = False) -> List[Any]:
+        """
+        Analyze gap trading potential for a single symbol
+        
+        Args:
+            symbol: Stock symbol to analyze
+            force_refresh: Force refresh of data
+            
+        Returns:
+            List of display objects with detailed gap analysis
+        """
+        from decimal import Decimal
+        from rich.table import Table
+        from rich.panel import Panel
+        
+        display_objects = []
+        
+        try:
+            # Get real-time quote including extended hours
+            import os
+            from .data_sources.data_provider_polygon import DataProviderPolygon
+            from .data_models.domain_models_core import Asset, AssetType
+            
+            api_key = os.getenv("POLYGON_API_KEY")
+            if not api_key:
+                display_objects.append("[red]❌ POLYGON_API_KEY not set[/red]")
+                return display_objects
+            
+            provider = DataProviderPolygon(api_key)
+            
+            # Get previous session close from bulk snapshot
+            market_data = provider._get_fresh_market_data(force_refresh)
+            if not market_data or symbol not in market_data:
+                display_objects.append(f"[red]❌ No market data available for {symbol}[/red]")
+                return display_objects
+            
+            ticker_data = market_data[symbol]
+            
+            # Get previous close
+            prev_close = 0
+            if "prevDay" in ticker_data and ticker_data["prevDay"]:
+                prev_close = ticker_data["prevDay"].get("c", 0)
+            
+            if not prev_close:
+                display_objects.append(f"[red]❌ No previous close data for {symbol}[/red]")
+                return display_objects
+            
+            # Get real-time quote
+            realtime_data = provider._get_realtime_quote_including_extended_hours(symbol, force_refresh)
+            if not realtime_data:
+                display_objects.append(f"[red]❌ No real-time data available for {symbol}[/red]")
+                return display_objects
+            
+            # Extract current price
+            current_price = 0
+            volume = 0
+            
+            # Try minute bar first (most recent)
+            if "min" in realtime_data and realtime_data["min"]:
+                current_price = realtime_data["min"].get("c", 0) or realtime_data["min"].get("o", 0)
+                volume = realtime_data["min"].get("v", 0)
+            
+            # Fallback to day data
+            if not current_price and "day" in realtime_data and realtime_data["day"]:
+                current_price = realtime_data["day"].get("c", 0) or realtime_data["day"].get("o", 0)
+                volume = realtime_data["day"].get("v", 0)
+            
+            if not current_price:
+                display_objects.append(f"[red]❌ No current price available for {symbol}[/red]")
+                return display_objects
+            
+            # Calculate gap
+            gap_amount = current_price - prev_close
+            gap_percent = (gap_amount / prev_close) * 100
+            gap_direction = "UP" if gap_amount > 0 else "DOWN"
+            
+            # Create detail table
+            table = Table(title=f"Gap Analysis for {symbol}", show_header=True, header_style="bold cyan")
+            table.add_column("Metric", style="cyan")
+            table.add_column("Value", justify="right")
+            
+            table.add_row("Previous Session Close", f"${prev_close:.2f}")
+            table.add_row("Current Price (Real-time)", f"${current_price:.2f}")
+            table.add_row("Gap Amount", f"${gap_amount:+.2f}")
+            table.add_row("Gap Percentage", f"{gap_percent:+.2f}%")
+            table.add_row("Gap Direction", f"[{'green' if gap_direction == 'UP' else 'red'}]{gap_direction}[/]")
+            table.add_row("Volume", f"{volume:,}" if volume else "N/A")
+            
+            display_objects.append(table)
+            
+            # Check if it meets gap threshold (2.0% default)
+            if abs(gap_percent) >= 2.0:
+                # Run through binary classification
+                # Asset creation removed - gap analysis should work with symbol only
+                
+                from .data_models.domain_models_core import MarketQuote, PriceData
+                
+                price_data = PriceData(
+                    asset=asset,
+                    timestamp=datetime.now(),
+                    price=Decimal(str(current_price)),
+                    volume=volume
+                )
+                
+                quote = MarketQuote(
+                    asset=asset,
+                    price_data=price_data
+                )
+                quote.gap_size = Decimal(str(abs(gap_percent)))
+                quote.gap_direction = "up" if gap_direction == "UP" else "down"
+                
+                # Apply binary rules
+                from .analysis.gap_rules_engine import GapRulesEngine
+                engine = GapRulesEngine(self.coordinator)
+                
+                classification = engine.classify_gap_candidate(quote, Decimal(str(abs(gap_percent))))
+                
+                if classification["passes_all_rules"]:
+                    display_objects.append(Panel(
+                        f"[green]✅ QUALIFIED GAP TRADE[/green]\n"
+                        f"Gap meets all 6 binary classification rules",
+                        title="Trading Recommendation",
+                        border_style="green"
+                    ))
+                else:
+                    failed_rules = [rule for rule, passed in classification.items() if rule != "passes_all_rules" and not passed]
+                    display_objects.append(Panel(
+                        f"[yellow]⚠️ NOT QUALIFIED[/yellow]\n"
+                        f"Failed rules: {', '.join(failed_rules)}",
+                        title="Trading Recommendation",
+                        border_style="yellow"
+                    ))
+            else:
+                display_objects.append(Panel(
+                    f"[yellow]Gap too small ({abs(gap_percent):.2f}% < 2.0% threshold)[/yellow]",
+                    title="Trading Recommendation",
+                    border_style="yellow"
+                ))
+            
+        except Exception as e:
+            display_objects.append(f"[red]Error analyzing {symbol}: {e}[/red]")
+            import logging
+            logging.error(f"Error in analyze_single_symbol_gap: {e}")
+        
+        return display_objects
+    
     def display_trade_suggestions(
         self,
         limit: Optional[int] = 5,
         force_refresh: bool = False,
         min_gap: float = 2.0,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> List:
         """
         Get complete trade suggestions display objects.
@@ -813,7 +952,7 @@ class TradeScoutEngine:
             # Get suggestions with analysis details for header
             # Pass limit as movers_limit to limit market movers analyzed
             suggestion_result = self.coordinator.get_daily_gap_suggestions(
-                min_gap_percent=min_gap, movers_limit=limit, progress_callback=progress_callback
+                min_gap_percent=min_gap, movers_limit=limit
             )
             suggestions = (
                 suggestion_result.get("suggestions", [])
@@ -1482,7 +1621,7 @@ class TradeScoutEngine:
                 if (
                     ticker_type == "CS"
                     and market == "stocks"
-                    and primary_exchange in ["XNYS", "XNAS", "BATS"]
+                    and primary_exchange in get_major_us_exchanges()
                     and 1 <= len(symbol) <= 5
                     and symbol.isalpha()
                     and symbol not in current_symbols
@@ -1596,20 +1735,21 @@ class TradeScoutEngine:
         # Verbose provider status
         if verbose:
             try:
-                from ..config.data_sources_manager import get_data_sources_manager
-
-                data_manager = get_data_sources_manager()
-                status = data_manager.get_provider_status()
-
+                status = self.coordinator.get_provider_status()
+                polygon_status = status.get("polygon", {})
+                
+                if polygon_status.get("available"):
+                    display_messages.append("[dim]Polygon provider: ✅ Available[/dim]")
+                else:
+                    display_messages.append("[dim]Polygon provider: ❌ Unavailable[/dim]")
+                    
+                data_types = self.coordinator.get_available_data_types()
                 display_messages.append(
-                    f"[dim]Available providers: {status['summary']['available']}/{status['summary']['total_configured']}[/dim]"
-                )
-                display_messages.append(
-                    f"[dim]Data types configured: {len(self.coordinator.get_available_data_types())}[/dim]"
+                    f"[dim]Data types available: {len(data_types)}[/dim]"
                 )
             except Exception as e:
                 display_messages.append(
-                    f"[yellow]⚠️  Warning: Could not get detailed provider status: {e}[/yellow]"
+                    f"[yellow]⚠️  Warning: Could not get provider status: {e}[/yellow]"
                 )
 
         return display_messages

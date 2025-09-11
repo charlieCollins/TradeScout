@@ -10,28 +10,19 @@ __author__ = "Charlie Collins"
 __description__ = "Personal Market Research Assistant for Momentum Trading"
 
 # Core public API exports
-from .data_models.domain_models_core import (
+from .data_models import (
     Asset,
     AssetType,
     Market,
     MarketQuote,
-    MarketSegment,
     MarketStatus,
-    MarketType,
     PriceData,
 )
-from .data_models.interfaces import AssetDataProvider
-from .data_sources_api.asset_data_provider_tiingo import AssetDataProviderTiingo
-
 __all__ = [
     "Asset",
-    "Market",
-    "MarketSegment",
-    "PriceData",
-    "MarketQuote",
     "AssetType",
-    "MarketType",
+    "Market",
+    "MarketQuote",
     "MarketStatus",
-    "AssetDataProvider",
-    "AssetDataProviderTiingo",
+    "PriceData",
 ]

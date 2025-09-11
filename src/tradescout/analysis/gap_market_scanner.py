@@ -17,15 +17,13 @@ from ..data_models.domain_models_core import (
     PriceData,
 )
 from ..data_models.domain_models_analysis import MarketEvent
-from ..data_models.factories import MarketFactory
-from ..data_sources.smart_coordinator import SmartCoordinator
+from ..data_sources.data_provider import SmartCoordinator
 from ..config.candidates_config import get_market_movers_limit
-from .interfaces import MarketScanner
 
 logger = logging.getLogger(__name__)
 
 
-class GapMarketScanner(MarketScanner):
+class GapMarketScanner:
     """
     Market scanner specifically designed for gap trading opportunities
 
@@ -44,7 +42,6 @@ class GapMarketScanner(MarketScanner):
             coordinator: Smart coordinator for data access
         """
         self.coordinator = coordinator
-        self.nasdaq_market = MarketFactory().create_nasdaq_market()
 
         # Academic research thresholds
         self.min_gap_threshold = Decimal("2.0")  # 2.0% minimum from research
@@ -56,7 +53,6 @@ class GapMarketScanner(MarketScanner):
         self,
         min_gap_percent: Decimal = Decimal("2.0"),
         movers_limit: Optional[int] = None,
-        progress_callback: Optional[Callable[[str, int, int], None]] = None,
     ) -> Tuple[List[MarketQuote], Dict[str, int]]:
         """
         Scan for significant pre-market gaps using market movers data
@@ -134,9 +130,9 @@ class GapMarketScanner(MarketScanner):
                 try:
                     stats["movers_processed"] += 1
                     
-                    # Call progress callback if provided
-                    if progress_callback:
-                        progress_callback(mover.asset.symbol, idx + 1, total_movers)
+                    # Update global progress context if available
+                    from ..utils.progress_context import update_progress
+                    update_progress(mover.asset.symbol, idx + 1, total_movers)
 
                     # Get gap data from centralized snapshot
                     gap_data = self.coordinator.get_gap_data_from_snapshot(

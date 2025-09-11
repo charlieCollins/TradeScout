@@ -18,11 +18,10 @@ LOGGING_CONFIG = {
     "console_enabled": True,
 }
 
-# Cron Job Schedules (for reference)
-CRON_SCHEDULES = {
-    "evening_analysis": "0 23 * * 1-5",  # 11 PM EST weekdays
-    "morning_suggestions": "30 6 * * 1-5",  # 6:30 AM EST weekdays
-    "performance_tracking": "0 19 * * 1-5",  # 7 PM EST weekdays
-    "weekly_summary": "0 8 * * 0",  # 8 AM EST Sundays
-    "health_check": "0 9-16 * * 1-5",  # Hourly during market hours
+# Market Data Caching Configuration
+MARKET_SNAPSHOT_CONFIG = {
+    "ttl_minutes": 10,  # Market snapshot cache TTL in minutes
+    "snapshot_type": "full_market",  # Type identifier for database metadata
 }
+
+

@@ -22,13 +22,3 @@ DATABASE_CONFIG = {
     "backup_interval_hours": 24,
 }
 
-
-# Development Settings
-DEV_CONFIG = {
-    "mock_trading": True,  # Paper trading mode
-    "verbose_logging": True,  # Detailed logs during development
-    "skip_weekends": True,  # Don't run analysis on weekends
-    "test_mode": False,  # Set to True for unit tests
-}
-
-# NOTE: API provider configuration is in data_sources_config.yaml

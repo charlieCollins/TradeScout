@@ -1,6 +1,6 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-07 19:54 (Claude) - Completed database-first caching architecture and asset universe migration*
+*Last updated: 2025-09-09 (Claude) - Completed universe database schema implementation and configuration cleanup*
 
 ## About TradeScout
 
@@ -25,7 +25,35 @@ TradeScout is a personal market research assistant for gap trading strategy impl
 ./tradescout system status
 ```
 
-## ✅ Recently Completed (Session 2025-09-07)
+## ✅ Recently Completed
+
+### Session 2025-09-09 Evening
+- **Asset universe bootstrapping validated** ✅ - Successfully tested 11,700 asset bootstrap from Polygon API
+- **Configuration architecture cleanup** ✅ - Comprehensive config reorganization and centralization
+  - Cleaned up universe_config.py: Removed made-up universe definitions and arbitrary restrictions
+  - Centralized exchange definitions: Moved hardcoded exchanges to SUPPORTED_EXCHANGES constant
+  - Moved gap trading criteria to analysis_config.py (proper separation of concerns)
+  - Deleted obsolete candidates_config.py/yaml files
+- **Universe database schema implemented** ✅ - Added proper relational universe management
+  - Added `universes` and `universe_memberships` tables with proper integer foreign keys
+  - Created default_universe record via schema initialization
+  - Used proper database design with universe_id (integer FK) instead of string names
+- **UniverseManager class creation** ✅ - Renamed and refactored universe management
+  - Renamed AssetUniverseManager → UniverseManager (better focus)
+  - Fixed constructor to accept SQLiteDatabaseManager instance properly
+  - Updated test imports and fixtures with proper Market model creation
+  - Achieved 2/17 tests passing (database initialization and migrations)
+
+### Session 2025-09-09 Morning
+- **Fixed CLI ranking issue** ✅ - Market commands now show proper rankings (1, 2, 3, etc.)
+- **Created clean interface architecture** ✅ - 5 interface files in dedicated interfaces/ directory
+- **Created aligned domain models** ✅ - 5 model files organized by interface type
+- **Removed all Tiingo code** ✅ - Simplified to single-provider Polygon architecture  
+- **Removed dead code** ✅ - Cleaned up 145+ lines of unused _screen_market_movers method
+- **All CLI commands working** ✅ - gainers, losers, movers show correct data and rankings
+- **All tests passing** ✅ - 23/23 coordinator tests pass after Tiingo removal
+
+### Session 2025-09-07
 - **CRITICAL: Fixed Polygon market snapshot data issue** ✅ - Resolved critical cache problem blocking gap analysis
   - Problem: Cache contained only 1 symbol ("NEW") instead of full market data (11,705 symbols)
   - Root cause: Stale/corrupted cache file from previous session
@@ -55,7 +83,32 @@ TradeScout is a personal market research assistant for gap trading strategy impl
 
 ## 🎯 Current Priority Tasks
 
-### 1. Add pre-market activity filter to gap scanner to exclude non-trading symbols
+### 1. Complete UniverseManager implementation
+- **Goal**: Add remaining CRUD methods to get all 17 tests passing
+- **Status**: 2/17 tests passing (database initialization works), 15 tests need method implementations
+- **Methods needed**: create_asset(), get_asset_by_symbol(), add_to_universe(), get_universe_assets(), etc.
+- **Priority**: HIGH - Core universe management functionality
+
+### 2. Create universe bootstrap integration
+- **Goal**: Populate default_universe from existing 11,700 assets using filtering criteria
+- **Implementation**: Apply SUPPORTED_UNIVERSE.md filtering (CS type, major exchanges, active status)
+- **Expected result**: ~4,800-5,000 qualified assets in default_universe
+- **Priority**: HIGH - Make use of bootstrapped asset data
+
+### 3. Remove ill-conceived strategy patterns from smart coordinator  
+- **Goal**: Simplify coordinator to basic provider management while keeping multi-provider capability
+- **Issues**: Over-engineered strategy/fallback patterns, hardcoded provider logic, web scraper cruft
+- **Keep**: Coordinator concept for future multi-provider support
+- **Remove**: Complex strategy patterns, unnecessary abstractions
+- **Priority**: HIGH - Major technical debt cleanup
+
+### 4. Implement global progress bar with spinner for all long-running operations
+- **Goal**: Centralized progress system for consistent UX across all slow operations
+- **Requirements**: Database loading uses it (regardless of command), market operations use it, spinner with status updates
+- **Benefit**: Users won't stare at blank terminal wondering if anything is happening
+- **Priority**: HIGH - User experience improvement
+
+### 5. Add pre-market activity filter to gap scanner to exclude non-trading symbols
 - **Goal**: Filter out symbols with no pre-market activity to focus gap analysis on actively trading stocks
 - **Implementation**: Check for pre-market volume or price movement before including in gap candidates
 - **Benefit**: Reduces noise and focuses on meaningful gap opportunities
