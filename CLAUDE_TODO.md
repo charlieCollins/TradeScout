@@ -1,143 +1,68 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-09 (Claude) - Completed universe database schema implementation and configuration cleanup*
-
-## About TradeScout
-
-TradeScout is a personal market research assistant for gap trading strategy implementation. The system combines academic research-based trading rules with multi-provider data collection and intelligent market analysis.
-
-## Current Command Structure
-
-```bash
-# Individual asset data
-./tradescout asset quote AAPL MSFT TSLA
-./tradescout asset fundamentals IBM  
-./tradescout asset ohlc TSLA
-
-# Market-wide analysis
-./tradescout market gainers --limit 10
-./tradescout market losers --limit 10
-./tradescout market active --limit 10
-./tradescout market movers --limit 5
-./tradescout market suggest
-
-# System status
-./tradescout system status
-```
-
-## ✅ Recently Completed
-
-### Session 2025-09-09 Evening
-- **Asset universe bootstrapping validated** ✅ - Successfully tested 11,700 asset bootstrap from Polygon API
-- **Configuration architecture cleanup** ✅ - Comprehensive config reorganization and centralization
-  - Cleaned up universe_config.py: Removed made-up universe definitions and arbitrary restrictions
-  - Centralized exchange definitions: Moved hardcoded exchanges to SUPPORTED_EXCHANGES constant
-  - Moved gap trading criteria to analysis_config.py (proper separation of concerns)
-  - Deleted obsolete candidates_config.py/yaml files
-- **Universe database schema implemented** ✅ - Added proper relational universe management
-  - Added `universes` and `universe_memberships` tables with proper integer foreign keys
-  - Created default_universe record via schema initialization
-  - Used proper database design with universe_id (integer FK) instead of string names
-- **UniverseManager class creation** ✅ - Renamed and refactored universe management
-  - Renamed AssetUniverseManager → UniverseManager (better focus)
-  - Fixed constructor to accept SQLiteDatabaseManager instance properly
-  - Updated test imports and fixtures with proper Market model creation
-  - Achieved 2/17 tests passing (database initialization and migrations)
-
-### Session 2025-09-09 Morning
-- **Fixed CLI ranking issue** ✅ - Market commands now show proper rankings (1, 2, 3, etc.)
-- **Created clean interface architecture** ✅ - 5 interface files in dedicated interfaces/ directory
-- **Created aligned domain models** ✅ - 5 model files organized by interface type
-- **Removed all Tiingo code** ✅ - Simplified to single-provider Polygon architecture  
-- **Removed dead code** ✅ - Cleaned up 145+ lines of unused _screen_market_movers method
-- **All CLI commands working** ✅ - gainers, losers, movers show correct data and rankings
-- **All tests passing** ✅ - 23/23 coordinator tests pass after Tiingo removal
-
-### Session 2025-09-07
-- **CRITICAL: Fixed Polygon market snapshot data issue** ✅ - Resolved critical cache problem blocking gap analysis
-  - Problem: Cache contained only 1 symbol ("NEW") instead of full market data (11,705 symbols)
-  - Root cause: Stale/corrupted cache file from previous session
-  - Solution: Implemented proper cache refresh logic with database-first architecture
-  - Result: Gap analysis now processes correctly with full market coverage
-- **Implemented ASCII spinner progress bar** ✅ - Added real-time progress display to suggest command
-  - Shows current ticker being analyzed: "Analyzing gaps: 42% - AAPL (42/100)"
-  - Progress callback system through entire processing chain
-  - Dramatically improved user experience during gap analysis
-- **Moved asset universe from YAML to database** ✅ - Complete migration to SQLite-based dynamic management
-  - Created 7-table database schema (assets, universes, price_history, gap_history, etc.)
-  - Migrated 1,019 symbols from screening_universe.yaml to database
-  - Built AssetUniverseManager class with full CRUD operations
-  - Updated all CLI commands to use database instead of static files
-- **Implemented database-first caching architecture** ✅ - Database is now PRIMARY cache for all market data
-  - Revolutionary approach: Check database first → API only if stale → Update database
-  - Auto-discovery: New symbols from API automatically added (discovered 10,687 new symbols!)
-  - 10-minute TTL with intelligent fallback strategies
-  - Commands now show "11,705 symbols cached" with age information
-- **Enhanced user experience improvements** ✅ - Multiple UX refinements
-  - Session headers now display BEFORE processing starts (not after)
-  - Configuration loading messages moved to DEBUG level for cleaner output
-  - Progress spinner shows percentage first for stable display format
-- **Created comprehensive DATABASE.md documentation** ✅ - Complete technical documentation
-  - Documented database schema, caching philosophy, and data flow architecture
-  - Performance considerations, query patterns, and best practices
+*Last updated: 2025-09-16*
 
 ## 🎯 Current Priority Tasks
 
-### 1. Complete UniverseManager implementation
-- **Goal**: Add remaining CRUD methods to get all 17 tests passing
-- **Status**: 2/17 tests passing (database initialization works), 15 tests need method implementations
-- **Methods needed**: create_asset(), get_asset_by_symbol(), add_to_universe(), get_universe_assets(), etc.
-- **Priority**: HIGH - Core universe management functionality
+### 1. CRITICAL: Implement proper extended hours gap identification (NOT total displacement)
+- **Goal**: Build the core extended hours gap discovery functionality (THE ENTIRE POINT OF THIS PROJECT)
+- **Status**: Currently disabled - gap candidates method returns empty list with warning
+- **Priority**: HIGHEST - This is the fundamental purpose of TradeScout
 
-### 2. Create universe bootstrap integration
-- **Goal**: Populate default_universe from existing 11,700 assets using filtering criteria
-- **Implementation**: Apply SUPPORTED_UNIVERSE.md filtering (CS type, major exchanges, active status)
-- **Expected result**: ~4,800-5,000 qualified assets in default_universe
-- **Priority**: HIGH - Make use of bootstrapped asset data
+### 2. Implement gainers-extended-hours command
+- **Goal**: Show stocks that gained ONLY during extended hours (after close or before open)
+- **Implementation**: Compare previous regular session close to current extended hours price
+- **Priority**: HIGH - Foundation for gap analysis
 
-### 3. Remove ill-conceived strategy patterns from smart coordinator  
-- **Goal**: Simplify coordinator to basic provider management while keeping multi-provider capability
-- **Issues**: Over-engineered strategy/fallback patterns, hardcoded provider logic, web scraper cruft
-- **Keep**: Coordinator concept for future multi-provider support
-- **Remove**: Complex strategy patterns, unnecessary abstractions
-- **Priority**: HIGH - Major technical debt cleanup
+### 3. Implement losers-extended-hours command
+- **Goal**: Show stocks that lost ONLY during extended hours (after close or before open)
+- **Implementation**: Compare previous regular session close to current extended hours price
+- **Priority**: HIGH - Foundation for gap analysis
 
-### 4. Implement global progress bar with spinner for all long-running operations
-- **Goal**: Centralized progress system for consistent UX across all slow operations
-- **Requirements**: Database loading uses it (regardless of command), market operations use it, spinner with status updates
-- **Benefit**: Users won't stare at blank terminal wondering if anything is happening
-- **Priority**: HIGH - User experience improvement
+### 4. Implement gainers-extended-hours-candidates command
+- **Goal**: Extended hours gainers filtered by gap analysis criteria
+- **Implementation**: Use gainers-extended-hours + apply gap criteria filtering
+- **Priority**: HIGH - Gap trading candidate identification
 
-### 5. Add pre-market activity filter to gap scanner to exclude non-trading symbols
-- **Goal**: Filter out symbols with no pre-market activity to focus gap analysis on actively trading stocks
-- **Implementation**: Check for pre-market volume or price movement before including in gap candidates
-- **Benefit**: Reduces noise and focuses on meaningful gap opportunities
-- **Priority**: High - Quality improvement for gap detection
+### 5. Implement losers-extended-hours-candidates command
+- **Goal**: Extended hours losers filtered by gap analysis criteria
+- **Implementation**: Use losers-extended-hours + apply gap criteria filtering
+- **Priority**: HIGH - Gap trading candidate identification
 
-### 2. Implement market status API instead of hardcoded hours
-- **Goal**: Use Polygon's market status API to determine trading sessions instead of hardcoded time checks
-- **Implementation**: Replace time-based session detection with real-time market status checks
-- **Benefit**: Accurate session detection including holidays and early market closures
-- **Priority**: High - Accuracy improvement for session-aware features
+### 6. Update gap candidates identification to use extended hours candidates
+- **Goal**: Fix get_gap_suggestions() to use extended hours candidates instead of total displacement
+- **Implementation**: Use gainers-extended-hours-candidates and losers-extended-hours-candidates
+- **Priority**: HIGH - Complete the gap analysis workflow
 
-### 3. Separate engine from display/CLI output - create presentation layer
-- **Goal**: Move all Rich formatting and display logic out of engine into dedicated presentation layer
-- **Implementation**: Create display/presentation layer that takes engine data and formats for CLI
-- **Benefit**: Cleaner separation of concerns, easier to add web interface later
-- **Priority**: Medium - Architecture improvement
+### 7. MAJOR: Implement new database schema and screener architecture
+- **Goal**: Implement the comprehensive 8-table database schema designed in docs/REFACTOR_SCREENER_APPROACH.md
+- **Implementation**: Create migration scripts, update models, build screener query system
+- **Priority**: HIGH - Foundation for all extended hours functionality
 
-### 4. Audit codebase for magic numbers and config values that should not be hardcoded
-- **Goal**: Find all hardcoded values and move them to configuration files where appropriate
-- **Scope**: Search for numeric literals, hardcoded URLs, thresholds, timeouts
-- **Implementation**: Move found values to appropriate config files with documentation
-- **Priority**: Medium - Code quality improvement
+### 8. Build custom bars API integration for real-time data
+- **Goal**: Replace snapshot API with custom bars API for asset_prices_current table
+- **Implementation**: Individual ticker calls using Polygon custom bars API
+- **Priority**: HIGH - Real-time data foundation
 
-### 5. Plan and implement gap database tracking system
-- **Goal**: Auto-store detected gaps in gap_history table, track fill rates, add CLI commands for gap analysis
-- **Details**: Schema ready (gap_history table exists), need integration in GapMarketScanner to store ~50-200 qualifying gaps per day
-- **Implementation**: Add _store_gap_event() calls after gap detection, track gap fills, create CLI gap analysis commands
-- **Benefit**: Historical gap performance tracking, strategy optimization, backtesting capabilities
-- **Priority**: Medium - Analytics and tracking foundation
+### 9. Implement extended hours aggregates data collection
+- **Goal**: Use aggregates API to collect pre-market (4:00-9:30 AM) and after-hours (4:01-8:00 PM) session data
+- **Implementation**: Time-based aggregates calls for extended hours analysis
+- **Priority**: HIGH - Core extended hours functionality
+
+### 10. Complete codebase audit for dead code
+- **Goal**: Use agents to audit all modules for unused imports, classes, methods
+- **Implementation**: Systematic review and cleanup of deprecated code
+- **Priority**: MEDIUM - Code quality maintenance
+
+### 11. Implement market cap filtering in gap analysis
+- **Goal**: Add fundamentals API calls for proper market cap filtering
+- **Status**: Currently fake filtering (returns True always) - needs real implementation
+- **Priority**: MEDIUM - Academic strategy compliance
+
+### 12. Extract display logic from engine
+- **Goal**: Move Rich formatting to display handler pattern
+- **Implementation**: Create presentation layer separate from business logic
+- **Priority**: MEDIUM - Architecture improvement
 
 ---
 

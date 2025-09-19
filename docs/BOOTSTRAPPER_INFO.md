@@ -9,7 +9,7 @@ TradeScout uses a two-stage bootstrapping process to populate the asset database
 ```
 ┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
 │  Polygon API    │    │   Assets Table      │    │ Default Universe│
-│   ~11,700       │───▶│    ~11,700         │───▶│    ~6,058       │
+│   ~11,700       │───▶│    ~11,700         │───▶│    ~5,000       │
 │   All Tickers   │    │   All Assets       │    │ Filtered Assets │
 └─────────────────┘    └─────────────────────┘    └─────────────────┘
          │                        │                        │
@@ -44,7 +44,7 @@ TradeScout uses a two-stage bootstrapping process to populate the asset database
   - Market: stocks only
   - Status: active only
 
-**Result**: Quality-filtered ~6,058 assets in `default_universe`
+**Result**: Quality-filtered ~5,000 assets in `default_universe`
 
 ## Usage Guide
 
@@ -60,14 +60,8 @@ TradeScout uses a two-stage bootstrapping process to populate the asset database
 # Basic ticker bootstrap (recommended)
 python -m tradescout.scripts.bootstrap_tickers
 
-# Check what would be fetched (preview mode)
+# Check current universe statistics (preview mode)
 python -m tradescout.scripts.bootstrap_tickers --stats-only
-
-# Filter by specific market types
-python -m tradescout.scripts.bootstrap_tickers --market-types stocks etf
-
-# Apply minimum market cap filter
-python -m tradescout.scripts.bootstrap_tickers --min-market-cap 100000000
 ```
 
 **Expected Output**:
@@ -110,10 +104,10 @@ Starting default universe bootstrap...
 
 Bootstrap Results:
   Total assets in database: 11700
-  Assets meeting criteria: 6058
+  Assets meeting criteria: 5000
   Already in universe: 0
-  New assets to add: 6058
-  Assets successfully added: 6058
+  New assets to add: 5000
+  Assets successfully added: 5000
   Errors: 0
 
 ✅ Default universe bootstrap completed
@@ -135,7 +129,7 @@ Bootstrap Results:
 - ✅ **Market**: Stocks only (redundant with Stage 1)
 - ✅ **Status**: Active only (redundant with Stage 1)
 
-### Excluded Categories (~5,642 assets filtered out)
+### Excluded Categories (~6,700 assets filtered out)
 
 **Investment Vehicles** (~2,000 assets):
 - ETFs, ETNs, REITs, Mutual funds, Closed-end funds
@@ -301,6 +295,6 @@ python -m tradescout.scripts.bootstrap_default_universe --dry-run --verbose
 
 ---
 
-**Last Updated**: September 9, 2025  
-**Current Coverage**: 11,700 total tickers → 6,058 default universe assets  
+**Last Updated**: January 2025
+**Current Coverage**: 11,700 total tickers → ~5,000 default universe assets
 **Data Source**: Polygon.io Premium API

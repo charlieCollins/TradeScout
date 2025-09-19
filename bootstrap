@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""Bootstrap CLI for TradeScout database initialization using Click."""
+
+import logging
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+import click
+from database.bootstrapper_database import DatabaseBootstrapper
+from bootstrapping.bootstrapper_ticker import TickerBootstrapper
+from bootstrapping.bootstrapper_universe import UniverseBootstrapper
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+
+# Pass context for shared db_path
+class Config:
+    def __init__(self):
+        self.db_path = "data/tradescout.db"
+        self.verbose = False
+
+
+pass_config = click.make_pass_decorator(Config, ensure=True)
+
+
+@click.group()
+@click.option('--db-path', default='data/tradescout.db', help='Database path (default: data/tradescout.db)')
+@click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
+@pass_config
+def cli(config, db_path, verbose):
+    """TradeScout Bootstrap CLI - Initialize database and load data."""
+    config.db_path = db_path
+    config.verbose = verbose
+
+    if verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+
+# Database group
+@cli.group()
+@pass_config
+def database(config):
+    """Database management commands."""
+    pass
+
+
+@database.command('init')
+@pass_config
+def database_init(config):
+    """Initialize database with schema."""
+    logger.info("Initializing database...")
+
+    # Ensure data directory exists
+    db_dir = Path(config.db_path).parent
+    db_dir.mkdir(parents=True, exist_ok=True)
+
+    # Check if database already exists
+    db_exists = Path(config.db_path).exists()
+
+    bootstrapper = DatabaseBootstrapper(config.db_path)
+
+    if bootstrapper.bootstrap_database():
+        if db_exists:
+            logger.info("✅ Database verified successfully")
+        else:
+            logger.info("✅ Database created successfully")
+
+        # Show database info
+        info = bootstrapper.get_database_info()
+        logger.info(f"Database: {info['database_path']}")
+        logger.info(f"Schema version: {info.get('schema_version', 'unknown')}")
+
+        if 'tables' in info:
+            logger.info("Table status:")
+            for table, count in info['tables'].items():
+                logger.info(f"  - {table}: {count} records")
+
+        sys.exit(0)
+    else:
+        logger.error("❌ Database initialization failed")
+        sys.exit(1)
+
+
+@database.command('reset')
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
+@pass_config
+def database_reset(config, force):
+    """Drop and recreate the database from scratch."""
+    # Confirm with user unless forced
+    if not force:
+        logger.warning(f"⚠️  This will DELETE the database: {config.db_path}")
+        logger.warning("All data will be lost!")
+        if not click.confirm("Are you sure?"):
+            logger.info("Reset cancelled")
+            sys.exit(0)
+
+    # Delete the database file if it exists
+    if Path(config.db_path).exists():
+        logger.info(f"Removing existing database: {config.db_path}")
+        Path(config.db_path).unlink()
+        logger.info("✅ Database removed")
+    else:
+        logger.info("No existing database to remove")
+
+    # Now recreate it
+    logger.info("Creating fresh database...")
+    bootstrapper = DatabaseBootstrapper(config.db_path)
+
+    if bootstrapper.bootstrap_database():
+        logger.info("✅ Database recreated successfully")
+        sys.exit(0)
+    else:
+        logger.error("❌ Database recreation failed")
+        sys.exit(1)
+
+
+@database.command('info')
+@pass_config
+def database_info(config):
+    """Show database information and statistics."""
+    if not Path(config.db_path).exists():
+        logger.error(f"Database not found: {config.db_path}")
+        sys.exit(1)
+
+    bootstrapper = DatabaseBootstrapper(config.db_path)
+    info = bootstrapper.get_database_info()
+
+    logger.info(f"Database: {info['database_path']}")
+    logger.info(f"Status: {info.get('status', 'unknown')}")
+    logger.info(f"Schema version: {info.get('schema_version', 'unknown')}")
+
+    if 'tables' in info:
+        logger.info("\nTable statistics:")
+        total_records = 0
+        for table, count in info['tables'].items():
+            if isinstance(count, int):
+                logger.info(f"  - {table}: {count:,} records")
+                total_records += count
+            else:
+                logger.info(f"  - {table}: {count}")
+        logger.info(f"\nTotal records: {total_records:,}")
+
+    sys.exit(0)
+
+
+# Tickers command
+@cli.command()
+@click.option('--market', default='stocks', help='Market to fetch (default: stocks)')
+@click.option('--include-inactive', is_flag=True, help='Include inactive/delisted tickers')
+@click.option('--limit', type=int, help='Limit number of tickers to fetch (for testing)')
+@pass_config
+def tickers(config, market, include_inactive, limit):
+    """Fetch and store tickers from Polygon."""
+    logger.info("Bootstrapping tickers from Polygon...")
+
+    # Check if database exists
+    if not Path(config.db_path).exists():
+        logger.error(f"Database not found: {config.db_path}")
+        logger.error("Run 'bootstrap database init' first")
+        sys.exit(1)
+
+    bootstrapper = TickerBootstrapper(config.db_path)
+
+    # Fetch tickers with optional filtering
+    success = bootstrapper.bootstrap_tickers(
+        market=market,
+        active_only=not include_inactive,
+        limit=limit
+    )
+
+    if success:
+        stats = bootstrapper.get_bootstrap_stats()
+        logger.info("✅ Ticker bootstrap completed")
+        logger.info(f"  Total fetched: {stats.get('total_fetched', 0)}")
+        logger.info(f"  Inserted: {stats.get('inserted', 0)}")
+        logger.info(f"  Updated: {stats.get('updated', 0)}")
+        logger.info(f"  Errors: {stats.get('errors', 0)}")
+        sys.exit(0)
+    else:
+        logger.error("❌ Ticker bootstrap failed")
+        sys.exit(1)
+
+
+# Universe command
+@cli.command()
+@click.option('--universe', default='default_universe',
+              help='Universe name to bootstrap (default: default_universe)')
+@pass_config
+def universe(config, universe):
+    """Create and populate asset universes."""
+    logger.info("Bootstrapping universes...")
+
+    # Check if database exists
+    if not Path(config.db_path).exists():
+        logger.error(f"Database not found: {config.db_path}")
+        logger.error("Run 'bootstrap database init' first")
+        sys.exit(1)
+
+    bootstrapper = UniverseBootstrapper(config.db_path)
+
+    # Bootstrap specified universe or default
+    success = bootstrapper.bootstrap_universe(universe)
+
+    if success:
+        stats = bootstrapper.get_universe_stats(universe)
+        logger.info(f"✅ Universe '{universe}' bootstrapped")
+        logger.info(f"  Total members: {stats.get('total_members', 0)}")
+        logger.info(f"  Active members: {stats.get('active_members', 0)}")
+
+        # Show breakdown by type if available
+        if 'by_type' in stats:
+            logger.info("  By type:")
+            for asset_type, count in stats['by_type'].items():
+                logger.info(f"    - {asset_type}: {count}")
+
+        sys.exit(0)
+    else:
+        logger.error(f"❌ Universe bootstrap failed")
+        sys.exit(1)
+
+
+# All command
+@cli.command()
+@pass_config
+def all(config):
+    """Run all bootstrap operations in sequence."""
+    logger.info("Running complete bootstrap sequence...")
+
+    # 1. Database
+    logger.info("\n=== Step 1: Database ===")
+    bootstrapper_db = DatabaseBootstrapper(config.db_path)
+    if not bootstrapper_db.bootstrap_database():
+        logger.error("Database initialization failed, stopping")
+        sys.exit(1)
+
+    # 2. Tickers
+    logger.info("\n=== Step 2: Tickers ===")
+    bootstrapper_ticker = TickerBootstrapper(config.db_path)
+    if not bootstrapper_ticker.bootstrap_tickers():
+        logger.error("Ticker bootstrap failed, stopping")
+        sys.exit(1)
+
+    # 3. Universe
+    logger.info("\n=== Step 3: Universe ===")
+    bootstrapper_universe = UniverseBootstrapper(config.db_path)
+    if not bootstrapper_universe.bootstrap_universe("default_universe"):
+        logger.error("Universe bootstrap failed, stopping")
+        sys.exit(1)
+
+    logger.info("\n✅ Complete bootstrap successful!")
+    sys.exit(0)
+
+
+if __name__ == '__main__':
+    cli()

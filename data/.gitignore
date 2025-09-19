@@ -1,0 +1,7 @@
+# Ignore all files in this directory
+*
+# Except this .gitignore file
+!.gitignore
+# And any example or template files
+!*.example
+!*.template
