@@ -66,10 +66,9 @@ class DatabaseManager:
     def _schema_is_complete(self) -> bool:
         """Check if all expected tables exist in the database."""
         expected_tables = [
-            'markets', 'assets', 'asset_fundamentals', 'asset_prices',
+            'providers', 'markets', 'assets', 'asset_fundamentals', 'asset_prices',
             'universes', 'universe_memberships', 'sentiment_types', 'sentiment_events',
-            'data_versions', 'data_sources', 'data_lineage',
-            'system_config', 'system_metrics', 'schema_versions'
+            'schema_versions', 'market_snapshot_metadata'
         ]
 
         try:
@@ -112,43 +111,7 @@ class DatabaseManager:
         with self.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Check if default data already exists
-            cursor.execute("SELECT COUNT(*) as count FROM markets WHERE code IN ('XNYS', 'XNAS')")
-            if cursor.fetchone()['count'] > 0:
-                logger.info("Default data already exists, skipping insertion")
-                return
 
-            # Insert default markets
-            markets_data = [
-                ('XNYS', 'New York Stock Exchange', 'US', 'America/New_York', 'USD',
-                 '04:00:00', '09:30:00', '09:30:00', '16:00:00', '16:00:00', '20:00:00', True),
-                ('XNAS', 'NASDAQ', 'US', 'America/New_York', 'USD',
-                 '04:00:00', '09:30:00', '09:30:00', '16:00:00', '16:00:00', '20:00:00', True)
-            ]
-
-            cursor.executemany("""
-                INSERT OR IGNORE INTO markets (
-                    code, name, country, timezone, currency,
-                    premarket_start_time, premarket_end_time,
-                    regular_open_time, regular_close_time,
-                    afterhours_start_time, afterhours_end_time, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, markets_data)
-
-            # Insert default universe
-            cursor.execute("""
-                INSERT OR IGNORE INTO universes (
-                    name, description, criteria_description,
-                    required_exchanges, required_asset_types, is_active
-                ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                'default_universe',
-                'Primary universe for gap analysis - US stocks, ETFs, and REITs',
-                'US tradeable securities on major exchanges (XNYS, XNAS)',
-                '["XNYS", "XNAS"]',
-                '["stock", "etf", "reit"]',
-                True
-            ))
 
             conn.commit()
 

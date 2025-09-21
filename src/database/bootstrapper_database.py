@@ -43,17 +43,7 @@ class DatabaseBootstrapper:
     def _verify_default_data(self) -> bool:
         """Verify that default data was inserted correctly."""
         try:
-            # Check markets
-            markets = self.db_manager.execute_query("SELECT COUNT(*) as count FROM markets")
-            if markets[0]['count'] < 2:
-                logger.error("Default markets not found")
-                return False
 
-            # Check universes
-            universes = self.db_manager.execute_query("SELECT COUNT(*) as count FROM universes")
-            if universes[0]['count'] < 1:
-                logger.error("Default universe not found")
-                return False
 
 
             logger.info("Default data verification passed")
@@ -75,10 +65,9 @@ class DatabaseBootstrapper:
 
             # Count records in each table
             tables = [
-                "markets", "assets", "asset_fundamentals", "asset_prices",
-                "universes", "universe_memberships", "sentiment_types", "sentiment_events",
-                "data_versions", "data_sources", "data_lineage",
-                "system_config", "system_metrics", "schema_versions"
+                "asset_fundamentals", "asset_prices", "assets", "market_snapshot_metadata",
+                "markets", "providers", "schema_versions", "sentiment_events",
+                "sentiment_types", "universe_memberships", "universes"
             ]
 
             for table in tables:

@@ -1,68 +1,67 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-16*
+*Last updated: 2025-09-19*
 
 ## 🎯 Current Priority Tasks
 
-### 1. CRITICAL: Implement proper extended hours gap identification (NOT total displacement)
-- **Goal**: Build the core extended hours gap discovery functionality (THE ENTIRE POINT OF THIS PROJECT)
-- **Status**: Currently disabled - gap candidates method returns empty list with warning
-- **Priority**: HIGHEST - This is the fundamental purpose of TradeScout
+### 1. Check markets and providers bootstrapping
+- **Goal**: Verify bootstrap commands populate data correctly from APIs with clean schema
+- **Implementation**: Test existing bootstrap commands after removing default data insertions
+- **Status**: NEW - needed after schema cleanup
+- **Priority**: HIGH - Core system functionality
 
-### 2. Implement gainers-extended-hours command
-- **Goal**: Show stocks that gained ONLY during extended hours (after close or before open)
-- **Implementation**: Compare previous regular session close to current extended hours price
-- **Priority**: HIGH - Foundation for gap analysis
+### 2. Test snapshot API behavior during regular trading hours
+- **Goal**: Continue verification of Polygon API field behavior during market hours
+- **Implementation**: Test snapshot API during 9:30-4:00 PM ET trading session
+- **Status**: Premarket confirmed, regular hours pending
+- **Priority**: HIGH - API understanding completion
 
-### 3. Implement losers-extended-hours command
-- **Goal**: Show stocks that lost ONLY during extended hours (after close or before open)
-- **Implementation**: Compare previous regular session close to current extended hours price
-- **Priority**: HIGH - Foundation for gap analysis
+### 3. Test if day.* fields update in real-time or only at market close
+- **Goal**: Understand when day.open/high/low/close/volume fields get updated
+- **Implementation**: Monitor day.* fields throughout trading session
+- **Priority**: HIGH - Critical for gap analysis logic
 
-### 4. Implement gainers-extended-hours-candidates command
-- **Goal**: Extended hours gainers filtered by gap analysis criteria
-- **Implementation**: Use gainers-extended-hours + apply gap criteria filtering
-- **Priority**: HIGH - Gap trading candidate identification
+### 4. Verify updated timestamp always corresponds to day.* session date
+- **Goal**: Confirm relationship between updated timestamp and day.* data
+- **Implementation**: Cross-check updated field with day.* trading date
+- **Priority**: HIGH - Data integrity verification
 
-### 5. Implement losers-extended-hours-candidates command
-- **Goal**: Extended hours losers filtered by gap analysis criteria
-- **Implementation**: Use losers-extended-hours + apply gap criteria filtering
-- **Priority**: HIGH - Gap trading candidate identification
+### 5. Implement screener query engine
+- **Goal**: Build unified screener system for gap candidates
+- **Implementation**: SQL-based screener with configurable criteria
+- **Priority**: HIGH - Core functionality
 
-### 6. Update gap candidates identification to use extended hours candidates
-- **Goal**: Fix get_gap_suggestions() to use extended hours candidates instead of total displacement
-- **Implementation**: Use gainers-extended-hours-candidates and losers-extended-hours-candidates
-- **Priority**: HIGH - Complete the gap analysis workflow
+### 6. Build CLI with screener commands
+- **Goal**: Create main TradeScout CLI with gap analysis commands
+- **Implementation**: Click-based CLI with gainers/losers/gaps commands
+- **Priority**: HIGH - User interface
 
-### 7. MAJOR: Implement new database schema and screener architecture
-- **Goal**: Implement the comprehensive 8-table database schema designed in docs/REFACTOR_SCREENER_APPROACH.md
-- **Implementation**: Create migration scripts, update models, build screener query system
-- **Priority**: HIGH - Foundation for all extended hours functionality
+### 7. Implement extended hours gap identification
+- **Goal**: Core gap discovery using confirmed API approach
+- **Implementation**: Use prevDay.c vs min.c comparison for gaps
+- **Priority**: HIGH - Primary project purpose
 
-### 8. Build custom bars API integration for real-time data
-- **Goal**: Replace snapshot API with custom bars API for asset_prices_current table
-- **Implementation**: Individual ticker calls using Polygon custom bars API
-- **Priority**: HIGH - Real-time data foundation
+---
 
-### 9. Implement extended hours aggregates data collection
-- **Goal**: Use aggregates API to collect pre-market (4:00-9:30 AM) and after-hours (4:01-8:00 PM) session data
-- **Implementation**: Time-based aggregates calls for extended hours analysis
-- **Priority**: HIGH - Core extended hours functionality
+## ✅ Recently Completed
 
-### 10. Complete codebase audit for dead code
-- **Goal**: Use agents to audit all modules for unused imports, classes, methods
-- **Implementation**: Systematic review and cleanup of deprecated code
-- **Priority**: MEDIUM - Code quality maintenance
-
-### 11. Implement market cap filtering in gap analysis
-- **Goal**: Add fundamentals API calls for proper market cap filtering
-- **Status**: Currently fake filtering (returns True always) - needs real implementation
-- **Priority**: MEDIUM - Academic strategy compliance
-
-### 12. Extract display logic from engine
-- **Goal**: Move Rich formatting to display handler pattern
-- **Implementation**: Create presentation layer separate from business logic
-- **Priority**: MEDIUM - Architecture improvement
+- **Data models implementation** (src/models directory with Asset, Market, AssetPrice, Provider)
+- **Typed AssetAnalyzer** (returns typed models instead of dictionaries)
+- **Fixed foreign key constraint** (INSERT OR REPLACE → INSERT OR IGNORE for ticker bootstrap)
+- **Updated CLI for typed models** (analyze asset command works with new data structures)
+- **Unified tradescout CLI** (single entry point with bootstrap and analyze commands)
+- **Ticker bootstrapping implementation** (11,743 assets from Polygon API)
+- **Universe bootstrapping implementation** (11,248 filtered assets)
+- **Batch processing optimization** (1000 assets per batch, no hanging)
+- **API key configuration** (moved to src/config/api_keys.py)
+- **Subcommand CLI structure** (tickers init/info, universe init/info)
+- **Database schema integration** (proper universes/universe_memberships tables)
+- Database schema implementation (all 14 tables)
+- Database bootstrap idempotency fixes
+- Bootstrap CLI conversion to Click
+- Premarket snapshot behavior confirmation
+- Extended hours gap formula documentation
+- Project structure cleanup (data/ directory)
 
 ---
 

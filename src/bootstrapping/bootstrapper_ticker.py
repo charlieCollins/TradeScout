@@ -1,11 +1,9 @@
 """Bootstrap all tickers from Polygon API into the database."""
 
-import os
-import requests
-import time
 import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+from provider.data_provider import PolygonDataProvider
 
 logger = logging.getLogger(__name__)
 
@@ -13,133 +11,156 @@ logger = logging.getLogger(__name__)
 class TickerBootstrapper:
     """Bootstrap all available tickers from Polygon API."""
 
-    def __init__(self, api_key: Optional[str] = None, db_manager=None):
+    def __init__(self, api_key: str, db_manager=None):
         """Initialize with API key and database manager."""
-        self.api_key = api_key or os.environ.get("POLYGON_API_KEY")
-        if not self.api_key:
-            raise ValueError("POLYGON_API_KEY environment variable required")
-
+        self.data_provider = PolygonDataProvider(api_key)
         self.db_manager = db_manager
-        self.base_url = "https://api.polygon.io"
+        self.last_stats = {}
 
-    def fetch_all_tickers(self) -> List[Dict[str, Any]]:
-        """Fetch all tickers from Polygon reference API with pagination."""
-        all_tickers = []
-        cursor = None
-        page = 1
+    def bootstrap_providers(self) -> None:
+        """Ensure required providers exist in database."""
+        if not self.db_manager:
+            raise ValueError("Database manager required for provider bootstrap")
 
-        logger.info("Starting ticker fetch from Polygon API")
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
 
-        while True:
-            logger.info(f"Fetching page {page}")
+            # Insert polygon provider if it doesn't exist
+            cursor.execute("""
+                INSERT OR IGNORE INTO providers (name, is_active)
+                VALUES ('polygon', TRUE)
+            """)
 
-            # Build request parameters
-            params = {
-                "apikey": self.api_key,
-                "market": "stocks",  # Only stock market
-                "active": "true",    # Only active tickers
-                "limit": 1000       # Max results per page
-            }
+            conn.commit()
+            logger.info("Provider bootstrap complete")
 
-            if cursor:
-                params["cursor"] = cursor
-
-            # Make API request
-            url = f"{self.base_url}/v3/reference/tickers"
-            response = requests.get(url, params=params)
-            time.sleep(0.12)  # Rate limiting (5 calls per minute)
-
-            if response.status_code != 200:
-                if response.status_code == 429:
-                    logger.warning("Rate limit hit, waiting 60 seconds...")
-                    time.sleep(60)
-                    continue
-                else:
-                    raise Exception(f"API error: {response.status_code} - {response.text}")
-
-            data = response.json()
-
-            if "results" not in data or not data["results"]:
-                logger.info("No more results, pagination complete")
-                break
-
-            # Add to collection
-            page_results = data["results"]
-            all_tickers.extend(page_results)
-            logger.debug(f"Page {page}: {len(page_results)} tickers")
-
-            # Check for next page
-            cursor = data.get("next_url")
-            if cursor and "cursor=" in cursor:
-                cursor = cursor.split("cursor=")[1].split("&")[0]
-            else:
-                logger.info("No next cursor, pagination complete")
-                break
-
-            page += 1
-
-        logger.info(f"Total tickers fetched: {len(all_tickers)} across {page} pages")
-        return all_tickers
+    def fetch_all_tickers(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Fetch all tickers using data provider."""
+        return self.data_provider.fetch_all_tickers(limit)
 
     def upsert_tickers(self, tickers: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Upsert tickers into database. Returns statistics."""
+        """Upsert tickers into database using batch operations. Returns statistics."""
         if not self.db_manager:
             raise ValueError("Database manager required for upsert operations")
 
         stats = {"inserted": 0, "updated": 0, "errors": 0}
 
-        for ticker_data in tickers:
-            try:
-                # Extract data from Polygon response
-                symbol = ticker_data.get("ticker")
-                name = ticker_data.get("name")
-                market = ticker_data.get("market", "stocks")
-                ticker_type = ticker_data.get("type")
-                currency = ticker_data.get("currency_name", "USD")
-                is_active = ticker_data.get("active", False)
+        logger.info(f"Starting batch upsert of {len(tickers)} tickers...")
 
-                # Skip if missing required fields
-                if not symbol or not name:
-                    stats["errors"] += 1
-                    continue
+        # Process in batches to avoid memory issues
+        batch_size = 1000
+        current_time = datetime.now().isoformat()
 
-                # TODO: Get market_id from markets table based on exchange
-                # For now, assume market_id = 1 (will need proper lookup)
-                market_id = 1
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
 
-                # UPSERT logic (simplified - needs actual SQL implementation)
-                # This is a placeholder showing the data structure
-                asset_data = {
-                    "symbol": symbol,
-                    "name": name,
-                    "market_id": market_id,
-                    "asset_type": "stock",  # From config
-                    "asset_class": "equity", # From config
-                    "currency": currency,
-                    "is_active": is_active,
-                    "data_source": "polygon"
-                }
+            for i in range(0, len(tickers), batch_size):
+                batch = tickers[i:i + batch_size]
+                logger.info(f"Processing batch {i // batch_size + 1}/{(len(tickers) + batch_size - 1) // batch_size}")
 
-                # TODO: Implement actual database upsert
-                logger.debug(f"Would upsert: {symbol} - {name}")
-                stats["inserted"] += 1
+                # Prepare batch data
+                batch_data = []
+                for ticker_data in batch:
+                    try:
+                        # Extract data from Polygon response
+                        symbol = ticker_data.get("ticker")
+                        name = ticker_data.get("name")
+                        currency = ticker_data.get("currency_name", "USD")
+                        is_active = ticker_data.get("active", False)
 
-            except Exception as e:
-                logger.error(f"Error processing ticker {ticker_data.get('ticker', 'unknown')}: {e}")
-                stats["errors"] += 1
+                        # Skip if missing required fields
+                        if not symbol or not name:
+                            stats["errors"] += 1
+                            continue
 
-        logger.info(f"Upsert complete: {stats}")
+                        # Get market_id from database (default to 1 if not found)
+                        market_id = self._get_market_id(ticker_data.get("primary_exchange", "UNKNOWN"))
+
+                        batch_data.append({
+                            'symbol': symbol,
+                            'name': name,
+                            'market_id': market_id,
+                            'currency': currency,
+                            'is_active': is_active
+                        })
+
+                    except Exception as e:
+                        logger.error(f"Error processing ticker {ticker_data.get('ticker', 'unknown')}: {e}")
+                        stats["errors"] += 1
+
+                # Use SQLite UPSERT (INSERT OR REPLACE) for batch processing
+                if batch_data:
+                    # Get the polygon provider ID once
+                    cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
+                    polygon_provider_id = cursor.fetchone()[0]
+
+                    upsert_sql = """
+                        INSERT OR IGNORE INTO assets (
+                            symbol, name, market_id, asset_type, asset_class,
+                            currency, is_active, provider_id, created_at, updated_at
+                        ) VALUES (?, ?, ?, 'stock', 'equity', ?, ?, ?, ?, ?)
+                    """
+
+                    upsert_params = [
+                        (
+                            item['symbol'], item['name'], item['market_id'],
+                            item['currency'], item['is_active'], polygon_provider_id, current_time, current_time
+                        )
+                        for item in batch_data
+                    ]
+
+                    try:
+                        cursor.executemany(upsert_sql, upsert_params)
+                        stats["inserted"] += len(batch_data)  # SQLite REPLACE counts as insert
+                    except Exception as e:
+                        logger.error(f"SQL Error in batch: {e}")
+                        logger.error(f"First few batch items: {batch_data[:3]}")
+                        logger.error(f"Sample params: {upsert_params[:3]}")
+                        raise
+
+                conn.commit()
+
+        logger.info(f"Batch upsert complete: {stats}")
+        self.last_stats = stats
         return stats
 
-    def bootstrap_all_tickers(self) -> Dict[str, int]:
+    def _get_market_id(self, exchange: str) -> int:
+        """Get market_id from database based on exchange name."""
+        if not self.db_manager:
+            return 1  # Default fallback
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM markets WHERE code = ? OR name = ?", (exchange, exchange))
+                result = cursor.fetchone()
+                return result[0] if result else 1  # Default to 1 if not found
+        except Exception as e:
+            logger.warning(f"Could not lookup market_id for {exchange}: {e}")
+            return 1
+
+    def get_bootstrap_stats(self) -> Dict[str, Any]:
+        """Get statistics from the last bootstrap run."""
+        return self.last_stats.copy()
+
+    def bootstrap_all_tickers(self, limit: Optional[int] = None) -> bool:
         """Complete bootstrap process: fetch and upsert all tickers."""
         logger.info("Starting complete ticker bootstrap")
 
-        # Fetch all tickers from API
-        tickers = self.fetch_all_tickers()
+        try:
+            # Ensure providers exist first
+            self.bootstrap_providers()
 
-        # Upsert into database
-        stats = self.upsert_tickers(tickers)
+            # Fetch all tickers from API
+            tickers = self.fetch_all_tickers(limit=limit)
 
-        logger.info(f"Bootstrap complete: {len(tickers)} tickers processed")
-        return stats
+            # Upsert into database
+            stats = self.upsert_tickers(tickers)
+            self.last_stats["total_fetched"] = len(tickers)
+
+            logger.info(f"Bootstrap complete: {len(tickers)} tickers processed")
+            return True
+
+        except Exception as e:
+            logger.error(f"Bootstrap failed: {e}")
+            return False

@@ -2,59 +2,60 @@
 
 ## Overview
 
-TradeScout maintains a comprehensive trading universe sourced from Polygon.io's all-tickers API, with intelligent filtering to focus on high-quality, tradeable US securities. The universe expansion system provides access to thousands of symbols while maintaining data quality standards.
+TradeScout maintains a trading universe sourced from Polygon.io's reference tickers API, with filtering to focus on high-quality, tradeable US securities.
 
-## Universe Statistics
+## Current Universe Statistics
 
-### Total Coverage
-- **Polygon.io Total Tickers**: ~11,698 (all markets, all types)
-- **Filtered US Common Stocks**: ~4,800-5,000 symbols
-- **Current TradeScout Universe**: 1,019 symbols (expandable to full coverage)
-- **Available for Addition**: ~3,800+ additional symbols
+### Actual Coverage (Current Database)
+- **Total Assets**: 11,745 symbols
+- **Default Universe**: 11,249 symbols (95.8% of total)
+- **Asset Types**: All stock (CS) - no ETFs or REITs currently included
+- **Exchanges**: XNYS (NYSE) and XNAS (NASDAQ) only
 
 ## Filtering Criteria
 
-TradeScout applies rigorous filtering to ensure only high-quality, tradeable securities:
+Configuration is defined in `src/config/universe_config.py`:
 
-### ✅ **INCLUDED: US Tradeable Securities**
-- **Ticker Types**: Common Stock (CS), ETFs, REITs
-- **Market**: Stock market only
-- **Exchanges**: Major US exchanges only
+### ✅ **INCLUDED: Default Universe**
+- **Ticker Types**: Common Stock (CS), ETFs, REITs *(config allows, but current data is CS only)*
+- **Exchanges**:
   - XNYS (New York Stock Exchange)
   - XNAS (NASDAQ)
-- **Symbol Format**: 1-5 alphabetic characters only
+- **Symbol Format**: 1-5 alphabetic characters only (`^[A-Z]{1,5}$`)
 - **Status**: Active trading only
+- **Market**: Stock market only
 
-### ❌ **EXCLUDED: Filtered Categories**
+### ❌ **EXCLUDED: Filtered Out**
+- Symbols not matching 1-5 character pattern
+- Inactive/delisted securities
+- Non-NYSE/NASDAQ exchanges
+- Non-stock markets
 
-#### Non-US Securities (~2,000-3,000 tickers)
-- International stocks
-- Canadian exchanges  
-- Foreign ADRs on minor exchanges
-- Cross-listings on non-major exchanges
+## Universe Configuration
 
-#### Non-Common Stock Types (~1,500-2,000 tickers)
-- Preferred stocks (symbols ending in -P, -PR, -A, etc.)
-- Rights and warrants
-- Units and tracking stocks
-- Convertible securities
+The filtering logic is implemented in `src/config/universe_config.py`:
 
-#### Investment Vehicles (~1,000-1,500 tickers)
-- ETNs (Exchange Traded Notes)
-- Mutual funds
-- Closed-end funds
+```python
+UNIVERSE_CONFIG = {
+    "default_universe": {
+        "included": {
+            "ticker_types": ["CS", "ETF", "REIT"],
+            "markets": ["stocks"],
+            "exchanges": ["XNYS", "XNAS"],
+            "symbol_pattern": "^[A-Z]{1,5}$",
+            "active_only": True
+        }
+    }
+}
+```
 
-#### Minor/Alternative Exchanges (~500-1,000 tickers)
-- BATS (Cboe BZX Exchange)
-- OTC Markets (Pink Sheets)
-- OTCQB/OTCQX
-- Regional exchanges
-- Dark pools
+## Bootstrap Process
 
-#### Invalid/Unusable Symbols (~500 tickers)
-- Test symbols
-- Inactive/delisted symbols
-- Symbols with numbers or special characters
-- Symbols longer than 5 characters
-- Duplicate class shares
+1. **Ticker Fetch**: Get all tickers from Polygon `/v3/reference/tickers`
+2. **Filter Application**: Apply universe_config criteria
+3. **Database Storage**: Store in `assets` and `universe_memberships` tables
+4. **Universe Creation**: ~95.8% of fetched tickers meet criteria
 
+The high inclusion rate (11,249 of 11,745) indicates Polygon's reference API already returns mostly high-quality US exchange listings that meet our criteria.
+
+*Statistics current as of last universe bootstrap. Use `./bootstrap universe info` for real-time stats.*

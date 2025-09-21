@@ -46,6 +46,4 @@ UNIVERSE_CONFIG = {
 EXPECTED_UNIVERSE_SIZE = {
     "polygon_total": 11698,
     "filtered_us_common": "4800-5000",
-    "current_tradescout": 1019,
-    "available_expansion": "3800+"
 }
