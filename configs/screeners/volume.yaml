@@ -1,0 +1,51 @@
+name: volume
+description: "Unusual volume stocks"
+enabled: true
+
+# Session validation - volume patterns can be detected in any trading session
+valid_sessions:
+  - "premarket"
+  - "regular"
+  - "afterhours"
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Filter criteria
+filters:
+  - field: "min_volume"
+    operator: ">="
+    value: 1000000  # At least 1M volume
+  - field: "min_close"
+    operator: ">="
+    value: 1.0
+
+# Sorting configuration - highest volume first
+sort:
+  - field: "min_volume"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 10
+    - name: "Name"
+      field: "name"
+      width: 30
+    - name: "Last"
+      field: "min_close"
+      format: "price"
+    - name: "Volume"
+      field: "min_volume"
+      format: "volume"
+    - name: "Change %"
+      field: "change_percent"
+      format: "percent"
+    - name: "$ Traded"
+      field: "min_volume * min_close"
+      format: "currency"

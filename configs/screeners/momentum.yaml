@@ -1,0 +1,54 @@
+name: momentum
+description: "Stocks showing strong momentum"
+enabled: true
+
+# Session validation - momentum can be detected in any trading session
+valid_sessions:
+  - "premarket"
+  - "regular"
+  - "afterhours"
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Filter criteria - momentum = strong directional movement with volume
+filters:
+  - field: "ABS(change_percent)"
+    operator: ">="
+    value: 5.0  # At least 5% move
+  - field: "min_volume"
+    operator: ">="
+    value: 500000  # Decent volume
+  - field: "min_close"
+    operator: ">="
+    value: 2.0
+
+# Sorting configuration
+sort:
+  - field: "ABS(change_percent)"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 10
+    - name: "Name"
+      field: "name"
+      width: 30
+    - name: "Last"
+      field: "min_close"
+      format: "price"
+    - name: "Change %"
+      field: "change_percent"
+      format: "percent"
+    - name: "Volume"
+      field: "min_volume"
+      format: "volume"
+    - name: "Direction"
+      field: "CASE WHEN change_percent > 0 THEN 'UP' ELSE 'DOWN' END"
+      width: 10

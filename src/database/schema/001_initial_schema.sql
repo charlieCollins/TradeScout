@@ -8,8 +8,8 @@
 -- ==========================================
 CREATE TABLE IF NOT EXISTS providers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,          -- 'polygon', 'yahoo_finance', 'finnhub'
-    display_name TEXT NOT NULL,          -- 'Polygon.io', 'Yahoo Finance', 'Finnhub'
+    name TEXT NOT NULL UNIQUE,          -- Provider identifier
+    display_name TEXT NOT NULL,          -- Human-readable name
     base_url TEXT,
     api_key_required BOOLEAN DEFAULT TRUE,
     is_active BOOLEAN DEFAULT TRUE,

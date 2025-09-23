@@ -125,3 +125,160 @@ tradescout screen --sector "Technology" --change-min 3.0
 # Combine filters
 tradescout screen --template gainers --sector "Technology"
 ```
+
+---
+
+## YAML-Based Screener Configuration
+
+**Decision:** Screener configurations will be stored as YAML files for easy maintenance and customization.
+
+### Screener Configuration Directory Structure
+
+```
+configs/
+└── screeners/
+    ├── gainers.yaml
+    ├── losers.yaml
+    ├── gaps.yaml
+    ├── extendedhours.yaml
+    ├── volume.yaml
+    └── custom/
+        └── user_defined_screeners.yaml
+```
+
+### YAML Screener Definition Format
+
+```yaml
+# configs/screeners/gainers.yaml
+name: gainers
+description: "Top gaining stocks by percentage"
+enabled: true
+
+# Data source configuration
+data_source:
+  universe: "default_universe"  # Which universe to scan
+  require_recent_trading: true  # Only include if provider_updated > 0
+
+# Filter criteria
+filters:
+  - field: "change_percent"
+    operator: ">="
+    value: 2.0
+  - field: "min_volume"
+    operator: ">="
+    value: 100000
+  - field: "min_price"
+    operator: ">="
+    value: 1.0
+
+# Sorting configuration
+sort:
+  - field: "change_percent"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - symbol
+    - name
+    - prevday_close
+    - min_close
+    - change_percent
+    - min_volume
+```
+
+### Extended Hours Screener Example
+
+```yaml
+# configs/screeners/extendedhours.yaml
+name: extendedhours
+description: "Most active extended hours movers"
+enabled: true
+
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+filters:
+  - field: "abs(change_percent)"
+    operator: ">="
+    value: 1.0
+  - field: "session_type"
+    operator: "in"
+    value: ["premarket", "afterhours"]
+
+sort:
+  - field: "abs(change_percent)"
+    direction: "desc"
+
+display:
+  limit: 50
+  columns:
+    - symbol
+    - name
+    - session_type
+    - prevday_close
+    - min_close
+    - change_percent
+    - min_timestamp
+```
+
+### Dynamic Screener Loading
+
+```python
+class ScreenerConfig:
+    """Load and validate screener configurations from YAML."""
+
+    def __init__(self, config_dir: str = "configs/screeners"):
+        self.config_dir = config_dir
+        self.screeners = {}
+        self._load_all_screeners()
+
+    def get_screener(self, name: str) -> Dict:
+        """Get screener configuration by name."""
+        if name not in self.screeners:
+            # Try to load from file if not cached
+            yaml_path = os.path.join(self.config_dir, f"{name}.yaml")
+            if os.path.exists(yaml_path):
+                self.screeners[name] = self._load_yaml(yaml_path)
+            else:
+                raise ValueError(f"Screener '{name}' not found")
+        return self.screeners[name]
+
+    def list_available_screeners(self) -> List[str]:
+        """List all available screener names."""
+        return list(self.screeners.keys())
+```
+
+### CLI Implementation
+
+```python
+# In screener_commands.py
+@screener.command()
+@click.argument("screener_name")
+def run(screener_name: str):
+    """Run a screener by name, loading from YAML config."""
+
+    # Load screener config from YAML
+    try:
+        config = ScreenerConfig()
+        screener_def = config.get_screener(screener_name)
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        console.print("[dim]Use 'tradescout screener --list' to see available screeners[/dim]")
+        return
+
+    # Execute screener based on YAML definition
+    results = execute_screener(screener_def)
+    display_results(results, screener_def['display'])
+```
+
+### Benefits of YAML Approach
+
+1. **No Code Changes for New Screeners** - Add new YAML file, instantly available
+2. **User Customization** - Users can create custom screeners without coding
+3. **Version Control Friendly** - YAML changes are easy to review and track
+4. **Hot Reload Capability** - Can reload configs without restarting application
+5. **Validation** - Schema validation ensures correct structure
+6. **Shareability** - Users can share screener definitions easily

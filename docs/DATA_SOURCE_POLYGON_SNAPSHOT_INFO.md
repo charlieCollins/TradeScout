@@ -1,6 +1,6 @@
 # Polygon Snapshot API - Complete Behavior Documentation
 
-**Last Updated:** September 21, 2025
+**Last Updated:** September 22, 2025
 **Status:** All Sessions Tested & Confirmed ✅
 
 ## Key Findings
@@ -156,14 +156,72 @@ Change % = (Change / prevDay.c) × 100
 | **Afterhours** (4-8 PM) | Previous close | Complete session | Afterhours price | `min.c - prevDay.c` | ✅ CONFIRMED |
 | **Weekend** | Previous close | Friday's session | Last Friday trade | `min.c - prevDay.c` | ✅ CONFIRMED |
 
+## Monday Premarket Test (September 22, 2025, 7:56 AM ET)
+
+### Live Production Test Results
+
+**Test Symbols:** AAPL, NVDA, SPY, TSLA
+
+| Symbol | prevDay.c | day.open | day.close | min.c | Gap % | min.timestamp |
+|--------|-----------|----------|-----------|-------|-------|---------------|
+| AAPL | $245.50 | NULL | NULL | $246.70 | +0.49% | 7:39 AM ET |
+| NVDA | $176.67 | NULL | NULL | $175.45 | -0.69% | 7:40 AM ET |
+| SPY | $663.70 | NULL | NULL | $661.60 | -0.32% | 7:40 AM ET |
+| TSLA | $426.07 | NULL | NULL | $429.25 | +0.75% | 7:40 AM ET |
+
+### Key Validations:
+1. **day.* fields are NULL/zero** - ✅ Confirmed, regular session hasn't started
+2. **prevDay.c contains Friday's close** - ✅ All symbols show Friday Sept 19 close
+3. **min.c shows current premarket price** - ✅ Live premarket prices captured
+4. **Gap calculation accurate** - ✅ Formula `(min.c - prevDay.c) / prevDay.c * 100` works
+5. **Timestamps correct** - ✅ All show Monday morning premarket times
+
+## Critical Discovery: The `updated` Field Behavior (September 23, 2025)
+
+### Daily Reset Pattern
+The `updated` field from Polygon API has a daily reset behavior:
+
+1. **Each trading day starts fresh**: At the beginning of each day, symbols that haven't traded yet have `updated = 0`
+2. **First trade triggers update**: Once a symbol trades (premarket, regular, or afterhours), it gets a non-zero `updated` timestamp
+3. **Timestamp persists through day**: The `updated` value continues to update as long as trading occurs
+
+### Test Evidence
+**Symbol: A (Agilent Technologies)**
+- Sept 22 record: `updated = 1758564343729855890` (had trading activity)
+- Sept 23 premarket: `updated = 0` (no trading yet today)
+- No min.* data when `updated = 0`
+
+**Symbol: AAP (Advance Auto Parts)**
+- Sept 23 at 7:29 AM: `updated = 0` (hadn't traded yet)
+- Sept 23 at 7:43 AM: `updated = 1758626220000000000` (after premarket trading started)
+- Has min.* data once trading begins
+
+### Implications for Screening
+- **"With recent trading"**: Symbols where `updated > 0` (have traded today)
+- **"Without recent trading"**: Symbols where `updated = 0` (haven't traded yet today)
+- In premarket, typically ~2,000-2,500 symbols have traded out of ~7,500 in universe
+- Many legitimate stocks (like Agilent) may not trade in premarket and show `updated = 0`
+
+### Data Availability Pattern
+When `updated = 0`:
+- **prevDay.*** fields are still populated (previous session data)
+- **day.*** fields are zeros/NULL (no current session yet)
+- **min.*** fields are missing/NULL (no recent trading)
+
+When `updated > 0`:
+- All fields populated based on trading activity
+- min.* shows most recent trade
+- day.* updates during regular session
+
 ## Conclusion
 
 The Polygon snapshot API behaves consistently across ALL trading sessions:
 - **prevDay.c** is ALWAYS the reference price for change calculations
-- **min.c** is ALWAYS the current/last traded price
+- **min.c** is ALWAYS the current/last traded price (when available)
 - **day.*** fields represent the current regular session (9:30-4:00)
   - Zeros during premarket
   - Live during regular hours
   - Complete after 4 PM
+- **updated** field resets daily and indicates if symbol has traded today
 
 This behavior is now confirmed for premarket, regular hours, afterhours, and weekend periods with actual test data.

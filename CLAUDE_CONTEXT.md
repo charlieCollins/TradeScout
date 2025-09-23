@@ -1,6 +1,61 @@
 # Claude Session Context
 **Purpose:** Session continuity and context preservation between Claude sessions
 
+## Session Entry - 2025-09-23 00:00
+
+### Work Completed
+- [To be filled during session]
+
+### Current State
+- [To be filled during session]
+
+### In-Progress Tasks
+- [To be filled during session]
+
+### Blockers/Issues
+- [To be filled during session]
+
+### Next Session Priorities
+- [To be filled during session]
+
+### Conversation Context
+[To be filled at session end]
+
+---
+
+## Session Entry - 2025-09-22 07:50
+
+### Work Completed
+- **Fixed markets and providers bootstrapping** - Added bootstrap_markets() method to create required market entries (XNYS, XNAS, ARCX, etc.)
+- **Fixed provider_id foreign key issue** - Dynamic lookup instead of hardcoded ID=1
+- **Successfully populated database** - 11,745 tickers loaded from Polygon API
+- **Validated Monday premarket snapshot behavior** - Confirmed day.* fields are NULL, prevDay.c has Friday close, min.c shows current premarket prices
+- **Documented live test results** - Added Monday Sept 22 premarket validation to DATA_SOURCE_POLYGON_SNAPSHOT_INFO.md
+
+### Current State
+- Database fully populated with tickers and markets
+- Snapshot API behavior validated and working correctly during premarket
+- Gap calculations confirmed working: `(min.c - prevDay.c) / prevDay.c * 100`
+- System ready for screener implementation
+
+### In-Progress Tasks
+- None - premarket validation completed
+
+### Blockers/Issues
+- None currently
+
+### Next Session Priorities
+- Test snapshot API behavior during regular trading hours (9:30 AM ET)
+- Test if day.* fields update in real-time or only at market close
+- Verify updated timestamp always corresponds to day.* session date
+- Implement screener query engine
+- Build CLI with screener commands
+
+### Conversation Context
+[To be filled at session end]
+
+---
+
 ## Session Entry - 2025-09-21 10:15
 
 ### Work Completed

@@ -1,0 +1,58 @@
+name: gainersafterhours
+description: "Afterhours gainers (vs regular session close)"
+enabled: true
+
+# Session validation - when this screener should run
+valid_sessions:
+  - "afterhours"
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Filter criteria - afterhours vs regular session close
+filters:
+  - field: "day_close"
+    operator: "IS NOT NULL"
+    value: null  # Must have regular session close data
+  - field: "((min_close - day_close) / day_close * 100)"
+    operator: ">="
+    value: 2.0
+  - field: "min_close"
+    operator: ">="
+    value: 1.0
+
+# Sorting configuration
+sort:
+  - field: "((min_close - day_close) / day_close * 100)"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 10
+    - name: "Name"
+      field: "name"
+      width: 30
+    - name: "4PM Close"
+      field: "day_close"
+      format: "price"
+    - name: "Current"
+      field: "min_close"
+      format: "price"
+    - name: "AH Change"
+      field: "min_close - day_close"
+      format: "price_change"
+    - name: "AH Change %"
+      field: "((min_close - day_close) / day_close * 100)"
+      format: "percent"
+    - name: "AH Volume"
+      field: "min_volume"
+      format: "volume"
+    - name: "Time"
+      field: "min_timestamp_formatted"
+      width: 15

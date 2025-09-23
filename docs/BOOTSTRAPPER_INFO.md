@@ -1,300 +1,263 @@
-# TradeScout Bootstrapper Guide
+# TradeScout Bootstrap System
+
+**Last Updated**: September 22, 2025
+**Current Coverage**: 11,745 total tickers → 7,513 default universe assets
+**Data Source**: Polygon.io Premium API
 
 ## Overview
 
-TradeScout uses a two-stage bootstrapping process to populate the asset database and create the default trading universe. This guide explains the architecture, usage, and relationship between the different bootstrapping components.
+TradeScout uses a four-stage bootstrapping process to initialize the system with data providers, market definitions, asset data, and filtered trading universes. The bootstrap system ensures proper dependency order and provides comprehensive error handling.
 
-## Architecture Overview
+## Bootstrap Architecture
 
 ```
-┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
-│  Polygon API    │    │   Assets Table      │    │ Default Universe│
-│   ~11,700       │───▶│    ~11,700         │───▶│    ~5,000       │
-│   All Tickers   │    │   All Assets       │    │ Filtered Assets │
-└─────────────────┘    └─────────────────────┘    └─────────────────┘
-         │                        │                        │
-         │                        │                        │
-         ▼                        ▼                        ▼
-┌─────────────────┐    ┌─────────────────────┐    ┌─────────────────┐
-│ Ticker          │    │ Database Storage    │    │ Universe        │
-│ Bootstrapper    │    │ (SQLite)           │    │ Management      │
-└─────────────────┘    └─────────────────────┘    └─────────────────┘
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Database      │───▶│   Providers     │───▶│    Tickers      │───▶│   Universe      │
+│   Schema + Tables│    │   (Polygon)     │    │   (~11,745)     │    │   (~7,513)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                        │                        │                        │
+         ▼                        ▼                        ▼                        ▼
+    Table Creation         Provider Metadata        Asset Storage           Filtered Membership
 ```
 
-## Two-Stage Process
+## Four-Stage Bootstrap Process
 
-### Stage 1: Ticker Bootstrapping
-**Purpose**: Fetch and store ALL available ticker data from Polygon.io
+### Stage 1: Database Schema
+- **Purpose**: Initialize SQLite database with complete schema
+- **Command**: `./tradescout bootstrap database init`
+- **Behavior**:
+  - Creates new database if none exists
+  - Verifies existing database if present
+  - Runs migrations if needed
 
-**Component**: `polygon_ticker_bootstrapper.py`
-- Only applies basic API-level filtering: `market=stocks`, `active=true`
-- No filtering for exchange, ticker type, symbol format, etc.
-- Stores ALL ~11,700 tickers that match basic criteria
+### Stage 2: Data Providers
+- **Purpose**: Register available data providers (currently Polygon only)
+- **Command**: `./tradescout bootstrap providers init`
+- **Behavior**:
+  - **Upserts** provider records (updates existing, inserts new)
+  - Currently only creates Polygon.io provider
+  - Sets active/inactive status
 
-**Result**: Complete ticker coverage in `assets` table for future expansion
+### Stage 3: Ticker/Asset Data
+- **Purpose**: Fetch and store all available tickers from Polygon API
+- **Command**: `./tradescout bootstrap tickers init`
+- **Behavior**:
+  - **Fetches fresh data** from Polygon API (~11,745 tickers)
+  - **INSERT OR IGNORE** - adds new tickers, ignores existing ones
+  - **Does NOT update** existing ticker metadata (limitation)
+  - Creates market records as needed (XNYS, XNAS, ARCX, etc.)
 
-### Stage 2: Universe Bootstrapping  
-**Purpose**: Create filtered default universe from existing asset data
+### Stage 4: Universe Creation
+- **Purpose**: Create filtered trading universe from existing assets
+- **Command**: `./tradescout bootstrap universe init`
+- **Behavior**:
+  - **Completely rebuilds** universe membership (deletes all, recreates)
+  - Applies strict filtering criteria (see below)
+  - Uses existing universe record if found
 
-**Component**: `default_universe_bootstrapper.py`
-- Defines strict filtering criteria per SUPPORTED_UNIVERSE.md:
-  - Ticker type: CS (Common Stock) only
-  - Exchange: XNYS, XNAS, BATS only
-  - Symbol format: 1-5 alphabetic characters
-  - Market: stocks only
-  - Status: active only
+## Complete Bootstrap Command
 
-**Result**: Quality-filtered ~5,000 assets in `default_universe`
-
-## Usage Guide
-
-### Prerequisites
-
-1. **Polygon API Key**: Ensure your Polygon API key is configured
-2. **Database**: SQLite database will be created automatically
-3. **Python Environment**: Virtual environment with dependencies installed
-
-### Step 1: Bootstrap All Tickers
-
+### Interactive Mode (Recommended)
 ```bash
-# Basic ticker bootstrap (recommended)
-python -m tradescout.scripts.bootstrap_tickers
-
-# Check current universe statistics (preview mode)
-python -m tradescout.scripts.bootstrap_tickers --stats-only
+./tradescout bootstrap all
 ```
 
-**Expected Output**:
-```
-Starting Polygon universe bootstrap...
-Market types: stocks only
+**Behavior**:
+- Checks for existing data and prompts for confirmation
+- Shows current asset count and universe size
+- Asks "Continue with bootstrap? [y/N]"
 
-✅ Retrieved 11698 total tickers from Polygon (12 pages)
-Processing batch 1: 1000 tickers
-Processing batch 2: 1000 tickers
-...
-Processing batch 12: 698 tickers
-
-Bootstrap Results:
-  Total tickers fetched: 11698
-  Assets inserted: 11450
-  Assets updated: 248
-  Assets skipped: 0
-  Errors: 0
-
-✅ Ticker bootstrap completed in 142.3 seconds
-```
-
-### Step 2: Bootstrap Default Universe
-
+### Force Mode (Automation)
 ```bash
-# Check current universe status
-python -m tradescout.scripts.bootstrap_default_universe --stats-only
-
-# Preview what would be added (no changes)
-python -m tradescout.scripts.bootstrap_default_universe --dry-run
-
-# Actually populate the default universe
-python -m tradescout.scripts.bootstrap_default_universe
+./tradescout bootstrap all --force
 ```
 
-**Expected Output**:
-```
-Starting default universe bootstrap...
+**Behavior**:
+- Skips confirmation prompt
+- Runs all four stages automatically
 
-Bootstrap Results:
-  Total assets in database: 11700
-  Assets meeting criteria: 5000
-  Already in universe: 0
-  New assets to add: 5000
-  Assets successfully added: 5000
-  Errors: 0
+## Bootstrap Data Handling
 
-✅ Default universe bootstrap completed
-```
+| Component | Existing Data | New Data | Behavior |
+|-----------|---------------|----------|----------|
+| **Database** | Preserved | N/A | Schema verification only |
+| **Providers** | Updated | Inserted | Full upsert (UPDATE/INSERT) |
+| **Tickers** | Ignored | Inserted | INSERT OR IGNORE (no updates) |
+| **Universe** | Deleted | Recreated | Complete rebuild of memberships |
 
-## Filtering Criteria Details
+⚠️ **Important**: Ticker data is NOT updated if it already exists. Only new tickers are added.
 
-### Stage 1: Ticker Bootstrapper Filtering
-- ✅ **Market**: `stocks` only (excludes crypto, forex, etc.)
-- ✅ **Status**: `active=true` only (excludes delisted/inactive)
-- ❌ **No exchange filtering** (includes all exchanges)
-- ❌ **No asset type filtering** (includes ETFs, REITs, etc.)
-- ❌ **No symbol format filtering** (includes complex symbols)
+## Universe Filtering Criteria
 
-### Stage 2: Universe Bootstrapper Filtering
-- ✅ **Asset Type**: Common Stock (`CS`) only
-- ✅ **Exchange**: Major US exchanges only (`XNYS`, `XNAS`, `BATS`)
-- ✅ **Symbol Format**: 1-5 alphabetic characters only
-- ✅ **Market**: Stocks only (redundant with Stage 1)
-- ✅ **Status**: Active only (redundant with Stage 1)
+The universe bootstrapper applies comprehensive filtering to create a high-quality trading universe:
 
-### Excluded Categories (~6,700 assets filtered out)
+### Inclusion Criteria
+- **Asset Types**: Common Stock (CS), ETF, REIT only
+- **Exchanges**: XNYS (NYSE), XNAS (NASDAQ) only
+- **Symbol Format**: 1-5 alphabetic characters (`^[A-Z]{1,5}$`)
+- **Status**: Active tickers only
+- **Market**: Stocks only
 
-**Investment Vehicles** (~2,000 assets):
-- ETFs, ETNs, REITs, Mutual funds, Closed-end funds
+### Exclusion Criteria
+- **Preferred Stocks**: Symbols ending in -P, -PR, -A, etc.
+- **Minor Exchanges**: OTC markets, regional exchanges
+- **Invalid Symbols**: Special characters, numbers, test symbols
+- **Complex Securities**: Rights, warrants, units
 
-**Non-US Securities** (~1,500 assets):
-- International stocks, Canadian exchanges, Foreign ADRs
+### Filtering Results
+- **Total Assets**: 11,745 from Polygon API
+- **Filtered Universe**: 7,513 assets (64% inclusion rate)
+- **Excluded**: ~4,232 assets (ETFs, preferred stocks, OTC, etc.)
 
-**Non-Common Stock Types** (~1,000 assets):
-- Preferred stocks, Rights, Warrants, Units, Convertible securities
+## Command Reference
 
-**Minor/Alternative Exchanges** (~800 assets):
-- OTC Markets, Regional exchanges, Dark pools
-
-**Invalid/Unusable Symbols** (~342 assets):
-- Symbols with numbers/special characters, Test symbols, Duplicates
-
-## Data Storage Structure
-
-### Assets Table
-```sql
--- Stores ALL ticker data from Polygon
-CREATE TABLE assets (
-    id INTEGER PRIMARY KEY,
-    symbol VARCHAR(20) UNIQUE,
-    name VARCHAR(255),
-    asset_type VARCHAR(30),    -- common_stock, etf, preferred_stock, etc.
-    market_id VARCHAR(20),     -- NYSE, NASDAQ, AMEX, etc.
-    currency VARCHAR(10),
-    is_active BOOLEAN,
-    -- ... additional fields
-);
+### Database Commands
+```bash
+./tradescout bootstrap database init     # Create/verify database
+./tradescout bootstrap database reset    # Delete and recreate (--force to skip prompt)
+./tradescout bootstrap database info     # Show database statistics
 ```
 
-### Universes Table
-```sql
--- Defines universe metadata
-CREATE TABLE universes (
-    id INTEGER PRIMARY KEY,
-    name VARCHAR(100) UNIQUE,
-    description TEXT,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP
-);
+### Provider Commands
+```bash
+./tradescout bootstrap providers init    # Initialize data providers
+./tradescout bootstrap providers info    # Show provider status
 ```
 
-### Universe Memberships Table
-```sql
--- Links assets to universes
-CREATE TABLE universe_memberships (
-    id INTEGER PRIMARY KEY,
-    asset_id INTEGER,
-    universe_id INTEGER,
-    added_date DATE,
-    removed_date DATE,
-    reason TEXT,
-    is_active BOOLEAN,
-    FOREIGN KEY (asset_id) REFERENCES assets(id),
-    FOREIGN KEY (universe_id) REFERENCES universes(id)
-);
+### Ticker Commands
+```bash
+./tradescout bootstrap tickers init      # Fetch all tickers from Polygon
+./tradescout bootstrap tickers info      # Show ticker statistics
+./tradescout bootstrap tickers init --limit 100  # Limit for testing
+```
+
+### Universe Commands
+```bash
+./tradescout bootstrap universe init     # Create default trading universe
+./tradescout bootstrap universe info     # Show universe statistics
+```
+
+### Complete Bootstrap
+```bash
+./tradescout bootstrap all               # Interactive mode with confirmation
+./tradescout bootstrap all --force       # Skip confirmation
+```
+
+## Error Handling
+
+The bootstrap system provides clear error messages and dependency checking:
+
+### Provider Dependency
+```bash
+$ ./tradescout bootstrap tickers init
+❌ Ticker initialization failed
+ERROR: Provider 'polygon' must be bootstrapped first. Run 'tradescout bootstrap providers init'
+```
+
+### Ticker Dependency
+```bash
+$ ./tradescout bootstrap universe init
+❌ Universe initialization failed
+ERROR: No assets found in database. Tickers must be bootstrapped first.
+```
+
+### Database Dependency
+```bash
+$ ./tradescout bootstrap providers init
+❌ Provider initialization failed
+Database not found: data/tradescout.db
+Run 'tradescout bootstrap database init' first
 ```
 
 ## Maintenance and Updates
 
-### Regular Updates
-**Frequency**: Weekly or monthly
-
-**Process**:
-1. Run ticker bootstrapper to update ticker data
-2. Run universe bootstrapper to add any new qualifying assets
+### Regular Data Refresh
+For updated ticker data and universe membership:
 
 ```bash
-# Update all tickers
-python -m tradescout.scripts.bootstrap_tickers
+# Complete refresh (recommended monthly)
+./tradescout bootstrap all --force
 
-# Update default universe with any new qualifying assets
-python -m tradescout.scripts.bootstrap_default_universe
+# Incremental updates (limitation: tickers won't update existing records)
+./tradescout bootstrap tickers init
+./tradescout bootstrap universe init
 ```
 
 ### Monitoring
 ```bash
-# Check ticker coverage
-python -m tradescout.scripts.bootstrap_tickers --stats-only
+# Check overall system status
+./tradescout bootstrap database info
 
-# Check universe statistics  
-python -m tradescout.scripts.bootstrap_default_universe --stats-only
+# Check specific components
+./tradescout bootstrap providers info
+./tradescout bootstrap tickers info
+./tradescout bootstrap universe info
 ```
 
-## Configuration
+## Configuration Files
 
-### Ticker Bootstrapper Configuration
-Located in: `src/tradescout/config/data_source_config.py`
-- Polygon API settings
-- Rate limiting configuration
-- Batch processing settings
+### Core Configuration
+- **API Keys**: `src/config/api_keys.py`
+- **Universe Filtering**: `src/config/universe_config.py`
+- **Database Path**: Configured in CLI config
 
-### Universe Bootstrapper Configuration
-Located in: `src/tradescout/config/universe_config.py`
-- Filtering criteria definitions
-- Exchange mappings
-- Asset type mappings
+### Schema Files
+- **Database Schema**: `src/database/schema/001_initial_schema.sql`
+- **11 Tables**: providers, markets, assets, universes, universe_memberships, etc.
+
+## Performance Characteristics
+
+### Timing Expectations
+- **Database Init**: < 1 second
+- **Providers Init**: < 1 second
+- **Tickers Init**: 60-90 seconds (API rate limited)
+- **Universe Init**: 5-10 seconds
+- **Complete Bootstrap**: 90-120 seconds
+
+### API Usage
+- **Polygon Calls**: ~12-15 paginated requests
+- **Rate Limiting**: Built-in backoff handling
+- **Data Volume**: ~11,745 ticker records
 
 ## Troubleshooting
 
 ### Common Issues
 
-**1. API Rate Limiting**
-```
-ERROR: Polygon API error: 429 - Rate limit exceeded
-```
-**Solution**: The bootstrapper automatically handles rate limiting with backoff
-
-**2. No Assets Added to Universe**
-```
-Assets meeting criteria: 0
-```
-**Solution**: Check that ticker bootstrapping completed successfully first
-
-**3. Database Connection Errors**
-```
-ERROR: no such table: assets
-```
-**Solution**: Ensure migrations have run by starting the application once
-
-### Debug Mode
+**1. Missing API Key**
 ```bash
-# Enable detailed logging
-export PYTHONPATH=/path/to/TradeScout
-python -m tradescout.scripts.bootstrap_tickers --verbose
-
-python -m tradescout.scripts.bootstrap_default_universe --dry-run --verbose
+ERROR: Polygon API key not found
 ```
+**Solution**: Configure API key in `src/config/api_keys.py`
 
-## Performance Characteristics
+**2. Bootstrap Order Error**
+```bash
+ERROR: Provider 'polygon' must be bootstrapped first
+```
+**Solution**: Run bootstrap stages in order, or use `bootstrap all`
 
-### Ticker Bootstrapper
-- **API Calls**: ~12-15 requests (paginated)
-- **Processing Time**: ~2-3 minutes
-- **Rate Limiting**: 5 calls per minute (built-in backoff)
-- **Memory Usage**: Streaming processing (low memory)
+**3. Universe Empty**
+```bash
+ERROR: No assets found in database
+```
+**Solution**: Run ticker bootstrap first: `./tradescout bootstrap tickers init`
 
-### Universe Bootstrapper
-- **Database Queries**: 2-3 queries total
-- **Processing Time**: ~5-10 seconds
-- **Memory Usage**: Loads all assets in memory briefly
-- **Concurrent Safe**: Uses database transactions
+### Debug Logging
+Bootstrap operations log extensively. Check logs for detailed error information and progress tracking.
 
-## Strategic Benefits
+## Database Schema
 
-### Complete Coverage
-- **Market Scanning**: Access to nearly all tradeable US stocks
-- **Future Expansion**: Easy to add new universes with different criteria
-- **Sector Analysis**: Complete coverage across all US sectors
+### Key Tables
+- **providers**: Data source definitions (Polygon)
+- **markets**: Exchange definitions (XNYS, XNAS, etc.)
+- **assets**: Ticker data (11,745 records)
+- **universes**: Universe metadata
+- **universe_memberships**: Asset-universe relationships (7,513 records)
 
-### Quality Assurance
-- **Two-Stage Filtering**: Ensures data quality at multiple levels
-- **Deduplication**: Prevents duplicate assets in universes
-- **Validation**: Consistent symbol formatting and exchange verification
-
-### Operational Efficiency
-- **Incremental Updates**: Only adds new assets, preserves existing
-- **Dry-Run Mode**: Safe testing before making changes
-- **Audit Trail**: Tracks when and why assets were added
+### Relationships
+- Assets → Markets (foreign key)
+- Assets → Providers (foreign key)
+- Universe Memberships → Assets + Universes (foreign keys)
 
 ---
 
-**Last Updated**: January 2025
-**Current Coverage**: 11,700 total tickers → ~5,000 default universe assets
-**Data Source**: Polygon.io Premium API
+This bootstrap system ensures reliable, repeatable initialization of the TradeScout database with high-quality, filtered trading data from Polygon.io.

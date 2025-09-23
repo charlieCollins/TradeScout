@@ -140,6 +140,104 @@ def database_info(config):
         console.print(f"\nTotal records: {total_records:,}")
 
 
+# Providers command group
+@bootstrap.group()
+@pass_config
+def providers(config):
+    """Manage data providers."""
+    pass
+
+
+@providers.command('init')
+@pass_config
+def providers_init(config):
+    """Initialize/update all data providers."""
+    console.print("[blue]Initializing data providers...[/blue]")
+
+    # Check if database exists
+    if not Path(config.db_path).exists():
+        console.print(f"[red]Database not found: {config.db_path}[/red]")
+        console.print("[yellow]Run 'tradescout bootstrap database init' first[/yellow]")
+        sys.exit(1)
+
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from database.database_manager import DatabaseManager
+        from bootstrapping.bootstrapper_provider import ProviderBootstrapper
+
+        db_manager = DatabaseManager(config.db_path)
+        bootstrapper = ProviderBootstrapper(db_manager=db_manager)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to initialize ProviderBootstrapper: {e}[/red]")
+        sys.exit(1)
+
+    stats = bootstrapper.bootstrap_providers()
+
+    console.print("[green]✅ Provider initialization completed[/green]")
+    console.print(f"  Inserted: {stats.get('inserted', 0)}")
+    console.print(f"  Updated: {stats.get('updated', 0)}")
+    console.print(f"  Errors: {stats.get('errors', 0)}")
+
+    # Show active providers
+    active = bootstrapper.get_active_providers()
+    if active:
+        console.print("\nActive providers:")
+        for provider in active:
+            console.print(f"  - {provider}")
+
+
+@providers.command('info')
+@pass_config
+def providers_info(config):
+    """Show provider information and statistics."""
+    console.print("[blue]Fetching provider information...[/blue]")
+
+    # Check if database exists
+    if not Path(config.db_path).exists():
+        console.print(f"[red]Database not found: {config.db_path}[/red]")
+        console.print("[yellow]Run 'tradescout bootstrap database init' first[/yellow]")
+        sys.exit(1)
+
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from database.database_manager import DatabaseManager
+        db_manager = DatabaseManager(config.db_path)
+    except Exception as e:
+        console.print(f"[red]❌ Failed to initialize DatabaseManager: {e}[/red]")
+        sys.exit(1)
+
+    try:
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Get all providers with their details
+            cursor.execute("""
+                SELECT name, display_name, base_url, api_key_required, is_active
+                FROM providers
+                ORDER BY name
+            """)
+            providers = cursor.fetchall()
+
+            if not providers:
+                console.print("[yellow]No providers found in database[/yellow]")
+                console.print("[yellow]Run 'tradescout bootstrap providers init' to add providers[/yellow]")
+                return
+
+            console.print("📊 Data Providers")
+            for name, display_name, base_url, api_key_required, is_active in providers:
+                status = "✅ Active" if is_active else "⚫ Inactive"
+                key_req = "🔑 API Key Required" if api_key_required else "🌐 Public"
+                console.print(f"\n  {display_name} ({name})")
+                console.print(f"    Status: {status}")
+                console.print(f"    Access: {key_req}")
+                if base_url:
+                    console.print(f"    URL: {base_url}")
+
+    except Exception as e:
+        console.print(f"[red]Failed to fetch provider information: {e}[/red]")
+        sys.exit(1)
+
+
 # Tickers command group
 @bootstrap.group()
 @pass_config
@@ -354,9 +452,40 @@ def universe_info(config, universe):
 
 # All command
 @bootstrap.command('all')
+@click.option('--force', '-f', is_flag=True, help='Skip confirmation prompt')
 @pass_config
-def bootstrap_all(config):
+def bootstrap_all(config, force):
     """Run all bootstrap operations in sequence."""
+
+    # Check if database exists and has data
+    if Path(config.db_path).exists() and not force:
+        try:
+            from database.database_manager import DatabaseManager
+            db_manager = DatabaseManager(config.db_path)
+
+            with db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check for existing data
+                cursor.execute("SELECT COUNT(*) FROM assets")
+                asset_count = cursor.fetchone()[0]
+
+                cursor.execute("SELECT COUNT(*) FROM universe_memberships")
+                universe_count = cursor.fetchone()[0]
+
+                if asset_count > 0 or universe_count > 0:
+                    console.print(f"[yellow]⚠️  Database contains existing data:[/yellow]")
+                    console.print(f"  - {asset_count:,} assets")
+                    console.print(f"  - {universe_count:,} universe members")
+                    console.print("[yellow]Running bootstrap will refresh all data from APIs.[/yellow]")
+
+                    if not click.confirm("Continue with bootstrap?"):
+                        console.print("Bootstrap cancelled")
+                        return
+        except Exception:
+            # If we can't check, just proceed
+            pass
+
     console.print("[blue]Running complete bootstrap sequence...[/blue]")
 
     # 1. Database
@@ -372,15 +501,26 @@ def bootstrap_all(config):
         console.print(f"[red]Database bootstrap failed: {e}[/red]")
         sys.exit(1)
 
-    # 2. Tickers
-    console.print("\n=== Step 2: Tickers ===")
+    # 2. Providers
+    console.print("\n=== Step 2: Providers ===")
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from config.api_keys import POLYGON_API_KEY
         from database.database_manager import DatabaseManager
-        from bootstrapping.bootstrapper_ticker import TickerBootstrapper
+        from bootstrapping.bootstrapper_provider import ProviderBootstrapper
 
         db_manager = DatabaseManager(config.db_path)
+        bootstrapper_provider = ProviderBootstrapper(db_manager=db_manager)
+        stats = bootstrapper_provider.bootstrap_providers()
+        console.print(f"[green]Providers initialized: {stats['inserted']} inserted, {stats['updated']} updated[/green]")
+    except Exception as e:
+        console.print(f"[red]Provider bootstrap failed: {e}[/red]")
+        sys.exit(1)
+
+    # 3. Tickers
+    console.print("\n=== Step 3: Tickers ===")
+    try:
+        from config.api_keys import POLYGON_API_KEY
+        from bootstrapping.bootstrapper_ticker import TickerBootstrapper
+
         bootstrapper_ticker = TickerBootstrapper(api_key=POLYGON_API_KEY, db_manager=db_manager)
         if not bootstrapper_ticker.bootstrap_all_tickers():
             console.print("[red]Ticker bootstrap failed, stopping[/red]")
@@ -389,8 +529,8 @@ def bootstrap_all(config):
         console.print(f"[red]Ticker bootstrap failed: {e}[/red]")
         sys.exit(1)
 
-    # 3. Universe
-    console.print("\n=== Step 3: Universe ===")
+    # 4. Universe
+    console.print("\n=== Step 4: Universe ===")
     try:
         from bootstrapping.bootstrapper_universe import UniverseBootstrapper
         bootstrapper_universe = UniverseBootstrapper(config.db_path)

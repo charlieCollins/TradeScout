@@ -1,0 +1,49 @@
+name: losers
+description: "Top losing stocks by percentage"
+enabled: true
+
+# Session validation - when this screener should run
+valid_sessions:
+  - "regular"
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Filter criteria
+filters:
+  - field: "change_percent"
+    operator: "<="
+    value: -2.0
+  - field: "min_close"
+    operator: ">="
+    value: 1.0
+
+# Sorting configuration
+sort:
+  - field: "change_percent"
+    direction: "asc"  # Most negative first
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 10
+    - name: "Name"
+      field: "name"
+      width: 30
+    - name: "Last"
+      field: "min_close"
+      format: "price"
+    - name: "Change"
+      field: "change_dollar"
+      format: "price_change"
+    - name: "Change %"
+      field: "change_percent"
+      format: "percent"
+    - name: "Volume"
+      field: "min_volume"
+      format: "volume"

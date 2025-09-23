@@ -85,12 +85,14 @@ def create_header(title: str, symbol: str = None) -> Panel:
 
 
 # Import and register command groups
-from .analyze_commands import analyze
+from .screener_commands import screener
+from .asset_commands import asset
 from .bootstrap_commands import bootstrap
 from .market_commands import market
 
 
-main.add_command(analyze)
+main.add_command(screener)
+main.add_command(asset)
 main.add_command(bootstrap)
 main.add_command(market)
 

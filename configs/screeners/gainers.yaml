@@ -1,0 +1,58 @@
+name: gainers
+description: "Regular session gainers (day close vs day open)"
+enabled: true
+
+# Session validation - when this screener should run
+valid_sessions:
+  - "regular"
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Filter criteria - regular session performance only
+filters:
+  - field: "day_close"
+    operator: "IS NOT NULL"
+    value: null  # Only include stocks with day session data
+  - field: "day_open"
+    operator: "IS NOT NULL"
+    value: null
+  - field: "((day_close - day_open) / day_open * 100)"
+    operator: ">="
+    value: 2.0
+  - field: "day_close"
+    operator: ">="
+    value: 1.0
+
+# Sorting configuration
+sort:
+  - field: "((day_close - day_open) / day_open * 100)"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 10
+    - name: "Name"
+      field: "name"
+      width: 30
+    - name: "Open"
+      field: "day_open"
+      format: "price"
+    - name: "Close"
+      field: "day_close"
+      format: "price"
+    - name: "Change"
+      field: "day_close - day_open"
+      format: "price_change"
+    - name: "Change %"
+      field: "((day_close - day_open) / day_open * 100)"
+      format: "percent"
+    - name: "Volume"
+      field: "day_volume"
+      format: "volume"

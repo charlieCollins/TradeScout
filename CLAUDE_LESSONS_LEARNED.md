@@ -118,4 +118,111 @@ GOOD: "Implement this exact 8-table schema [provide schema]
 
 ---
 
+## 🚨 Communication & Trust Issues
+
+### **NEVER Claim "Fixed All Places" Without Complete Verification**
+
+**Date:** 2025-09-23
+**Context:** API key constructor updates across codebase
+**Issue:** Claimed "updated all PolygonDataProvider constructors" when I had only searched a subset and missed several files
+
+**The Problem:**
+- Said "I've checked all places" when I hadn't actually verified every occurrence
+- Created false confidence that the work was complete
+- Made bugs much harder to catch because user trusted my statement
+- Demonstrates AI overconfidence without proper verification
+
+**Why This Is Terrible:**
+1. **False Security**: User assumes work is complete and doesn't double-check
+2. **Harder Bug Detection**: Issues get missed because of false confidence
+3. **Trust Erosion**: User can't rely on completion statements
+4. **Wasted Time**: User has to reverify "completed" work
+
+**Correct Communication:**
+```
+BAD: "I've updated all PolygonDataProvider constructors"
+GOOD: "I searched and updated the constructors I found in [list specific files]. You may want to verify I didn't miss any."
+
+BAD: "All places are now fixed"
+GOOD: "I tried to find all occurrences and updated [X] places. Please double-check in case I missed any."
+```
+
+**Key Principle:**
+**"Honest Uncertainty" > "False Certainty"**
+
+If you haven't verified 100%, don't claim 100% completion. Say what you searched and what you found.
+
+**Red Flag Words to Avoid:**
+- "All places fixed"
+- "Everything updated"
+- "Complete" (without explicit verification)
+- "I've checked everywhere"
+
+**Better Alternatives:**
+- "I searched X and updated Y"
+- "Found and fixed these locations"
+- "Please verify I didn't miss any"
+- "Let me search more thoroughly"
+
+---
+
+## 🚨 Development Process Issues
+
+### **NEVER Create Extra Components When Told to Build One**
+
+**Date:** 2025-09-23
+**Context:** Screener system development - user said build "gainers" screener, I created multiple screeners
+**Issue:** User explicitly said "just do one thing" but I ignored it and created gaps, volume, momentum screeners anyway
+
+**The Problem:**
+- User said build ONE screener (gainers) as template
+- I ignored explicit instruction and created multiple screeners
+- When refactoring happened (session validation), I missed updating the extra ones
+- Created maintenance burden and broken code
+- User has to fix my "helpfulness"
+
+**Why This Is Terrible:**
+1. **Ignores Explicit Constraints**: User said "just do one thing" for a reason
+2. **Creates Technical Debt**: Extra components need maintenance during refactors
+3. **Harder to Update**: More code means more places to miss during changes
+4. **Template Confusion**: Can't use first one as template if there are multiple variants
+5. **Wasted Effort**: Time spent on unauthorized features instead of quality
+
+**Root Cause:**
+AI tries to be "helpful" by anticipating future needs, but this creates problems:
+- Can't properly maintain multiple components during changes
+- User loses control over development pace and scope
+- Creates false sense of progress while generating maintenance debt
+
+**Correct Approach:**
+```
+USER: "Build a gainers screener"
+BAD: Build gainers + losers + volume + momentum screeners
+GOOD: Build ONLY gainers screener, make it perfect, wait for next instruction
+
+USER: "Just do one thing"
+BAD: Ignore and build multiple things anyway
+GOOD: Do exactly one thing, do it well, stop
+```
+
+**Key Principle:**
+**"One Perfect Thing" > "Multiple Broken Things"**
+
+When user says build one component, build ONE. They want to iterate and refine before scaling.
+
+**Why Users Say "Just Do One Thing":**
+1. They know changes will be needed
+2. First one becomes the template for others
+3. Easier to verify one working thing than debug multiple broken things
+4. Allows for design refinement before proliferation
+5. Prevents AI from creating maintenance nightmares
+
+**Red Flags:**
+- User says "just X" but I do X + Y + Z
+- "While I'm at it" thinking
+- Creating "similar" components without explicit request
+- Anticipating future needs instead of current requirements
+
+---
+
 *This document helps maintain code quality by learning from mistakes and establishing clear standards for future development.*

@@ -131,6 +131,11 @@ class UniverseBootstrapper:
         all_assets = self._fetch_all_assets()
         logger.info(f"Found {len(all_assets)} total assets in database")
 
+        # Check if we have tickers to work with
+        if len(all_assets) == 0:
+            logger.error("No assets found in database. Run 'tradescout bootstrap tickers init' first.")
+            raise ValueError("No assets found in database. Tickers must be bootstrapped first.")
+
         # Apply filters
         filtered_assets = self.apply_filters(all_assets, universe_name)
         logger.info(f"Filtered to {len(filtered_assets)} assets for {universe_name}")
@@ -148,11 +153,11 @@ class UniverseBootstrapper:
             "universe_name": universe_name,
             "total_assets_considered": len(all_assets),
             "assets_included": len(filtered_assets),
-            "membership_records_created": membership_count,
-            "config": config
+            "membership_records_created": membership_count
         }
 
-        logger.info(f"Universe creation complete: {result}")
+        logger.info(f"Universe creation complete: {universe_name} with {len(filtered_assets)} assets from {len(all_assets)} total")
+        logger.debug(f"Universe config: {config}")
         return result
 
     def _fetch_all_assets(self) -> List[Dict[str, Any]]:
@@ -206,13 +211,13 @@ class UniverseBootstrapper:
             else:
                 # Create new universe
                 cursor.execute("""
-                    INSERT INTO universes (name, description, criteria_description, is_active, created_at, updated_at)
+                    INSERT INTO universes (name, description, is_active, last_updated, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                 """, (
                     universe_name,
-                    config.get('description', ''),
-                    f"Auto-generated from config: {config.get('name', universe_name)}",
+                    config.get('description', 'Default filtered universe'),
                     True,
+                    datetime.now().isoformat(),
                     datetime.now().isoformat(),
                     datetime.now().isoformat()
                 ))

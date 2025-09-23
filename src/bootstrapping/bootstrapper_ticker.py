@@ -17,22 +17,47 @@ class TickerBootstrapper:
         self.db_manager = db_manager
         self.last_stats = {}
 
-    def bootstrap_providers(self) -> None:
+    def ensure_providers_exist(self) -> None:
         """Ensure required providers exist in database."""
         if not self.db_manager:
-            raise ValueError("Database manager required for provider bootstrap")
+            raise ValueError("Database manager required for provider check")
 
         with self.db_manager.get_connection() as conn:
             cursor = conn.cursor()
 
-            # Insert polygon provider if it doesn't exist
-            cursor.execute("""
-                INSERT OR IGNORE INTO providers (name, is_active)
-                VALUES ('polygon', TRUE)
-            """)
+            # Check if polygon provider exists
+            cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
+            if not cursor.fetchone():
+                logger.error("Polygon provider not found in database")
+                raise ValueError("Provider 'polygon' must be bootstrapped first. Run 'tradescout bootstrap providers init'")
+
+    def bootstrap_markets(self) -> None:
+        """Ensure required markets exist in database."""
+        if not self.db_manager:
+            raise ValueError("Database manager required for markets bootstrap")
+
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Common US stock exchanges - add as needed when we encounter them
+            markets = [
+                ('XNYS', 'New York Stock Exchange', 'America/New_York'),
+                ('XNAS', 'NASDAQ', 'America/New_York'),
+                ('ARCX', 'NYSE Arca', 'America/New_York'),
+                ('XNMS', 'NASDAQ Small Cap', 'America/New_York'),
+                ('XASE', 'NYSE American', 'America/New_York'),
+                ('BATS', 'BATS Exchange', 'America/New_York'),
+                ('UNKNOWN', 'Unknown Market', 'America/New_York'),  # Default fallback
+            ]
+
+            for code, name, timezone in markets:
+                cursor.execute("""
+                    INSERT OR IGNORE INTO markets (code, name, timezone)
+                    VALUES (?, ?, ?)
+                """, (code, name, timezone))
 
             conn.commit()
-            logger.info("Provider bootstrap complete")
+            logger.info("Markets bootstrap complete")
 
     def fetch_all_tickers(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """Fetch all tickers using data provider."""
@@ -92,7 +117,11 @@ class TickerBootstrapper:
                 if batch_data:
                     # Get the polygon provider ID once
                     cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
-                    polygon_provider_id = cursor.fetchone()[0]
+                    provider_result = cursor.fetchone()
+                    if not provider_result:
+                        logger.error("Polygon provider not found in database")
+                        raise ValueError("Polygon provider must be bootstrapped first")
+                    polygon_provider_id = provider_result[0]
 
                     upsert_sql = """
                         INSERT OR IGNORE INTO assets (
@@ -132,12 +161,25 @@ class TickerBootstrapper:
         try:
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
+                # First try exact match
                 cursor.execute("SELECT id FROM markets WHERE code = ? OR name = ?", (exchange, exchange))
                 result = cursor.fetchone()
-                return result[0] if result else 1  # Default to 1 if not found
+                if result:
+                    return result[0]
+
+                # If not found, use UNKNOWN market
+                cursor.execute("SELECT id FROM markets WHERE code = 'UNKNOWN'")
+                result = cursor.fetchone()
+                if result:
+                    logger.debug(f"Exchange '{exchange}' not found, using UNKNOWN market")
+                    return result[0]
+
+                # This should never happen if markets are bootstrapped
+                logger.error(f"No markets found in database, not even UNKNOWN")
+                raise ValueError("Markets must be bootstrapped first")
         except Exception as e:
             logger.warning(f"Could not lookup market_id for {exchange}: {e}")
-            return 1
+            raise
 
     def get_bootstrap_stats(self) -> Dict[str, Any]:
         """Get statistics from the last bootstrap run."""
@@ -148,8 +190,9 @@ class TickerBootstrapper:
         logger.info("Starting complete ticker bootstrap")
 
         try:
-            # Ensure providers exist first
-            self.bootstrap_providers()
+            # Ensure providers and markets exist first
+            self.ensure_providers_exist()
+            self.bootstrap_markets()
 
             # Fetch all tickers from API
             tickers = self.fetch_all_tickers(limit=limit)

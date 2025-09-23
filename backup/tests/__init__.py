@@ -1,3 +1,0 @@
-"""
-TradeScout test package
-"""
