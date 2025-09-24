@@ -1,5 +1,5 @@
-name: gainersafterhours
-description: "Afterhours gainers (vs regular session close)"
+name: losersafterhours
+description: "Afterhours losers (vs regular session close)"
 enabled: true
 
 # Session validation - when this screener should run
@@ -18,16 +18,16 @@ filters:
     operator: "IS NOT NULL"
     value: null  # Must have regular session close data
   - field: "((min_close - day_close) / day_close * 100)"
-    operator: ">="
-    value: 2.0
+    operator: "<="
+    value: -2.0  # Looking for losses of 2% or more
   - field: "min_close"
     operator: ">="
     value: 1.0
 
-# Sorting configuration
+# Sorting configuration - sort by most negative change (biggest losers first)
 sort:
   - field: "((min_close - day_close) / day_close * 100)"
-    direction: "desc"
+    direction: "asc"  # Ascending to get most negative first
 
 # Display configuration
 display:

@@ -134,7 +134,9 @@ class ScreenerEngine:
             "ap.min_volume",
             "ap.min_timestamp",
             "(ap.min_close - ap.prevday_close) as change_dollar",
-            "CASE WHEN ap.prevday_close > 0 THEN ((ap.min_close - ap.prevday_close) / ap.prevday_close * 100) ELSE 0 END as change_percent"
+            "CASE WHEN ap.prevday_close > 0 THEN ((ap.min_close - ap.prevday_close) / ap.prevday_close * 100) ELSE 0 END as change_percent",
+            "(ap.min_close - ap.day_close) as ah_change_dollar",
+            "CASE WHEN ap.day_close > 0 THEN ((ap.min_close - ap.day_close) / ap.day_close * 100) ELSE 0 END as ah_change_percent"
         ]
 
         # Start building query
@@ -179,6 +181,9 @@ class ScreenerEngine:
                 field = "ABS((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
             elif field == "change_dollar":
                 field = "(ap.min_close - ap.prevday_close)"
+            elif field == "((min_close - day_close) / day_close * 100)":
+                # After-hours change percent vs regular session close
+                field = "((ap.min_close - ap.day_close) / ap.day_close * 100)"
             elif field == "min_close":
                 field = "ap.min_close"
             elif field == "min_volume":
@@ -214,6 +219,9 @@ class ScreenerEngine:
                     field = "((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
                 elif field == "ABS(change_percent)":
                     field = "ABS((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
+                elif field == "((min_close - day_close) / day_close * 100)":
+                    # After-hours change percent vs regular session close
+                    field = "((ap.min_close - ap.day_close) / ap.day_close * 100)"
                 elif field == "min_volume":
                     field = "ap.min_volume"
 
@@ -246,10 +254,10 @@ class ScreenerEngine:
                     result["min_timestamp"] / 1000,
                     tz=pytz.UTC
                 )
-                et_tz = pytz.timezone('US/Eastern')
+                et_tz = pytz.timezone('America/New_York')
                 timestamp_et = timestamp.astimezone(et_tz)
                 result["min_timestamp_formatted"] = timestamp_et.strftime("%I:%M %p")
-            except:
+            except Exception as e:
                 result["min_timestamp_formatted"] = "N/A"
         else:
             result["min_timestamp_formatted"] = "N/A"

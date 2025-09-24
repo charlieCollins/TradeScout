@@ -98,12 +98,29 @@ def screener(config, screener_name: str, list_screeners: bool):
         valid_sessions = screener_def.get('valid_sessions', [])
         sessions_text = f"Valid sessions: {', '.join(valid_sessions)}" if valid_sessions else ""
 
+        # Add session-specific warnings
+        current_session = data_provider.get_current_market_session()
+        session_warnings = []
+
+        if current_session == "closed":
+            session_warnings.append("⚠️  Markets are closed - showing data from last trading session")
+        elif current_session == "premarket":
+            session_warnings.append("📈 Premarket session - limited trading volume")
+        elif current_session == "afterhours":
+            session_warnings.append("🌙 After-hours session - limited trading volume")
+
+        # Combine warnings as a list
+        all_warnings = []
+        if snapshot_warning:
+            all_warnings.append(snapshot_warning)
+        all_warnings.extend(session_warnings)
+
         # Execute screener
         console.print(f"[yellow]📊 Running '{screener_name}' screener...[/yellow]")
         results = screener_engine.execute_screener(screener_def)
 
         # Display results
-        screener_display.display_results(results, screener_def, snapshot_time=snapshot_time, sessions_text=sessions_text, snapshot_warning=snapshot_warning)
+        screener_display.display_results(results, screener_def, snapshot_time=snapshot_time, sessions_text=sessions_text, warnings=all_warnings)
 
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")

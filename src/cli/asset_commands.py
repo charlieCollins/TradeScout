@@ -171,21 +171,19 @@ def info(config, symbol: str):
     """
     symbol = symbol.upper()
 
-    # Initialize AssetAnalyzer with data provider
+    # Initialize data provider
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from analyzer.asset_analyzer import AssetAnalyzer
         from provider.data_provider import PolygonDataProvider
 
         data_provider = PolygonDataProvider(config.db_manager)
-        analyzer = AssetAnalyzer(data_provider)
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize analyzer: {e}[/red]")
+        console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
 
     # Get asset info and price data (this fetches and stores fresh data)
     try:
-        asset_info = analyzer.get_asset_data(symbol)
+        asset_info = data_provider.get_asset_data(symbol)
         if not asset_info:
             console.print(f"[red]❌ Asset {symbol} not found[/red]")
             return
@@ -208,7 +206,7 @@ def info(config, symbol: str):
         console.print(asset_table)
 
         # Get price data (this will fetch fresh data and store it)
-        price_data = analyzer.get_asset_price_data(asset.id)
+        price_data = data_provider.get_asset_price_data(asset.id)
         if price_data:
             console.print()
 

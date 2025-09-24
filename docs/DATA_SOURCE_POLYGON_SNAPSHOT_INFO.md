@@ -153,7 +153,7 @@ Change % = (Change / prevDay.c) × 100
 |-------------|---------------|-----------|-----------|-------------|------------|
 | **Premarket** (4-9:30 AM) | Previous close | All zeros | Premarket price | `min.c - prevDay.c` | ✅ CONFIRMED |
 | **Regular** (9:30-4 PM) | Previous close | Live data | Current price | `min.c - prevDay.c` | ✅ CONFIRMED |
-| **Afterhours** (4-8 PM) | Previous close | Complete session | Afterhours price | `min.c - prevDay.c` | ✅ CONFIRMED |
+| **Afterhours** (4-8 PM) | Previous close | **Complete session data** | Afterhours price | `min.c - prevDay.c` | ✅ CONFIRMED Sept 23 |
 | **Weekend** | Previous close | Friday's session | Last Friday trade | `min.c - prevDay.c` | ✅ CONFIRMED |
 
 ## Monday Premarket Test (September 22, 2025, 7:56 AM ET)
@@ -175,6 +175,31 @@ Change % = (Change / prevDay.c) × 100
 3. **min.c shows current premarket price** - ✅ Live premarket prices captured
 4. **Gap calculation accurate** - ✅ Formula `(min.c - prevDay.c) / prevDay.c * 100` works
 5. **Timestamps correct** - ✅ All show Monday morning premarket times
+
+## Monday After-Hours Test (September 23, 2025, 7:05 PM ET)
+
+### Live Production Test Results - CRITICAL CONFIRMATION
+
+**Test Symbols:** AAPL, NVDA, TSLA during after-hours session
+
+| Symbol | prevDay.c | day.open | day.high | day.low | day.close | min.c | min.timestamp | Updated |
+|--------|-----------|----------|----------|---------|-----------|-------|---------------|---------|
+| AAPL | $256.08 | $255.88 | $257.34 | $253.58 | **$254.43** | $254.35 | 19:04 ET | 19:05 ET |
+| NVDA | $183.61 | $181.97 | $182.42 | $176.21 | **$178.43** | $178.19 | 19:05 ET | 19:06 ET |
+| TSLA | $434.21 | $439.88 | $440.97 | $423.72 | **$425.85** | $426.52 | 19:05 ET | 19:06 ET |
+
+### ✅ CRITICAL FINDING: day.* Fields ARE Present During After-Hours
+
+**Confirmed Behavior:**
+1. **day.* fields contain COMPLETE regular session data** (9:30 AM - 4:00 PM)
+   - day.open = Market open at 9:30 AM
+   - day.close = Market close at 4:00 PM (NOT the reference price!)
+   - day.high/low/volume = Full regular session statistics
+2. **prevDay.c remains the reference price** for all calculations
+3. **min.c shows current after-hours price**
+4. **Bulk market update confirmed**: 7,255 of 7,499 symbols had trading activity with complete day.* data
+
+This definitively proves that after 4 PM, the day.* fields are populated with the complete regular trading session data, allowing screeners and analysis tools to work correctly during extended hours.
 
 ## Critical Discovery: The `updated` Field Behavior (September 23, 2025)
 

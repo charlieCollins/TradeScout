@@ -1,5 +1,6 @@
 """Display formatter for screener results."""
 
+import sys
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -15,7 +16,7 @@ class ScreenerDisplay:
         """Initialize display formatter."""
         self.console = Console()
 
-    def display_results(self, results: List[Dict[str, Any]], screener_def: Dict, snapshot_time: Optional[str] = None, sessions_text: Optional[str] = None, snapshot_warning: Optional[str] = None):
+    def display_results(self, results: List[Dict[str, Any]], screener_def: Dict, snapshot_time: Optional[str] = None, sessions_text: Optional[str] = None, warnings: Optional[List[str]] = None, snapshot_warning: Optional[str] = None):
         """Display screener results in a formatted table.
 
         Args:
@@ -23,14 +24,20 @@ class ScreenerDisplay:
             screener_def: Screener configuration with display settings
             snapshot_time: Optional snapshot time string to display
             sessions_text: Optional sessions info to display
-            snapshot_warning: Optional warning about stale data
+            warnings: Optional list of warning messages to display
+            snapshot_warning: Deprecated - use warnings instead
         """
         # Show last snapshot time first
         if snapshot_time:
             self.console.print(f"[dim]{snapshot_time}[/dim]")
         if sessions_text:
             self.console.print(f"[dim]{sessions_text}[/dim]")
-        if snapshot_warning:
+
+        # Display warnings - support both new warnings list and legacy snapshot_warning
+        if warnings:
+            for warning in warnings:
+                self.console.print(f"[yellow]{warning}[/yellow]")
+        elif snapshot_warning:
             self.console.print(f"[yellow]{snapshot_warning}[/yellow]")
 
         if not results:
@@ -56,7 +63,7 @@ class ScreenerDisplay:
                 table.add_column(str(col_config))
 
         # Add rows
-        for result in results:
+        for i, result in enumerate(results):
             row = []
             for col_config in columns_config:
                 if isinstance(col_config, dict):
@@ -69,6 +76,7 @@ class ScreenerDisplay:
                     # Simple column name
                     value = result.get(col_config, "")
                     row.append(str(value))
+
 
             table.add_row(*row)
 
@@ -92,6 +100,25 @@ class ScreenerDisplay:
         # Handle simple field names
         if field in result:
             return result[field]
+
+        # Handle complex expressions for afterhours calculations
+        if field == "((min_close - day_close) / day_close * 100)":
+            # This is afterhours change percent - should already be calculated as ah_change_percent
+            return result.get("ah_change_percent", 0)
+        elif field == "min_close - day_close":
+            # Afterhours change dollar amount
+            return result.get("ah_change_dollar", 0)
+
+        # Handle simple subtraction like "min_close - prevday_close"
+        if " - " in field:
+            parts = field.split(" - ")
+            if len(parts) == 2:
+                field1 = parts[0].strip()
+                field2 = parts[1].strip()
+                val1 = result.get(field1, 0)
+                val2 = result.get(field2, 0)
+                if val1 is not None and val2 is not None:
+                    return val1 - val2
 
         # Handle expressions (very basic for now)
         if "*" in field:

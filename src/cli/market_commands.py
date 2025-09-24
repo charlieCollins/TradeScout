@@ -62,6 +62,25 @@ def info(config):
     status_table.add_column("Value", style="", width=30)
 
     if market_status:
+        # Main market status
+        market = market_status.get("market", "unknown")
+        status_table.add_row("Market", market.title())
+
+        # Early hours and after hours status
+        early_hours = market_status.get("earlyHours", False)
+        after_hours = market_status.get("afterHours", False)
+
+        # Session details
+        if early_hours:
+            status_table.add_row("Premarket", "✅ Active")
+        else:
+            status_table.add_row("Premarket", "❌ Closed")
+
+        if after_hours:
+            status_table.add_row("After Hours", "✅ Active")
+        else:
+            status_table.add_row("After Hours", "❌ Closed")
+
         # Get exchanges info if available
         exchanges = market_status.get("exchanges", {})
         if exchanges:
@@ -77,30 +96,10 @@ def info(config):
             fx = currencies.get("fx", "unknown")
             status_table.add_row("Forex", fx.title() if isinstance(fx, str) else str(fx))
 
-        # Handle serverTime if present
+        # Handle serverTime if present - Polygon returns ISO format
         server_time = market_status.get("serverTime")
         if server_time:
-            try:
-                # Convert to numeric if it's a string
-                if isinstance(server_time, str):
-                    server_time = float(server_time)
-
-                # Check if it's in milliseconds or nanoseconds
-                if server_time > 1e12:  # Likely milliseconds
-                    server_dt = datetime.fromtimestamp(server_time / 1000)
-                else:
-                    server_dt = datetime.fromtimestamp(server_time)
-                status_table.add_row("Server Time", server_dt.strftime("%Y-%m-%d %H:%M:%S ET"))
-            except (ValueError, TypeError):
-                status_table.add_row("Server Time", str(server_time))
-
-        # Early hours and after hours status
-        early_hours = market_status.get("earlyHours", False)
-        after_hours = market_status.get("afterHours", False)
-        if early_hours:
-            status_table.add_row("Early Hours", "✅ Active")
-        if after_hours:
-            status_table.add_row("After Hours", "✅ Active")
+            status_table.add_row("Server Time", str(server_time))
 
     console.print(status_table)
 
