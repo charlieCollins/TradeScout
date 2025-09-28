@@ -7,8 +7,8 @@ TradeScout maintains a trading universe sourced from Polygon.io's reference tick
 ## Current Universe Statistics
 
 ### Actual Coverage (Current Database)
-- **Total Assets**: 11,745 symbols
-- **Default Universe**: 11,249 symbols (95.8% of total)
+- **Total Assets**: 11,765 symbols
+- **Default Universe**: 7,521 symbols (64.0% of total)
 - **Asset Types**: All stock (CS) - no ETFs or REITs currently included
 - **Exchanges**: XNYS (NYSE) and XNAS (NASDAQ) only
 

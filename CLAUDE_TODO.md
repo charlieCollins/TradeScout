@@ -1,6 +1,6 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-27*
+*Last updated: 2025-09-28*
 
 ## 🎯 Current Priority Tasks
 
@@ -24,6 +24,13 @@
 - **Goal**: Improve performance of bulk market snapshot processing
 - **Implementation**: Replace individual inserts with batch operations
 - **Priority**: MEDIUM - Performance optimization
+
+## ✅ Recently Completed (2025-09-28)
+- ✅ Complete architectural refactoring - eliminate raw dictionaries, use typed models
+- ✅ Fix CLI commands to use data provider pattern
+- ✅ Test fundamentals bootstrap with sample ticker
+- ✅ Implement aggressive caching for fundamentals data (outside DB)
+- ✅ Audit all documentation for consistency and remove outdated content
 
 ---
 

@@ -263,34 +263,42 @@ CREATE INDEX idx_sentiment_events_type ON sentiment_events(sentiment_type_id);
 CREATE INDEX idx_sentiment_events_date ON sentiment_events(event_date);
 
 -- ==========================================
--- 10. MARKET SNAPSHOT METADATA
+-- 10. DATA UPDATE METADATA
 -- ==========================================
-CREATE TABLE IF NOT EXISTS market_snapshot_metadata (
+CREATE TABLE IF NOT EXISTS data_update_metadata (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Operation identification
+    operation_type TEXT NOT NULL,           -- 'fundamentals', 'tickers', 'snapshot', 'universe'
+    operation_subtype TEXT,                 -- 'bootstrap', 'refresh', 'single_symbol'
 
     -- Run metadata
     started_at DATETIME NOT NULL,
     completed_at DATETIME,
 
-    -- Statistics
-    total_symbols INTEGER NOT NULL,
-    successful_updates INTEGER DEFAULT 0,
-    failed_updates INTEGER DEFAULT 0,
-
-    -- Status
+    -- Status tracking
     status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')) DEFAULT 'running',
 
-    -- Error tracking
-    error_message TEXT,
+    -- Statistics (JSON for flexibility)
+    stats TEXT,                             -- JSON: '{"inserted": 1234, "updated": 456, "errors": 2}'
 
-    -- API details
+    -- Operation details
+    total_items INTEGER,                    -- symbols, assets, etc.
+    processed_items INTEGER DEFAULT 0,
+    failed_items INTEGER DEFAULT 0,
     api_calls_made INTEGER DEFAULT 0,
 
+    -- Additional context
+    operation_params TEXT,                  -- JSON: '{"symbol": "AAPL", "force": true, "limit": 100}'
+    error_message TEXT,
+
+    -- Timestamps
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_snapshot_metadata_completed ON market_snapshot_metadata(completed_at);
-CREATE INDEX idx_snapshot_metadata_status ON market_snapshot_metadata(status);
+CREATE INDEX idx_data_update_operation ON data_update_metadata(operation_type);
+CREATE INDEX idx_data_update_completed ON data_update_metadata(completed_at);
+CREATE INDEX idx_data_update_status ON data_update_metadata(status);
 
 -- ==========================================
 -- 11. SCHEMA VERSIONS
@@ -302,8 +310,19 @@ CREATE TABLE IF NOT EXISTS schema_versions (
     applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ==========================================
+-- CLEANUP: Remove any unused tables
+-- ==========================================
+DROP TABLE IF EXISTS data_lineage;
+DROP TABLE IF EXISTS data_sources;
+DROP TABLE IF EXISTS data_versions;
+DROP TABLE IF EXISTS system_config;
+DROP TABLE IF EXISTS system_metrics;
+DROP TABLE IF EXISTS market_snapshot_runs;
+DROP TABLE IF EXISTS market_snapshot_metadata;
+
 -- Insert initial schema version
 INSERT INTO schema_versions (version, description)
-VALUES ('001', 'Initial schema with core tables');
+VALUES ('001', 'Complete schema with all core tables');
 
 

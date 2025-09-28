@@ -68,7 +68,7 @@ class DatabaseManager:
         expected_tables = [
             'providers', 'markets', 'assets', 'asset_fundamentals', 'asset_prices',
             'universes', 'universe_memberships', 'sentiment_types', 'sentiment_events',
-            'schema_versions', 'market_snapshot_metadata'
+            'schema_versions', 'data_update_metadata'
         ]
 
         try:

@@ -1,0 +1,64 @@
+name: gapupcandidates
+description: "Gap up candidates (≥2% upward gaps for analysis)"
+enabled: true
+
+# Session validation - premarket, afterhours and closed
+valid_sessions:
+  - "premarket"
+  - "afterhours"
+  - "closed"
+
+# Data source
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Basic academic research filters to reduce universe
+filters:
+  # Require valid day close price (4PM close reference)
+  - field: "day_close"
+    operator: "IS NOT NULL"
+    value: null
+
+  # Gap up size ≥2% (academic minimum threshold from Plastun et al.)
+  - field: "((min_close - day_close) / day_close * 100)"
+    operator: ">="
+    value: 2.0
+
+  # Minimum volume threshold (500K shares for liquidity)
+  - field: "min_volume"
+    operator: ">="
+    value: 500000
+
+# Sorting by gap magnitude for prioritization (largest gaps first)
+sort:
+  - field: "((min_close - day_close) / day_close * 100)"
+    direction: "desc"
+
+# Display configuration
+display:
+  limit: 50
+  columns:
+    - name: "Symbol"
+      field: "symbol"
+      width: 8
+    - name: "Current"
+      field: "min_close"
+      format: "price"
+      width: 10
+    - name: "Day Close"
+      field: "day_close"
+      format: "price"
+      width: 10
+    - name: "Gap %"
+      field: "((min_close - day_close) / day_close * 100)"
+      format: "percent"
+      width: 8
+    - name: "Volume"
+      field: "min_volume"
+      format: "volume"
+      width: 10
+    - name: "Time"
+      field: "min_timestamp"
+      format: "timestamp"
+      width: 8

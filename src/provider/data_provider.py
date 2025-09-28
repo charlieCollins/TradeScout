@@ -8,8 +8,14 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from models.asset import Asset, AssetType, AssetClass
 from models.market import Market
+from services.data_update_tracker import DataUpdateTracker
 from models.price import AssetPrice
+from models.fundamentals import AssetFundamentals
+from models.snapshot import MarketSnapshot, TickerSnapshot
+from models.stats import DatabaseStats, OperationStats
+from models.universe import Universe, UniverseMembership, UniverseStats
 from config.ttl_config import ASSET_PRICE_TTL_MINUTES
+from cache.fundamentals_cache import FundamentalsCacheManager
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +32,8 @@ class PolygonDataProvider:
 
         self.base_url = "https://api.polygon.io"
         self.db_manager = db_manager
+        self.update_tracker = DataUpdateTracker(db_manager) if db_manager else None
+        self.fundamentals_cache = FundamentalsCacheManager()
 
     # ============================================================================
     # PUBLIC API METHODS
@@ -78,10 +86,10 @@ class PolygonDataProvider:
         logger.info(f"Total tickers fetched: {len(all_tickers)} across {page} pages")
         return all_tickers
 
-    def get_market_snapshot(self, symbols: List[str], progress_callback=None) -> Dict[str, Any]:
+    def get_market_snapshot(self, symbols: List[str], progress_callback=None) -> Optional[MarketSnapshot]:
         """Get market snapshot for specified symbols using chunking."""
         if not symbols:
-            return {}
+            return None
 
         # Chunk symbols to avoid URI too large error
         chunk_size = 100
@@ -110,15 +118,65 @@ class PolygonDataProvider:
                 logger.warning(f"Chunk {chunk_num}/{total_chunks} returned no data")
 
         logger.info(f"Market snapshot complete: {len(all_results)} total results from {total_chunks} chunks")
-        return {"tickers": all_results}
 
-    def get_single_ticker_snapshot(self, symbol: str) -> Dict[str, Any]:
+        # Create MarketSnapshot model from the aggregated results
+        polygon_response = {"results": all_results, "status": "OK"}
+        return MarketSnapshot.from_polygon_data(polygon_response)
+
+    def get_single_ticker_snapshot(self, symbol: str) -> Optional[TickerSnapshot]:
         """Get snapshot for a single ticker."""
-        return self._make_request(f"/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}", {})
+        raw_data = self._make_request(f"/v2/snapshot/locale/us/markets/stocks/tickers/{symbol}", {})
+        if not raw_data or "ticker" not in raw_data:
+            return None
+
+        # Create a single-ticker MarketSnapshot and extract the ticker
+        polygon_response = {"results": [raw_data["ticker"]], "status": "OK"}
+        market_snapshot = MarketSnapshot.from_polygon_data(polygon_response)
+
+        # Return the single ticker snapshot
+        return market_snapshot.tickers.get(symbol) if market_snapshot else None
 
     def get_market_status(self) -> Dict[str, Any]:
-        """Get current market status."""
+        """Get current market status.
+
+        Returns:
+            Raw API response dict containing market status data.
+        """
         return self._make_request("/v1/marketstatus/now", {})
+
+    def get_ticker_overview(self, symbol: str) -> Dict[str, Any]:
+        """Get ticker overview with fundamentals data from Polygon API.
+
+        Uses aggressive file-based caching to avoid repeated API calls.
+        Cache TTL is configured via FUNDAMENTALS_TTL_HOURS.
+
+        Args:
+            symbol: Stock symbol (e.g., "AAPL")
+
+        Returns:
+            Raw API response dict containing ticker overview data.
+            Use AssetFundamentals.from_polygon_data() to convert to typed model.
+
+        Raises:
+            Exception: If API request fails or ticker not found
+        """
+        symbol = symbol.upper()
+
+        # Try cache first
+        cached_data = self.fundamentals_cache.get_cached_data(symbol)
+        if cached_data:
+            logger.debug(f"Using cached fundamentals data for {symbol}")
+            return cached_data
+
+        # Cache miss - fetch from API
+        logger.debug(f"Fetching fundamentals data from API for {symbol}")
+        endpoint = f"/v3/reference/tickers/{symbol}"
+        api_data = self._make_request(endpoint, {})
+
+        # Cache the response for future use
+        self.fundamentals_cache.cache_data(symbol, api_data)
+
+        return api_data
 
     # ============================================================================
     # PUBLIC ASSET DATA METHODS
@@ -358,6 +416,78 @@ class PolygonDataProvider:
             logger.error(f"Error checking price data freshness for asset_id {asset_id}: {e}")
             return False
 
+    def transform_ticker_snapshot_to_asset_price(self, symbol: str, asset_id: int, ticker_snapshot: TickerSnapshot) -> Optional[AssetPrice]:
+        """Transform TickerSnapshot model to AssetPrice model."""
+        try:
+            # Get provider ID
+            provider_id = 1  # Default fallback
+            if self.db_manager:
+                try:
+                    with self.db_manager.get_connection() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
+                        result = cursor.fetchone()
+                        if result:
+                            provider_id = result[0]
+                except Exception as e:
+                    logger.warning(f"Could not lookup polygon provider ID: {e}")
+
+            # Determine if we have recent trading activity
+            has_recent_trading = ticker_snapshot.last_timestamp is not None
+
+            # Set trade date
+            if has_recent_trading:
+                trade_date = ticker_snapshot.last_timestamp.date()
+            else:
+                trade_date = datetime.now().date()
+
+            # Convert timestamps - if we have last_timestamp, convert to nanoseconds for provider_updated_at
+            if ticker_snapshot.last_timestamp:
+                provider_updated_at = int(ticker_snapshot.last_timestamp.timestamp() * 1_000_000_000)
+            else:
+                provider_updated_at = 0
+
+            return AssetPrice(
+                id=0,  # Will be set by database auto-increment
+                asset_id=asset_id,
+                symbol=symbol,
+                provider_id=provider_id,
+                provider_updated_at=provider_updated_at,
+                trade_date=trade_date,
+                updated_at=datetime.now(),
+
+                # Previous day data (always available)
+                prevday_open=ticker_snapshot.prev_close,  # Using prev_close as we don't have separate prev_open
+                prevday_high=ticker_snapshot.prev_close,  # Same limitation
+                prevday_low=ticker_snapshot.prev_close,   # Same limitation
+                prevday_close=ticker_snapshot.prev_close,
+                prevday_volume=ticker_snapshot.prev_volume,
+                prevday_vwap=None,  # Not available in TickerSnapshot
+
+                # Current day data (only if has_recent_trading)
+                day_open=ticker_snapshot.open_price if has_recent_trading else None,
+                day_high=ticker_snapshot.high_price if has_recent_trading else None,
+                day_low=ticker_snapshot.low_price if has_recent_trading else None,
+                day_close=ticker_snapshot.close_price if has_recent_trading else None,
+                day_volume=ticker_snapshot.volume if has_recent_trading else None,
+                day_vwap=ticker_snapshot.vwap if has_recent_trading else None,
+
+                # Min data - we'll use last price info for this
+                min_timestamp=int(ticker_snapshot.last_timestamp.timestamp() * 1_000_000_000) if ticker_snapshot.last_timestamp else None,
+                min_open=ticker_snapshot.last_price if has_recent_trading else None,
+                min_high=ticker_snapshot.last_price if has_recent_trading else None,
+                min_low=ticker_snapshot.last_price if has_recent_trading else None,
+                min_close=ticker_snapshot.last_price if has_recent_trading else None,
+                min_volume=None,  # Not available at minute level
+                min_vwap=None,    # Not available at minute level
+                min_accumulated_volume=ticker_snapshot.volume if has_recent_trading else None,
+                min_num_trades=None  # Not available
+            )
+
+        except Exception as e:
+            logger.error(f"Error transforming TickerSnapshot for {symbol}: {e}")
+            return None
+
     def transform_snapshot_to_asset_price(self, symbol: str, asset_id: int, snapshot_data: Dict[str, Any]) -> Optional[AssetPrice]:
         """Transform snapshot API response to AssetPrice model."""
         try:
@@ -527,38 +657,28 @@ class PolygonDataProvider:
 
     def get_market_snapshot_metadata(self) -> Optional[Dict[str, Any]]:
         """Get the latest market snapshot run metadata."""
-        if not self.db_manager:
+        if not self.update_tracker:
             return None
 
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-
-                # Get latest completed market snapshot run
-                cursor.execute("""
-                    SELECT
-                        started_at, completed_at, total_symbols,
-                        successful_updates, failed_updates, status,
-                        error_message, api_calls_made
-                    FROM market_snapshot_metadata
-                    WHERE status IN ('completed', 'partial')
-                    ORDER BY completed_at DESC
-                    LIMIT 1
-                """)
-                result = cursor.fetchone()
-
-                if result:
-                    return {
-                        "started_at": result[0],
-                        "completed_at": result[1],
-                        "total_symbols": result[2],
-                        "successful_updates": result[3],
-                        "failed_updates": result[4],
-                        "status": result[5],
-                        "error_message": result[6],
-                        "api_calls_made": result[7]
-                    }
+            # Get the latest snapshot operation from DataUpdateTracker
+            history = self.update_tracker.get_operation_history("snapshot", limit=1)
+            if not history:
                 return None
+
+            operation = history[0]
+            stats = operation.get('stats', {})
+
+            return {
+                "started_at": operation['started_at'],
+                "completed_at": operation['completed_at'],
+                "total_symbols": operation.get('total_items', 0),
+                "successful_updates": stats.get('inserted', 0) + stats.get('updated', 0),
+                "failed_updates": stats.get('errors', 0),
+                "status": operation['status'],
+                "error_message": None,  # Not stored in new system
+                "api_calls_made": operation.get('api_calls_made', 0)
+            }
 
         except Exception as e:
             logger.error(f"Error getting market snapshot metadata: {e}")
@@ -566,69 +686,473 @@ class PolygonDataProvider:
 
     def check_running_snapshot(self) -> Optional[datetime]:
         """Check if a market snapshot is currently running."""
-        if not self.db_manager:
+        if not self.update_tracker:
             return None
 
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT started_at FROM market_snapshot_metadata
-                    WHERE status = 'running'
-                    ORDER BY started_at DESC
-                    LIMIT 1
-                """)
-                result = cursor.fetchone()
-                return datetime.fromisoformat(result[0]) if result else None
+            # Check for running snapshot operations
+            running_ops = self.update_tracker.get_current_running_operations()
+            snapshot_ops = [op for op in running_ops if op['operation_type'] == 'snapshot']
+
+            if snapshot_ops:
+                # Return the start time of the most recent running snapshot
+                latest_op = max(snapshot_ops, key=lambda x: x['started_at'])
+                return datetime.fromisoformat(latest_op['started_at'])
+
+            return None
 
         except Exception as e:
             logger.error(f"Error checking running snapshot: {e}")
             return None
 
-    def start_market_snapshot_run(self, total_symbols: int) -> bool:
-        """Start a new market snapshot run and return success status."""
-        if not self.db_manager:
-            return False
+    def start_market_snapshot_run(self, total_symbols: int) -> Optional[int]:
+        """Start a new market snapshot run and return operation ID for tracking."""
+        if not self.update_tracker:
+            return None
 
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO market_snapshot_metadata (started_at, total_symbols, status)
-                    VALUES (?, ?, 'running')
-                """, (datetime.now().isoformat(), total_symbols))
-                conn.commit()
-                return True
+            operation_id = self.update_tracker.start_operation(
+                operation_type="snapshot",
+                operation_subtype="market_update",
+                operation_params={"universe_symbols": total_symbols},
+                total_items=total_symbols
+            )
+            return operation_id
 
         except Exception as e:
             logger.error(f"Error starting market snapshot run: {e}")
-            return False
+            return None
 
-    def complete_market_snapshot_run(self, successful: int, failed: int, error: str = None) -> bool:
-        """Complete the most recent market snapshot run with statistics."""
-        if not self.db_manager:
+    def complete_market_snapshot_run(self, operation_id: int, successful: int, failed: int, api_calls: int = 1, error: str = None) -> bool:
+        """Complete the market snapshot run with statistics."""
+        if not self.update_tracker:
             return False
 
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            stats = {
+                "inserted": 0,  # New price records
+                "updated": successful,  # Updated price records
+                "errors": failed
+            }
 
-                status = 'completed' if failed == 0 else 'partial' if successful > 0 else 'failed'
+            if error:
+                self.update_tracker.fail_operation(operation_id, error)
+            else:
+                status = 'completed' if failed == 0 else 'partial'
+                self.update_tracker.complete_operation(operation_id, stats, status)
 
-                cursor.execute("""
-                    UPDATE market_snapshot_metadata
-                    SET completed_at = ?, successful_updates = ?, failed_updates = ?,
-                        status = ?, api_calls_made = 1, error_message = ?
-                    WHERE status = 'running'
-                    ORDER BY started_at DESC
-                    LIMIT 1
-                """, (datetime.now().isoformat(), successful, failed, status, error))
-                conn.commit()
-                return True
+            return True
 
         except Exception as e:
             logger.error(f"Error completing market snapshot run: {e}")
             return False
+
+    # ============================================================================
+    # PUBLIC UNIVERSE MANAGEMENT METHODS
+    # ============================================================================
+
+    def get_all_universes(self) -> List[Universe]:
+        """Get all universes from the database."""
+        if not self.db_manager:
+            return []
+
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, description, is_active, min_market_cap, min_volume,
+                       max_assets, last_updated, created_at, updated_at
+                FROM universes
+                ORDER BY name
+            """)
+            return [Universe.from_db_row(row) for row in cursor.fetchall()]
+
+    def get_active_universe(self) -> Optional[Universe]:
+        """Get the currently active universe."""
+        if not self.db_manager:
+            return None
+
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, name, description, is_active, min_market_cap, min_volume,
+                       max_assets, last_updated, created_at, updated_at
+                FROM universes
+                WHERE is_active = 1
+                LIMIT 1
+            """)
+            row = cursor.fetchone()
+            return Universe.from_db_row(row) if row else None
+
+    def set_active_universe(self, universe_name: str) -> bool:
+        """Set the active universe by name."""
+        if not self.db_manager:
+            return False
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Deactivate all universes
+                cursor.execute("UPDATE universes SET is_active = 0")
+
+                # Activate the specified universe
+                cursor.execute(
+                    "UPDATE universes SET is_active = 1 WHERE name = ?",
+                    (universe_name,)
+                )
+
+                conn.commit()
+                return cursor.rowcount > 0
+
+        except Exception as e:
+            logger.error(f"Error setting active universe: {e}")
+            return False
+
+    def get_universe_stats(self, universe_name: str) -> Optional[UniverseStats]:
+        """Get statistics for a universe."""
+        if not self.db_manager:
+            return None
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get universe ID
+                cursor.execute("SELECT id FROM universes WHERE name = ?", (universe_name,))
+                universe_result = cursor.fetchone()
+                if not universe_result:
+                    return None
+
+                universe_id = universe_result[0]
+
+                # Total members
+                cursor.execute("""
+                    SELECT COUNT(*) FROM universe_memberships
+                    WHERE universe_id = ? AND is_active = 1
+                """, (universe_id,))
+                total_members = cursor.fetchone()[0]
+
+                # Active vs inactive assets
+                cursor.execute("""
+                    SELECT a.is_active, COUNT(*)
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY a.is_active
+                """, (universe_id,))
+                active_stats = dict(cursor.fetchall())
+
+                # By asset type
+                cursor.execute("""
+                    SELECT a.asset_type, COUNT(*)
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY a.asset_type
+                """, (universe_id,))
+                by_type = dict(cursor.fetchall())
+
+                # By market
+                cursor.execute("""
+                    SELECT m.name, COUNT(*)
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    JOIN markets m ON a.market_id = m.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY m.name
+                """, (universe_id,))
+                by_market = dict(cursor.fetchall())
+
+                # Last updated
+                cursor.execute("""
+                    SELECT last_updated FROM universes WHERE id = ?
+                """, (universe_id,))
+                last_updated = cursor.fetchone()[0]
+
+                return UniverseStats(
+                    universe_name=universe_name,
+                    total_members=total_members,
+                    active_members=active_stats.get(1, 0),
+                    inactive_members=active_stats.get(0, 0),
+                    by_asset_type=by_type,
+                    by_market=by_market,
+                    last_updated=last_updated
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting universe stats: {e}")
+            return None
+
+    def get_universe_symbols(self, universe_name: str = "default_universe") -> List[str]:
+        """Get all symbols in a universe."""
+        if not self.db_manager:
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT a.symbol
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    JOIN universes u ON um.universe_id = u.id
+                    WHERE u.name = ? AND um.is_active = 1 AND a.is_active = 1
+                    ORDER BY a.symbol
+                """, (universe_name,))
+                return [row[0] for row in cursor.fetchall()]
+
+        except Exception as e:
+            logger.error(f"Error getting universe symbols: {e}")
+            return []
+
+    def get_active_markets_by_codes(self, market_codes: List[str]) -> List[Tuple[str, str]]:
+        """Get active markets by their codes.
+
+        Args:
+            market_codes: List of market codes to filter by
+
+        Returns:
+            List of tuples (market_code, market_name)
+        """
+        if not self.db_manager or not market_codes:
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ','.join('?' * len(market_codes))
+                cursor.execute(
+                    f"SELECT code, name FROM markets WHERE code IN ({placeholders}) AND is_active = TRUE ORDER BY code",
+                    market_codes
+                )
+                return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"Error getting active markets by codes: {e}")
+            return []
+
+    def create_universe(self, name: str, description: Optional[str] = None,
+                      min_market_cap: Optional[int] = None, min_volume: Optional[int] = None,
+                      max_assets: Optional[int] = None) -> bool:
+        """Create a new universe.
+
+        Args:
+            name: Universe name
+            description: Optional description
+            min_market_cap: Optional minimum market cap filter
+            min_volume: Optional minimum volume filter
+            max_assets: Optional maximum asset count
+
+        Returns:
+            True if created successfully, False otherwise
+        """
+        if not self.db_manager:
+            return False
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if exists
+                cursor.execute("SELECT id FROM universes WHERE name = ?", (name,))
+                if cursor.fetchone():
+                    return False  # Already exists
+
+                # Create universe
+                cursor.execute("""
+                    INSERT INTO universes (name, description, min_market_cap, min_volume, max_assets, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                """, (name, description, min_market_cap, min_volume, max_assets))
+
+                conn.commit()
+                return True
+
+        except Exception as e:
+            logger.error(f"Error creating universe {name}: {e}")
+            return False
+
+    def delete_universe(self, name: str) -> Tuple[bool, int]:
+        """Delete a universe and all its memberships.
+
+        Args:
+            name: Universe name to delete
+
+        Returns:
+            Tuple of (success, member_count_deleted)
+        """
+        if not self.db_manager:
+            return False, 0
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Check if exists and get info
+                cursor.execute("""
+                    SELECT u.id, COUNT(um.asset_id)
+                    FROM universes u
+                    LEFT JOIN universe_memberships um ON u.id = um.universe_id
+                    WHERE u.name = ?
+                    GROUP BY u.id
+                """, (name,))
+
+                result = cursor.fetchone()
+                if not result:
+                    return False, 0  # Not found
+
+                uid, member_count = result
+
+                # Delete memberships first
+                cursor.execute("DELETE FROM universe_memberships WHERE universe_id = ?", (uid,))
+
+                # Delete universe
+                cursor.execute("DELETE FROM universes WHERE id = ?", (uid,))
+
+                conn.commit()
+                return True, member_count
+
+        except Exception as e:
+            logger.error(f"Error deleting universe {name}: {e}")
+            return False, 0
+
+    def get_universe_market_breakdown(self, universe_name: str = "default_universe") -> List[Tuple[str, str, int]]:
+        """Get market breakdown for a universe.
+
+        Returns:
+            List of tuples (market_code, market_name, asset_count)
+        """
+        if not self.db_manager:
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT m.code, m.name, COUNT(a.id) as asset_count
+                    FROM markets m
+                    JOIN assets a ON m.id = a.market_id
+                    JOIN universe_memberships um ON a.id = um.asset_id
+                    JOIN universes u ON um.universe_id = u.id
+                    WHERE u.name = ?
+                    GROUP BY m.id
+                    ORDER BY asset_count DESC
+                """, (universe_name,))
+                return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"Error getting universe market breakdown: {e}")
+            return []
+
+    def get_most_recent_volume(self, symbol: str) -> Optional[int]:
+        """Get the most recent volume data for a symbol using cascade logic.
+
+        Tries in order:
+        1. min_volume (most recent if available)
+        2. day_volume (current trading day)
+        3. prevday_volume (previous trading day)
+
+        Args:
+            symbol: Stock symbol to get volume for
+
+        Returns:
+            Volume as integer, or None if no volume data available
+        """
+        if not self.db_manager:
+            return None
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get most recent price record for the symbol with volume cascade
+                cursor.execute("""
+                    SELECT
+                        min_volume,
+                        day_volume,
+                        prevday_volume,
+                        updated_at
+                    FROM asset_prices
+                    WHERE symbol = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                """, (symbol.upper(),))
+
+                result = cursor.fetchone()
+                if not result:
+                    return None
+
+                min_vol, day_vol, prevday_vol, updated_at = result
+
+                # Apply cascade logic: min_volume -> day_volume -> prevday_volume
+                if min_vol is not None and min_vol > 0:
+                    logger.debug(f"Using min_volume for {symbol}: {min_vol}")
+                    return min_vol
+
+                if day_vol is not None and day_vol > 0:
+                    logger.debug(f"Using day_volume for {symbol}: {day_vol}")
+                    return day_vol
+
+                if prevday_vol is not None and prevday_vol > 0:
+                    logger.debug(f"Using prevday_volume for {symbol}: {prevday_vol}")
+                    return prevday_vol
+
+                logger.debug(f"No volume data available for {symbol}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting most recent volume for {symbol}: {e}")
+            return None
+
+    def get_database_stats(self) -> Optional[DatabaseStats]:
+        """Get database statistics and health information."""
+        if not self.db_manager:
+            return None
+
+        try:
+            table_counts = {}
+            tables = [
+                "asset_fundamentals", "asset_prices", "assets", "data_update_metadata",
+                "markets", "providers", "schema_versions", "sentiment_events",
+                "sentiment_types", "universe_memberships", "universes"
+            ]
+
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get schema version
+                cursor.execute("SELECT version FROM schema_versions ORDER BY id DESC LIMIT 1")
+                schema_result = cursor.fetchone()
+                schema_version = schema_result[0] if schema_result else "unknown"
+
+                # Count records in each table
+                for table in tables:
+                    try:
+                        cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                        table_counts[table] = cursor.fetchone()[0]
+                    except Exception as e:
+                        table_counts[table] = f"Error: {e}"
+
+                total_records = sum(count for count in table_counts.values() if isinstance(count, int))
+
+                return DatabaseStats(
+                    database_path=str(self.db_manager.db_path),
+                    schema_version=schema_version,
+                    status="healthy",
+                    table_counts=table_counts,
+                    total_records=total_records,
+                    last_updated=datetime.now()
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return DatabaseStats(
+                database_path=str(self.db_manager.db_path) if self.db_manager else "unknown",
+                schema_version="unknown",
+                status="error",
+                table_counts={},
+                total_records=0,
+                error_message=str(e)
+            )
 
     # ============================================================================
     # PRIVATE METHODS
@@ -833,3 +1357,36 @@ class PolygonDataProvider:
         except Exception as e:
             logger.error(f"Error getting current market session: {e}")
             raise RuntimeError("Failed to get market session from Polygon API")
+
+    # ============================================================================
+    # CACHE MANAGEMENT METHODS
+    # ============================================================================
+
+    def get_fundamentals_cache_stats(self) -> Dict[str, Any]:
+        """Get fundamentals cache statistics.
+
+        Returns:
+            Dict with cache stats including hits, misses, size, etc.
+        """
+        return self.fundamentals_cache.get_cache_stats()
+
+    def clear_fundamentals_cache(self):
+        """Clear all fundamentals cache data."""
+        self.fundamentals_cache.clear_cache()
+        logger.info("Cleared fundamentals cache")
+
+    def cleanup_expired_fundamentals_cache(self) -> int:
+        """Clean up expired fundamentals cache entries.
+
+        Returns:
+            Number of expired entries removed
+        """
+        return self.fundamentals_cache.cleanup_expired()
+
+    def invalidate_fundamentals_cache(self, symbol: str):
+        """Invalidate fundamentals cache for specific symbol.
+
+        Args:
+            symbol: Stock symbol to invalidate
+        """
+        self.fundamentals_cache.invalidate_cache(symbol)

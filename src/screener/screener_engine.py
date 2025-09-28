@@ -14,15 +14,17 @@ logger = logging.getLogger(__name__)
 class ScreenerEngine:
     """Execute screener queries based on YAML configuration."""
 
-    def __init__(self, db_manager: DatabaseManager, data_provider=None):
+    def __init__(self, db_manager: DatabaseManager, data_provider=None, config=None):
         """Initialize screener engine.
 
         Args:
             db_manager: Database manager instance
             data_provider: Optional data provider instance
+            config: Optional config object to get active universe
         """
         self.db_manager = db_manager
         self.data_provider = data_provider
+        self.config = config
 
     def execute_screener(self, screener_def: Dict) -> List[Dict[str, Any]]:
         """Execute a screener based on its YAML definition.
@@ -119,7 +121,11 @@ class ScreenerEngine:
             SQL query string
         """
         data_source = screener_def.get("data_source", {})
-        universe = data_source.get("universe", "default_universe")
+        # Use active universe from config if available, otherwise fall back to YAML or default
+        if self.config:
+            universe = data_source.get("universe", self.config.get_active_universe())
+        else:
+            universe = data_source.get("universe", "default_universe")
         require_recent_trading = data_source.get("require_recent_trading", True)
 
         # Build SELECT clause with all available fields

@@ -4,7 +4,8 @@ import re
 import logging
 from datetime import datetime
 from typing import List, Dict, Any, Optional
-from src.config.universe_config import UNIVERSE_CONFIG
+from config.universe_config import UNIVERSE_CONFIG
+from services.data_update_tracker import DataUpdateTracker
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +18,12 @@ class UniverseBootstrapper:
         if db_manager:
             self.db_manager = db_manager
         elif db_path:
-            from src.database.database_manager import DatabaseManager
+            from database.database_manager import DatabaseManager
             self.db_manager = DatabaseManager(db_path)
         else:
             raise ValueError("Either db_path or db_manager required")
+
+        self.update_tracker = DataUpdateTracker(self.db_manager) if self.db_manager else None
 
     def apply_filters(self, assets: List[Dict[str, Any]], universe_name: str = "default_universe") -> List[Dict[str, Any]]:
         """Apply filtering criteria to assets based on universe config."""
@@ -90,6 +93,42 @@ class UniverseBootstrapper:
             if not asset.get("is_active", False):
                 return False
 
+        # Check sectors (requires fundamentals data)
+        if "sectors" in criteria:
+            asset_sector = asset.get("sector", "")
+            # If sector filtering is required but sector data is missing, exclude the asset
+            if not asset_sector:
+                return False
+            if asset_sector not in criteria["sectors"]:
+                return False
+
+        # Check minimum market cap
+        if "min_market_cap" in criteria:
+            market_cap = asset.get("market_cap", 0)
+            # If market cap filtering is required but market cap data is missing, exclude the asset
+            if not market_cap:
+                return False
+            if market_cap < criteria["min_market_cap"]:
+                return False
+
+        # Check maximum market cap
+        if "max_market_cap" in criteria:
+            market_cap = asset.get("market_cap", 0)
+            # If market cap filtering is required but market cap data is missing, exclude the asset
+            if not market_cap:
+                return False
+            if market_cap > criteria["max_market_cap"]:
+                return False
+
+        # Check minimum volume
+        if "min_volume" in criteria:
+            volume = asset.get("volume", 0)
+            # If volume filtering is required but volume data is missing, exclude the asset
+            if not volume:
+                return False
+            if volume < criteria["min_volume"]:
+                return False
+
         return True
 
     def _meets_exclusion_criteria(self, asset: Dict[str, Any], criteria: Dict) -> bool:
@@ -116,7 +155,7 @@ class UniverseBootstrapper:
 
         return False
 
-    def create_universe(self, universe_name: str = "default_universe") -> Dict[str, Any]:
+    def create_universe(self, universe_name: str = "default_universe", force: bool = False) -> Dict[str, Any]:
         """Create a universe by filtering assets and storing membership."""
         if not self.db_manager:
             raise ValueError("Database manager required")
@@ -127,57 +166,105 @@ class UniverseBootstrapper:
 
         logger.info(f"Creating universe: {universe_name}")
 
-        # Fetch all assets from database
-        all_assets = self._fetch_all_assets()
-        logger.info(f"Found {len(all_assets)} total assets in database")
+        # Start operation tracking
+        operation_id = None
+        if self.update_tracker:
+            operation_params = {"universe_name": universe_name, "force": force}
+            operation_id = self.update_tracker.start_operation(
+                operation_type="universe",
+                operation_subtype="bootstrap",
+                operation_params=operation_params
+            )
 
-        # Check if we have tickers to work with
-        if len(all_assets) == 0:
-            logger.error("No assets found in database. Run 'tradescout bootstrap tickers init' first.")
-            raise ValueError("No assets found in database. Tickers must be bootstrapped first.")
+        try:
+            # Fetch all assets from database
+            all_assets = self._fetch_all_assets()
+            logger.info(f"Found {len(all_assets)} total assets in database")
 
-        # Apply filters
-        filtered_assets = self.apply_filters(all_assets, universe_name)
-        logger.info(f"Filtered to {len(filtered_assets)} assets for {universe_name}")
+            # Update tracker with total items
+            if self.update_tracker and operation_id:
+                self.update_tracker.update_progress(
+                    operation_id,
+                    stats={"total_assets": len(all_assets)}
+                )
 
-        # Get or create universe record
-        universe_id = self._get_or_create_universe(universe_name, config)
+            # Check if we have tickers to work with
+            if len(all_assets) == 0:
+                logger.error("No assets found in database. Run 'tradescout bootstrap tickers init' first.")
+                raise ValueError("No assets found in database. Tickers must be bootstrapped first.")
 
-        # Clear existing universe memberships
-        self._clear_universe_memberships(universe_id)
+            # Apply filters
+            filtered_assets = self.apply_filters(all_assets, universe_name)
+            logger.info(f"Filtered to {len(filtered_assets)} assets for {universe_name}")
 
-        # Add filtered assets to universe
-        membership_count = self._add_universe_memberships(universe_id, filtered_assets)
+            # Get or create universe record
+            universe_id = self._get_or_create_universe(universe_name, config)
 
-        result = {
-            "universe_name": universe_name,
-            "total_assets_considered": len(all_assets),
-            "assets_included": len(filtered_assets),
-            "membership_records_created": membership_count
-        }
+            # Clear existing universe memberships
+            self._clear_universe_memberships(universe_id)
 
-        logger.info(f"Universe creation complete: {universe_name} with {len(filtered_assets)} assets from {len(all_assets)} total")
-        logger.debug(f"Universe config: {config}")
-        return result
+            # Add filtered assets to universe
+            membership_count = self._add_universe_memberships(universe_id, filtered_assets)
+
+            result = {
+                "universe_name": universe_name,
+                "total_assets_considered": len(all_assets),
+                "assets_included": len(filtered_assets),
+                "membership_records_created": membership_count
+            }
+
+            # Complete operation tracking
+            if self.update_tracker and operation_id:
+                total_stats = {
+                    "total_assets": len(all_assets),
+                    "filtered_assets": len(filtered_assets),
+                    "membership_records": membership_count
+                }
+                self.update_tracker.complete_operation(operation_id, total_stats, "completed")
+
+            logger.info(f"Universe creation complete: {universe_name} with {len(filtered_assets)} assets from {len(all_assets)} total")
+            logger.debug(f"Universe config: {config}")
+            return result
+
+        except Exception as e:
+            # Mark operation as failed
+            if self.update_tracker and operation_id:
+                self.update_tracker.fail_operation(operation_id, str(e))
+            raise
 
     def _fetch_all_assets(self) -> List[Dict[str, Any]]:
-        """Fetch all assets from the database."""
+        """Fetch all assets from the database with fundamentals data."""
+        # Import here to avoid circular imports
+        from provider.data_provider import PolygonDataProvider
+
         with self.db_manager.get_connection() as conn:
             cursor = conn.cursor()
+
+            # Join with fundamentals table for sector, market cap data
             cursor.execute("""
                 SELECT a.id, a.symbol, a.name, a.asset_type, a.asset_class,
                        a.currency, a.is_active, a.provider_id,
-                       m.code as market_code, m.name as market_name
+                       m.code as market_code, m.name as market_name,
+                       af.sector, af.market_cap
                 FROM assets a
                 JOIN markets m ON a.market_id = m.id
+                LEFT JOIN asset_fundamentals af ON a.id = af.asset_id
             """)
 
             rows = cursor.fetchall()
             assets = []
+
+            # Create data provider instance for volume lookups
+            data_provider = PolygonDataProvider(db_manager=self.db_manager)
+
             for row in rows:
+                symbol = row[1]
+                # Use the new utility method to get volume
+                volume = data_provider.get_most_recent_volume(symbol)
+
                 assets.append({
                     'id': row[0],
-                    'symbol': row[1],
+                    'symbol': symbol,
                     'name': row[2],
                     'asset_type': row[3],
                     'asset_class': row[4],
@@ -185,7 +272,10 @@ class UniverseBootstrapper:
                     'is_active': bool(row[6]),
                     'provider_id': row[7],
                     'market_code': row[8],
-                    'market_name': row[9]
+                    'market_name': row[9],
+                    'sector': row[10],
+                    'market_cap': row[11],
+                    'volume': volume
                 })
 
             return assets
@@ -258,10 +348,24 @@ class UniverseBootstrapper:
             conn.commit()
             return len(insert_data)
 
-    def bootstrap_universe(self, universe_name: str = "default_universe") -> bool:
-        """Bootstrap universe by creating it from current assets."""
+    def bootstrap_universe(self, universe_name: str = "default_universe", force: bool = False) -> bool:
+        """Bootstrap universe by creating it from current assets.
+
+        Args:
+            universe_name: Name of universe to bootstrap
+            force: If True, skip TTL check and refresh regardless of freshness
+        """
         try:
-            result = self.create_universe(universe_name)
+            # Check if data is fresh unless forced
+            if not force and self.update_tracker:
+                from config.ttl_config import UNIVERSE_TTL_HOURS
+
+                if not self.update_tracker.is_data_stale("universe", UNIVERSE_TTL_HOURS):
+                    last_update = self.update_tracker.get_last_update("universe", "bootstrap")
+                    logger.info(f"Universe data is fresh (last update: {last_update}), skipping bootstrap. Use --force to refresh anyway.")
+                    return True
+
+            result = self.create_universe(universe_name, force=force)
             return result.get("assets_included", 0) >= 0
         except Exception as e:
             logger.error(f"Universe bootstrap failed: {e}")

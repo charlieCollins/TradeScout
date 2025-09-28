@@ -4,6 +4,10 @@ from .asset import Asset, AssetType, AssetClass
 from .market import Market
 from .price import AssetPrice
 from .provider import Provider
+from .fundamentals import AssetFundamentals
+from .snapshot import TickerSnapshot, MarketSnapshot
+from .stats import DatabaseStats, OperationStats
+from .universe import Universe, UniverseMembership, UniverseStats
 
 __all__ = [
     'Asset',
@@ -12,4 +16,12 @@ __all__ = [
     'Market',
     'AssetPrice',
     'Provider',
+    'AssetFundamentals',
+    'TickerSnapshot',
+    'MarketSnapshot',
+    'DatabaseStats',
+    'OperationStats',
+    'Universe',
+    'UniverseMembership',
+    'UniverseStats',
 ]

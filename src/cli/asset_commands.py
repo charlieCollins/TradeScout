@@ -10,10 +10,64 @@ from rich.table import Table
 from rich import box
 from rich.columns import Columns
 from rich.align import Align
+from rich.panel import Panel
 
 from .main import pass_config, create_header
 
 console = Console()
+
+
+def display_market_context(config):
+    """Display market context at the top of asset commands."""
+    try:
+        # Initialize data provider
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from provider.data_provider import PolygonDataProvider
+        from config.universe_config import UNIVERSE_CONFIG
+
+        data_provider = config.get_data_provider()
+
+        # Get markets from universe config
+        universe_config = UNIVERSE_CONFIG.get("default_universe", {})
+        configured_exchanges = universe_config.get("included", {}).get("exchanges", [])
+
+        if not configured_exchanges:
+            console.print(f"[dim]⚠️ No exchanges configured in universe config[/dim]")
+            return
+
+        # Get only the configured markets using data provider
+        data_provider = config.get_data_provider()
+        market_codes = data_provider.get_active_markets_by_codes(configured_exchanges)
+
+        if not market_codes:
+            console.print(f"[dim]⚠️ No configured markets found in database[/dim]")
+            return
+
+        # Get context for configured markets
+        service = config.get_market_context_service()
+
+        # Create markets context table
+        context_table = Table(box=box.ROUNDED, show_header=True, title="📊 Markets Context")
+        context_table.add_column("Market", style="bold", width=8)
+        context_table.add_column("Session", width=12)
+        context_table.add_column("Status", width=8)
+        context_table.add_column("Trading Day", width=12)
+        context_table.add_column("Extended Hours", width=15)
+
+        # Add row for each configured market
+        for market_code, market_name in market_codes:
+            ctx = service.get_context(market_code)
+            status = "OPEN" if ctx.is_market_open else "CLOSED"
+            trading_day = "Yes" if ctx.is_trading_day else "No"
+            extended = "Yes" if ctx.is_extended_hours else "No"
+            context_table.add_row(market_code, ctx.current_session.value, status, trading_day, extended)
+
+        console.print(context_table)
+        console.print()
+
+    except Exception as e:
+        console.print(f"[dim]⚠️ Market context unavailable: {e}[/dim]")
+        console.print()
 
 
 @click.group()
@@ -36,6 +90,9 @@ def local(config, symbol: str):
     Example:
         tradescout asset local AAPL
     """
+    # Display market context at the top
+    display_market_context(config)
+
     symbol = symbol.upper()
 
     # Initialize data provider (but we won't call APIs)
@@ -43,7 +100,7 @@ def local(config, symbol: str):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from provider.data_provider import PolygonDataProvider
 
-        data_provider = PolygonDataProvider(config.db_manager)
+        data_provider = config.get_data_provider()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
@@ -169,6 +226,9 @@ def info(config, symbol: str):
     Example:
         tradescout asset info AAPL
     """
+    # Display market context at the top
+    display_market_context(config)
+
     symbol = symbol.upper()
 
     # Initialize data provider
@@ -176,7 +236,7 @@ def info(config, symbol: str):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from provider.data_provider import PolygonDataProvider
 
-        data_provider = PolygonDataProvider(config.db_manager)
+        data_provider = config.get_data_provider()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)

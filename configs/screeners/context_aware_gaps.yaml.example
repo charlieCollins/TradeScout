@@ -1,0 +1,143 @@
+# Example: Context-Aware Gap Screener
+# This demonstrates how screeners could use market context for intelligent behavior
+
+name: context_aware_gaps
+description: "Intelligent gap detection that adapts to market session"
+enabled: true
+
+# Session validation - works in all sessions but behaves differently
+valid_sessions:
+  - "premarket"
+  - "regular"
+  - "afterhours"
+  - "closed"
+
+# Context-aware field mapping
+# The screener engine would select appropriate fields based on current market context
+field_mapping:
+  reference_price:
+    # What price to compare against for gap calculation
+    premarket: "prevDay.c"        # Previous session close
+    regular: "day.o"               # Today's open (intraday gaps)
+    afterhours: "day.c"            # Today's close
+    closed: "prevDay.c"            # Previous session close
+
+  current_price:
+    # What price represents "now"
+    premarket: "min.c"             # Pre-market current price
+    regular: "day.c"               # Regular session current
+    afterhours: "min.c"            # After-hours current
+    closed: "prevDay.c"            # Last known close
+
+  volume_field:
+    # Which volume to check
+    premarket: "min.v"             # Pre-market volume
+    regular: "day.v"               # Regular session volume
+    afterhours: "min.v"            # After-hours volume
+    closed: "prevDay.v"            # Previous day volume
+
+# Context-aware thresholds
+thresholds:
+  gap_percent:
+    premarket: 2.0                 # 2% gap for pre-market
+    regular: 1.0                   # 1% for intraday gaps
+    afterhours: 1.5                # 1.5% for after-hours
+    closed: 2.0                    # 2% when market closed
+
+  min_volume:
+    premarket: 100000              # Lower volume OK in pre-market
+    regular: 500000                # Higher volume required regular hours
+    afterhours: 50000              # Very low volume OK after-hours
+    closed: 500000                 # Use previous day's threshold
+
+# Data freshness requirements (minutes)
+data_freshness:
+  premarket: 60                    # Up to 1 hour old OK
+  regular: 5                       # Must be very fresh
+  afterhours: 30                   # 30 minutes OK
+  closed: 1440                     # Up to 24 hours old OK
+
+# Dynamic filters that adapt to context
+# These would be evaluated with context-aware field selection
+filters:
+  # Gap size filter (uses context-aware reference and threshold)
+  - field: "(({{current_price}} - {{reference_price}}) / {{reference_price}} * 100)"
+    operator: ">="
+    value: "{{thresholds.gap_percent}}"
+
+  # Volume filter (uses context-aware volume field and threshold)
+  - field: "{{volume_field}}"
+    operator: ">="
+    value: "{{thresholds.min_volume}}"
+
+  # Data freshness filter
+  - field: "age_minutes(updated)"
+    operator: "<="
+    value: "{{data_freshness}}"
+
+# Context-aware sorting
+sort:
+  premarket:
+    - field: "gap_percent"
+      direction: "desc"
+  regular:
+    - field: "volume_ratio"  # Volume vs average
+      direction: "desc"
+  afterhours:
+    - field: "gap_percent"
+      direction: "desc"
+  closed:
+    - field: "market_cap"    # Larger caps first when closed
+      direction: "desc"
+
+# Display configuration could also be context-aware
+display:
+  columns:
+    base:  # Always shown
+      - name: "Symbol"
+        field: "symbol"
+        width: 8
+
+    context_specific:
+      premarket:
+        - name: "Pre-Mkt"
+          field: "min.c"
+          format: "price"
+        - name: "Gap %"
+          field: "gap_percent"
+          format: "percent"
+
+      regular:
+        - name: "Price"
+          field: "day.c"
+          format: "price"
+        - name: "Day Chg%"
+          field: "day_change_percent"
+          format: "percent"
+
+      afterhours:
+        - name: "AH Price"
+          field: "min.c"
+          format: "price"
+        - name: "AH Chg%"
+          field: "ah_change_percent"
+          format: "percent"
+
+# Advanced context rules
+advanced_rules:
+  # Only show tech stocks in pre-market (they move more)
+  premarket:
+    sector_filter: ["Technology", "Communication Services"]
+
+  # Focus on liquid names during regular hours
+  regular:
+    min_market_cap: 1000000000  # $1B minimum
+
+  # Include all stocks after-hours (looking for surprises)
+  afterhours:
+    include_all: true
+
+  # When closed, prepare for next session
+  closed:
+    show_economic_calendar: true
+    show_earnings_calendar: true

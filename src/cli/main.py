@@ -21,6 +21,81 @@ class Config:
         self.db_path = "data/tradescout.db"
         self.verbose = False
         self.db_manager = None
+        self._market_context = None
+        self._market_context_service = None
+        self._active_universe = None
+
+    @property
+    def market_context(self):
+        """Get current market context (lazy-loaded and cached)."""
+        if self._market_context is None:
+            service = self.get_market_context_service()
+            self._market_context = service.get_context()
+
+            # Log context for debugging
+            logger.info(f"Market Context: {self._market_context}")
+
+        return self._market_context
+
+    def get_market_context_service(self):
+        """Get market context service (creates if needed)."""
+        if self._market_context_service is None:
+            from services.market_context_service import MarketContextService
+            from provider.data_provider import PolygonDataProvider
+
+            # Create data provider
+            data_provider = PolygonDataProvider(self.db_manager)
+
+            # Create service
+            self._market_context_service = MarketContextService(
+                data_provider,
+                self.db_manager
+            )
+
+        return self._market_context_service
+
+    def get_data_provider(self):
+        """Get data provider instance (creates if needed)."""
+        # Reuse the data provider from market context service if available
+        if self._market_context_service is not None:
+            return self._market_context_service.data_provider
+
+        # Otherwise create a new one
+        from provider.data_provider import PolygonDataProvider
+        return PolygonDataProvider(self.db_manager)
+
+    def get_active_universe(self) -> str:
+        """Get the currently active universe name."""
+        if self._active_universe is None:
+            try:
+                data_provider = self.get_data_provider()
+                active_universe = data_provider.get_active_universe()
+                if active_universe:
+                    self._active_universe = active_universe.name
+                else:
+                    # Fallback if no universe is active
+                    self._active_universe = "default_universe"
+            except Exception as e:
+                logger.debug(f"Error getting active universe: {e}")
+                self._active_universe = "default_universe"
+
+        return self._active_universe
+
+    def set_active_universe(self, universe_name: str) -> bool:
+        """Set the active universe in database."""
+        try:
+            data_provider = self.get_data_provider()
+            success = data_provider.set_active_universe(universe_name)
+
+            if success:
+                # Update cache
+                self._active_universe = universe_name
+
+            return success
+
+        except Exception as e:
+            logger.error(f"Failed to set active universe: {e}")
+            return False
 
 
 pass_config = click.make_pass_decorator(Config, ensure=True)
@@ -54,7 +129,7 @@ def main(config, db_path: str, debug: bool):
     # Verify database exists
     if not Path(config.db_path).exists():
         console.print(f"[red]❌ Database not found: {config.db_path}[/red]")
-        console.print("[yellow]Run 'bootstrap database init' to create database[/yellow]")
+        console.print("[yellow]Run 'tradescout database init' to create database[/yellow]")
         sys.exit(1)
 
     # Initialize database manager
@@ -87,14 +162,18 @@ def create_header(title: str, symbol: str = None) -> Panel:
 # Import and register command groups
 from .screener_commands import screener
 from .asset_commands import asset
-from .bootstrap_commands import bootstrap
+from .database_commands import database
 from .market_commands import market
+from .gap_commands import gap
+from .universe_commands import universe
 
 
 main.add_command(screener)
 main.add_command(asset)
-main.add_command(bootstrap)
+main.add_command(database)
 main.add_command(market)
+main.add_command(gap)
+main.add_command(universe)
 
 
 if __name__ == "__main__":

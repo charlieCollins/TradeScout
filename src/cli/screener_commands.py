@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from .main import pass_config
+from .asset_commands import display_market_context
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -33,6 +34,9 @@ def screener(config, screener_name: str, list_screeners: bool):
         tradescout screener losers           # Run the 'losers' screener
         tradescout screener gaps             # Run the 'gaps' screener
     """
+
+    # Display market context at the top
+    display_market_context(config)
 
     # Handle list flag
     if list_screeners:
@@ -66,8 +70,8 @@ def screener(config, screener_name: str, list_screeners: bool):
         from provider.data_provider import PolygonDataProvider
 
         screener_config = ScreenerConfig()
-        data_provider = PolygonDataProvider(config.db_manager)
-        screener_engine = ScreenerEngine(config.db_manager, data_provider)
+        data_provider = config.get_data_provider()
+        screener_engine = ScreenerEngine(config.db_manager, data_provider, config)
         screener_display = ScreenerDisplay()
 
         # Get screener definition

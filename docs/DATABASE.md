@@ -1,287 +1,381 @@
 # TradeScout Database Schema
 
-**Last Updated**: September 22, 2025
-**Database Type**: SQLite
-**Schema Version**: 001
+**Last Updated:** 2025-09-28
+**Database:** SQLite
+**Location:** `data/tradescout.db`
+**Schema Version:** 001
 
 ## Overview
 
-SQLite database storing market data, assets, pricing, and system metadata. Contains 11 tables organized into logical groups: providers, assets, pricing, universes, sentiment, and system metadata.
+TradeScout uses SQLite with **11 core tables** for market data management, asset filtering, and operation tracking. The system supports typed models throughout and includes aggressive file-based caching for fundamentals data.
 
-## Database Tables (11 Total)
+## Table Summary
 
-### Provider and Market Tables
-
-#### 1. providers
-Data source provider definitions.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique provider ID |
-| name | TEXT | NOT NULL UNIQUE | Provider identifier |
-| display_name | TEXT | NOT NULL | Human-readable name |
-| base_url | TEXT | | API base URL |
-| api_key_required | BOOLEAN | DEFAULT TRUE | Whether API key required |
-| is_active | BOOLEAN | DEFAULT TRUE | Currently active |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-
-#### 2. markets
-Exchange and market definitions.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique market ID |
-| code | TEXT | NOT NULL UNIQUE | Exchange code (XNYS, XNAS) |
-| name | TEXT | NOT NULL | Exchange full name |
-| country | TEXT | DEFAULT 'US' | Country code |
-| timezone | TEXT | DEFAULT 'America/New_York' | Market timezone |
-| currency | TEXT | DEFAULT 'USD' | Trading currency |
-| premarket_start_time | TIME | | Pre-market session start |
-| premarket_end_time | TIME | | Pre-market session end |
-| regular_open_time | TIME | | Regular session open |
-| regular_close_time | TIME | | Regular session close |
-| afterhours_start_time | TIME | | After-hours session start |
-| afterhours_end_time | TIME | | After-hours session end |
-| is_active | BOOLEAN | DEFAULT TRUE | Currently active |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Last update timestamp |
-
-### Asset Tables
-
-#### 3. assets
-Core asset/ticker data.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique asset ID |
-| symbol | TEXT | NOT NULL UNIQUE | Trading symbol (AAPL, MSFT) |
-| name | TEXT | NOT NULL | Asset name |
-| market_id | INTEGER | NOT NULL, FK→markets.id | Market reference |
-| asset_type | TEXT | | Type: stock, etf, crypto, etc. |
-| asset_class | TEXT | | Class: equity, commodity, etc. |
-| currency | TEXT | | Trading currency |
-| lot_size | INTEGER | | Minimum trading unit |
-| tick_size | DECIMAL(10,6) | | Minimum price movement |
-| is_active | BOOLEAN | | Currently trading |
-| is_delisted | BOOLEAN | | No longer trading |
-| listing_date | DATE | | Trading start date |
-| delisting_date | DATE | | Trading end date |
-| provider_id | INTEGER | NOT NULL, FK→providers.id | Provider reference |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Last update timestamp |
-
-#### 4. asset_fundamentals
-Fundamental data for assets (one-to-one with assets).
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| asset_id | INTEGER | PRIMARY KEY, FK→assets.id | Asset reference |
-| company_name | TEXT | | Company display name |
-| sector | TEXT | | Business sector |
-| industry | TEXT | | Business industry |
-| sic_code | TEXT | | Standard Industrial Classification |
-| market_cap | BIGINT | | Market capitalization (cents) |
-| shares_outstanding | BIGINT | | Outstanding shares |
-| avg_volume_30d | BIGINT | | 30-day average volume |
-| beta | DECIMAL(6,3) | | Beta coefficient |
-| pe_ratio | DECIMAL(8,2) | | Price to earnings ratio |
-| dividend_yield | DECIMAL(6,4) | | Annual dividend yield |
-| provider_id | INTEGER | FK→providers.id | Provider reference |
-| last_updated | DATETIME | | Last update timestamp |
-
-### Pricing Tables
-
-#### 5. asset_prices
-Snapshot pricing data from providers.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique price record ID |
-| asset_id | INTEGER | NOT NULL, FK→assets.id | Asset reference |
-| symbol | TEXT | NOT NULL | Trading symbol (denormalized) |
-| provider_id | INTEGER | NOT NULL, FK→providers.id | Provider reference |
-| provider_updated_at | BIGINT | | Provider timestamp (nanoseconds) |
-| trade_date | DATE | | Trading date from provider |
-| **Previous Day Fields** | | | |
-| prevday_open | DECIMAL(12,4) | | Previous day open |
-| prevday_high | DECIMAL(12,4) | | Previous day high |
-| prevday_low | DECIMAL(12,4) | | Previous day low |
-| prevday_close | DECIMAL(12,4) | | Previous day close |
-| prevday_volume | BIGINT | | Previous day volume |
-| prevday_vwap | DECIMAL(12,4) | | Previous day VWAP |
-| **Current Day Fields** | | | |
-| day_open | DECIMAL(12,4) | | Current day open |
-| day_high | DECIMAL(12,4) | | Current day high |
-| day_low | DECIMAL(12,4) | | Current day low |
-| day_close | DECIMAL(12,4) | | Current day close |
-| day_volume | BIGINT | | Current day volume |
-| day_vwap | DECIMAL(12,4) | | Current day VWAP |
-| **Last Minute Fields** | | | |
-| min_timestamp | BIGINT | | Last minute timestamp (milliseconds) |
-| min_open | DECIMAL(12,4) | | Last minute open |
-| min_high | DECIMAL(12,4) | | Last minute high |
-| min_low | DECIMAL(12,4) | | Last minute low |
-| min_close | DECIMAL(12,4) | | Last minute close |
-| min_volume | BIGINT | | Last minute volume |
-| min_vwap | DECIMAL(12,4) | | Last minute VWAP |
-| min_accumulated_volume | BIGINT | | Accumulated volume |
-| min_num_trades | INTEGER | | Number of trades |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Record update timestamp |
-
-**Unique Constraint**: (asset_id, provider_id, provider_updated_at)
-
-### Universe Tables
-
-#### 6. universes
-Asset grouping definitions.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique universe ID |
-| name | TEXT | NOT NULL UNIQUE | Universe identifier |
-| description | TEXT | | Human-readable description |
-| min_market_cap | BIGINT | | Minimum market cap filter |
-| min_volume | BIGINT | | Minimum volume filter |
-| max_assets | INTEGER | | Maximum asset count |
-| is_active | BOOLEAN | DEFAULT TRUE | Currently active |
-| last_updated | DATETIME | | Last membership update |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-| updated_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Last modification timestamp |
-
-#### 7. universe_memberships
-Asset-universe many-to-many relationships.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique membership ID |
-| universe_id | INTEGER | NOT NULL, FK→universes.id | Universe reference |
-| asset_id | INTEGER | NOT NULL, FK→assets.id | Asset reference |
-| added_date | DATE | | Addition date |
-| removed_date | DATE | | Removal date |
-| reason | TEXT | | Addition/removal reason |
-| is_active | BOOLEAN | | Currently active membership |
-
-**Unique Constraint**: (universe_id, asset_id, added_date)
-
-### Sentiment Tables
-
-#### 8. sentiment_types
-Sentiment event type definitions.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique sentiment type ID |
-| name | TEXT | NOT NULL UNIQUE | Event type identifier |
-| description | TEXT | | Human-readable description |
-| category | TEXT | | Category grouping |
-| parameters | TEXT | | JSON calculation parameters |
-| is_active | BOOLEAN | | Currently active |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-
-#### 9. sentiment_events
-Market sentiment and event records.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique event ID |
-| asset_id | INTEGER | NOT NULL, FK→assets.id | Asset reference |
-| sentiment_type_id | INTEGER | NOT NULL, FK→sentiment_types.id | Sentiment type reference |
-| event_date | DATE | | Event occurrence date |
-| event_time | TIME | | Event occurrence time |
-| session | TEXT | | Trading session context |
-| value | DECIMAL(12,4) | | Event measurement |
-| magnitude | TEXT | | Event magnitude classification |
-| details | TEXT | | JSON additional data |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-
-### System Tables
-
-#### 10. market_snapshot_metadata
-Market-wide snapshot operation tracking.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique snapshot run ID |
-| started_at | DATETIME | | Snapshot start time |
-| completed_at | DATETIME | | Snapshot completion time |
-| total_symbols | INTEGER | | Symbols attempted |
-| successful_updates | INTEGER | | Successful update count |
-| failed_updates | INTEGER | | Failed update count |
-| status | TEXT | | Status: running, completed, failed, partial |
-| error_message | TEXT | | Error details |
-| api_calls_made | INTEGER | | API call count |
-| created_at | DATETIME | DEFAULT CURRENT_TIMESTAMP | Creation timestamp |
-
-#### 11. schema_versions
-Database schema migration tracking.
-
-| Column | Type | Constraints | Description |
-|--------|------|-------------|-------------|
-| id | INTEGER | PRIMARY KEY AUTOINCREMENT | Unique version ID |
-| version | TEXT | NOT NULL UNIQUE | Version identifier |
-| description | TEXT | | Migration description |
-| applied_at | DATETIME | | Application timestamp |
-
-## Database Indexes
-
-### Performance Indexes
-- **idx_asset_prices_symbol** (asset_prices.symbol)
-- **idx_asset_prices_asset** (asset_prices.asset_id)
-- **idx_asset_prices_date** (asset_prices.trade_date)
-- **idx_asset_prices_updated** (asset_prices.updated_at)
-- **idx_assets_symbol** (assets.symbol)
-- **idx_assets_market** (assets.market_id)
-- **idx_assets_type** (assets.asset_type)
-- **idx_assets_active** (assets.is_active)
-- **idx_fundamentals_sector** (asset_fundamentals.sector)
-- **idx_fundamentals_industry** (asset_fundamentals.industry)
-- **idx_fundamentals_market_cap** (asset_fundamentals.market_cap)
-- **idx_universe_memberships_universe** (universe_memberships.universe_id)
-- **idx_universe_memberships_asset** (universe_memberships.asset_id)
-- **idx_universe_memberships_active** (universe_memberships.is_active)
-- **idx_sentiment_events_asset** (sentiment_events.asset_id)
-- **idx_sentiment_events_type** (sentiment_events.sentiment_type_id)
-- **idx_sentiment_events_date** (sentiment_events.event_date)
-- **idx_snapshot_metadata_completed** (market_snapshot_metadata.completed_at)
-- **idx_snapshot_metadata_status** (market_snapshot_metadata.status)
-
-## Foreign Key Relationships
-
-```
-providers ←─ assets
-         ←─ asset_fundamentals
-         ←─ asset_prices
-
-markets ←─ assets
-
-assets ←─ asset_fundamentals (1:1)
-       ←─ asset_prices (1:many)
-       ←─ universe_memberships (1:many)
-       ←─ sentiment_events (1:many)
-
-universes ←─ universe_memberships (1:many)
-
-sentiment_types ←─ sentiment_events (1:many)
-```
-
-## Database File Location
-
-- **Development**: `data/tradescout.db`
-- **Schema File**: `src/database/schema/001_initial_schema.sql`
-- **Migrations**: Handled by `DatabaseManager` class
-
-## Current Data Volumes
-
-| Table | Records | Description |
-|-------|---------|-------------|
-| providers | 1 | Polygon.io only |
-| markets | 7 | US exchanges (XNYS, XNAS, ARCX, etc.) |
-| assets | 11,745 | All tickers from Polygon API |
-| universe_memberships | 7,513 | Default universe filtered assets |
-| universes | 1 | Default universe only |
-| schema_versions | 1 | Initial schema version |
-| Others | 0 | Not yet populated |
+| Table | Purpose | Status | Records (Typical) |
+|-------|---------|--------|-------------------|
+| **Core Data** | | | |
+| assets | Stock universe from Polygon API | ✅ Active | 11,765 |
+| asset_fundamentals | Company fundamentals (SIC, sector, market cap) | ✅ Active | 2 |
+| asset_prices | Live/historical price data with sessions | ✅ Active | ~50,000+ |
+| **Configuration** | | | |
+| providers | Data source configuration | ✅ Active | 1 |
+| markets | Exchange information | ✅ Active | 7 |
+| **Universe Management** | | | |
+| universes | Asset grouping definitions (default, tech, small_cap) | ✅ Active | 3 |
+| universe_memberships | Asset membership in universes | ✅ Active | 7,521 |
+| **Operation Tracking** | | | |
+| data_update_metadata | All bootstrap/update operation tracking | ✅ Active | Variable |
+| **Future Features** | | | |
+| sentiment_types | Sentiment analysis categories | 📋 Schema Only | 0 |
+| sentiment_events | Sentiment event tracking | 📋 Schema Only | 0 |
+| **Versioning** | | | |
+| schema_versions | Database schema version tracking | ✅ Active | 1 |
 
 ---
 
-This schema supports comprehensive market data storage, asset management, pricing history, universe-based screening, and sentiment analysis for the TradeScout trading system.
+## Core Tables Detail
+
+### 1. assets
+Complete stock universe from Polygon API.
+
+```sql
+CREATE TABLE assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT NOT NULL UNIQUE,         -- 'AAPL', 'MSFT'
+    name TEXT NOT NULL,                   -- 'Apple Inc.'
+    market_id INTEGER NOT NULL,
+
+    -- Asset classification
+    asset_type TEXT CHECK(asset_type IN ('stock', 'etf', 'crypto', 'option', 'forex')) DEFAULT 'stock',
+    asset_class TEXT CHECK(asset_class IN ('equity', 'commodity', 'currency', 'crypto', 'derivative')) DEFAULT 'equity',
+
+    -- Trading details
+    currency TEXT DEFAULT 'USD',
+    lot_size INTEGER DEFAULT 1,
+    tick_size DECIMAL(10,6),
+
+    -- Status
+    is_active BOOLEAN DEFAULT TRUE,
+    is_delisted BOOLEAN DEFAULT FALSE,
+    listing_date DATE,
+    delisting_date DATE,
+
+    -- Provider reference
+    provider_id INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (market_id) REFERENCES markets (id),
+    FOREIGN KEY (provider_id) REFERENCES providers (id)
+);
+```
+
+**Data Source**: Polygon `/v3/reference/tickers` API
+**Bootstrap**: `./tradescout database bootstrap-tickers`
+
+### 2. asset_fundamentals
+Company fundamentals data for sector classification and screening.
+
+```sql
+CREATE TABLE asset_fundamentals (
+    asset_id INTEGER PRIMARY KEY,        -- One-to-one with assets table
+
+    -- Company identification
+    company_name TEXT,                   -- 'Apple Inc.' (for display)
+
+    -- Business classification
+    sector TEXT,                         -- 'Technology' (derived from SIC)
+    industry TEXT,                       -- 'Consumer Electronics'
+    sic_code TEXT,                       -- Standard Industrial Classification
+
+    -- Key financials
+    market_cap BIGINT,                   -- Market capitalization in cents
+    shares_outstanding BIGINT,           -- Outstanding shares
+
+    -- Additional metrics for screening
+    avg_volume_30d BIGINT,               -- 30-day average volume
+    beta DECIMAL(6,3),                   -- Beta coefficient
+    pe_ratio DECIMAL(8,2),               -- Price to earnings ratio
+    dividend_yield DECIMAL(6,4),         -- Annual dividend yield
+
+    -- Data tracking
+    provider_id INTEGER,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (asset_id) REFERENCES assets (id),
+    FOREIGN KEY (provider_id) REFERENCES providers (id)
+);
+```
+
+**Data Source**: Polygon `/v3/reference/tickers/{symbol}` API
+**Bootstrap**: `./tradescout database bootstrap-fundamentals`
+**Sector Mapping**: SIC code → GICS-like sectors via `src/config/sic_sector_mapping.py`
+
+### 3. asset_prices
+Live and historical price data with session awareness.
+
+```sql
+CREATE TABLE asset_prices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,                    -- Redundant but useful for queries
+
+    -- Provider tracking
+    provider_id INTEGER NOT NULL,
+    provider_updated_at BIGINT,              -- Provider's 'updated' field (nanoseconds for Polygon)
+
+    -- Trading date (derived from provider_updated)
+    trade_date DATE NOT NULL,
+
+    -- Previous Day Data (prevDay.* from snapshot)
+    prevday_open DECIMAL(12,4),
+    prevday_high DECIMAL(12,4),
+    prevday_low DECIMAL(12,4),
+    prevday_close DECIMAL(12,4),             -- THE reference price
+    prevday_volume BIGINT,
+    prevday_vwap DECIMAL(12,4),
+
+    -- Current Day Regular Session (day.* from snapshot)
+    day_open DECIMAL(12,4),
+    day_high DECIMAL(12,4),
+    day_low DECIMAL(12,4),
+    day_close DECIMAL(12,4),                 -- Regular session close (4:00 PM)
+    day_volume BIGINT,
+    day_vwap DECIMAL(12,4),
+
+    -- Last Minute Bar Data (min.* from snapshot)
+    min_timestamp BIGINT,                    -- Timestamp (milliseconds)
+    min_open DECIMAL(12,4),
+    min_high DECIMAL(12,4),
+    min_low DECIMAL(12,4),
+    min_close DECIMAL(12,4),                 -- Last traded price (any session)
+    min_volume BIGINT,
+    min_vwap DECIMAL(12,4),
+    min_accumulated_volume BIGINT,
+    min_num_trades INTEGER,
+
+    -- Metadata
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (asset_id) REFERENCES assets (id),
+    FOREIGN KEY (provider_id) REFERENCES providers (id),
+
+    -- One record per asset per provider per fetch
+    UNIQUE(asset_id, provider_id, provider_updated_at)
+);
+```
+
+**Data Source**: Polygon `/v2/snapshot/locale/us/markets/stocks/tickers` API
+**Update**: Market snapshot operations via screener commands
+
+### 4. universes
+Asset grouping definitions for different trading strategies.
+
+```sql
+CREATE TABLE universes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,           -- 'default_universe', 'tech', 'small_cap'
+    description TEXT,
+
+    -- Universe parameters
+    min_market_cap BIGINT,
+    min_volume BIGINT,
+    max_assets INTEGER,                   -- Maximum number of assets in universe
+
+    -- Status
+    is_active BOOLEAN DEFAULT TRUE,       -- Currently selected universe
+    last_updated DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Configuration**: `src/config/universe_config.py`
+**Management**: `./tradescout universe` commands
+**Bootstrap**: `./tradescout database bootstrap-universes`
+
+### 5. universe_memberships
+Asset membership tracking with historical data.
+
+```sql
+CREATE TABLE universe_memberships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    universe_id INTEGER NOT NULL,
+    asset_id INTEGER NOT NULL,
+
+    -- Membership metadata
+    added_date DATE NOT NULL,
+    removed_date DATE,
+    reason TEXT,                         -- 'initial_load', 'market_cap_growth', 'delisted'
+
+    -- Status
+    is_active BOOLEAN DEFAULT TRUE,
+
+    FOREIGN KEY (universe_id) REFERENCES universes (id),
+    FOREIGN KEY (asset_id) REFERENCES assets (id),
+    UNIQUE(universe_id, asset_id, added_date)
+);
+```
+
+**Filtering Logic**: `src/bootstrapping/bootstrapper_universe.py`
+
+### 6. data_update_metadata
+Comprehensive tracking of all data operations.
+
+```sql
+CREATE TABLE data_update_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Operation identification
+    operation_type TEXT NOT NULL,           -- 'fundamentals', 'tickers', 'snapshot', 'universe'
+    operation_subtype TEXT,                 -- 'bootstrap', 'refresh', 'single_symbol'
+
+    -- Run metadata
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME,
+
+    -- Status tracking
+    status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')) DEFAULT 'running',
+
+    -- Statistics (JSON for flexibility)
+    stats TEXT,                             -- JSON: '{"inserted": 1234, "updated": 456, "errors": 2}'
+
+    -- Operation details
+    total_items INTEGER,                    -- symbols, assets, etc.
+    processed_items INTEGER DEFAULT 0,
+    failed_items INTEGER DEFAULT 0,
+    api_calls_made INTEGER DEFAULT 0,
+
+    -- Additional context
+    operation_params TEXT,                  -- JSON: '{"symbol": "AAPL", "force": true, "limit": 100}'
+    error_message TEXT,
+
+    -- Timestamps
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Purpose**: Track all bootstrap operations, API usage, success rates, and enable cache decisions
+**Service**: `src/services/data_update_tracker.py`
+
+### 7. providers
+Data source configuration and API management.
+
+```sql
+CREATE TABLE providers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,          -- Provider identifier
+    display_name TEXT NOT NULL,          -- Human-readable name
+    base_url TEXT,
+    api_key_required BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Current Data**: Single Polygon.io provider entry
+
+### 8. markets
+Exchange and market information.
+
+```sql
+CREATE TABLE markets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,           -- 'NYSE', 'NASDAQ', 'CRYPTO'
+    name TEXT NOT NULL,                   -- 'New York Stock Exchange'
+    country TEXT DEFAULT 'US',
+    timezone TEXT DEFAULT 'America/New_York',
+    currency TEXT DEFAULT 'USD',
+
+    -- Trading hours (in local timezone)
+    premarket_start_time TIME,           -- '04:00:00'
+    premarket_end_time TIME,              -- '09:30:00'
+    regular_open_time TIME,               -- '09:30:00'
+    regular_close_time TIME,              -- '16:00:00'
+    afterhours_start_time TIME,           -- '16:00:00'
+    afterhours_end_time TIME,             -- '20:00:00'
+
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Current Data**: 7 major US exchanges from Polygon API
+
+### 9-11. Future Tables
+- **sentiment_types**: Sentiment analysis categories (schema only)
+- **sentiment_events**: Sentiment event tracking (schema only)
+- **schema_versions**: Database version tracking
+
+---
+
+## Data Flow & Operations
+
+### Bootstrap Sequence
+```bash
+# 1. Initialize database
+./tradescout database init
+
+# 2. Bootstrap providers
+./tradescout database bootstrap-providers
+
+# 3. Bootstrap tickers (~11,765 assets)
+./tradescout database bootstrap-tickers
+
+# 4. Bootstrap fundamentals (~12,000 API calls)
+./tradescout database bootstrap-fundamentals
+
+# 5. Create universes (default_universe, tech, small_cap)
+./tradescout database bootstrap-universes
+```
+
+### Universe Filtering
+- **default_universe**: Basic filtering (US exchanges, active, clean symbols) → ~7,500 assets
+- **tech**: Technology sector (SIC 35, 36, 38, 73) + min market cap → Hundreds of assets
+- **small_cap**: Market cap $300M-$2B + min volume → ~200 assets
+
+### Sector Classification
+- **Source**: SIC codes from Polygon ticker overview
+- **Mapping**: First 2 digits of SIC code → Broad sectors
+- **Implementation**: `src/config/sic_sector_mapping.py`
+- **Documentation**: `docs/SECTOR_CLASSIFICATION.md`
+
+### Operation Tracking
+- **All operations** logged in `data_update_metadata`
+- **Staleness detection**: Automatic cache invalidation after 1 week
+- **Progress tracking**: Real-time progress for long operations
+- **History**: Complete operation history with success rates
+
+---
+
+## Performance & Indexing
+
+### Critical Indexes
+```sql
+-- Asset lookups
+CREATE INDEX idx_assets_symbol ON assets(symbol);
+CREATE INDEX idx_assets_market ON assets(market_id);
+CREATE INDEX idx_assets_active ON assets(is_active);
+
+-- Price queries
+CREATE INDEX idx_asset_prices_symbol ON asset_prices(symbol);
+CREATE INDEX idx_asset_prices_asset ON asset_prices(asset_id);
+CREATE INDEX idx_asset_prices_date ON asset_prices(trade_date);
+
+-- Universe filtering
+CREATE INDEX idx_universe_memberships_universe ON universe_memberships(universe_id);
+CREATE INDEX idx_universe_memberships_asset ON universe_memberships(asset_id);
+
+-- Fundamentals screening
+CREATE INDEX idx_fundamentals_sector ON asset_fundamentals(sector);
+CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
+
+-- Operation tracking
+CREATE INDEX idx_data_update_operation ON data_update_metadata(operation_type);
+CREATE INDEX idx_data_update_completed ON data_update_metadata(completed_at);
+```
+
+---
+
+*This schema reflects the complete implemented system as of September 2025, including fundamentals integration, universe management, and comprehensive operation tracking.*
