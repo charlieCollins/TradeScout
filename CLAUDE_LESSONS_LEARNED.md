@@ -225,4 +225,60 @@ When user says build one component, build ONE. They want to iterate and refine b
 
 ---
 
+## 🚨 Code Design & Python Conventions
+
+### **NEVER Mix Abstract Methods with Private Method Naming**
+
+**Date:** 2025-09-29
+**Context:** Cache manager abstract interface design
+**Issue:** Created abstract methods starting with `_` (private), violating basic Python conventions
+
+**The Terrible Code I Wrote:**
+```python
+@abstractmethod
+def _get_operation_type(self) -> str:  # WRONG: Private + Abstract = Contradiction!
+    pass
+
+@abstractmethod
+def _get_ttl_seconds(self) -> int:  # WRONG: Private + Abstract = Contradiction!
+    pass
+```
+
+**Why This Is Fundamentally Wrong:**
+1. **Abstract methods define the public interface** - they're the contract subclasses must implement
+2. **Private methods (`_`) are internal details** - not part of the public interface
+3. **These concepts are contradictory** - you can't have a private interface requirement
+4. **Violates basic Python conventions** - confuses every Python developer
+
+**The Correct Code:**
+```python
+@abstractmethod
+def get_operation_type(self) -> str:  # CORRECT: Public abstract method
+    pass
+
+@abstractmethod
+def get_ttl_seconds(self) -> int:  # CORRECT: Public abstract method
+    pass
+```
+
+**Python Convention Rule:**
+- **If it's `@abstractmethod`, it's public** (no `_` prefix)
+- **If it starts with `_`, it shouldn't be `@abstractmethod`**
+
+**The Embarrassing Part:**
+After writing this garbage code, I then wrote analysis explaining why "someone" must have made this mistake, pretending I didn't just write it myself 30 seconds earlier:
+
+> "How did we get here? Probably overthinking it - someone thought 'these are internal to the cache system' and added `_`..."
+
+**Key Lessons:**
+1. **Follow basic Python conventions** - abstract methods are always public
+2. **Own your mistakes immediately** - don't blame imaginary "someone"
+3. **If you write bad code, just say "I messed up"** instead of inventing explanations
+4. **Basic language conventions aren't negotiable** - learn them properly
+
+**The Simple Rule:**
+**Abstract = Public Interface = No `_` prefix**
+
+---
+
 *This document helps maintain code quality by learning from mistakes and establishing clear standards for future development.*

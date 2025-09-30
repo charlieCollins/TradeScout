@@ -303,10 +303,10 @@ def update(config):
                         progress.update(processing_task, advance=1)
                         continue
 
-                    # Track whether this symbol had recent trading activity
-                    # Check if last_timestamp exists and is not None
-                    has_recent_trading = ticker_snapshot.last_timestamp is not None
-                    if has_recent_trading:
+                    # Track whether this symbol has min bar data (actual trading activity)
+                    # Min bar data exists when there's been any trading, including extended hours
+                    has_min_data = ticker_snapshot.min_bar is not None and ticker_snapshot.min_bar.close is not None
+                    if has_min_data:
                         processing_stats["with_recent_trading"] += 1
                     else:
                         processing_stats["without_recent_trading"] += 1
@@ -368,14 +368,14 @@ def update(config):
         breakdown_table.add_row(
             "With recent trading",
             f"{processing_stats['with_recent_trading']:,}",
-            "Symbols with active trading data (updated > 0)"
+            "Symbols with min bar data (includes extended hours)"
         )
 
     if processing_stats["without_recent_trading"] > 0:
         breakdown_table.add_row(
             "Without recent trading",
             f"{processing_stats['without_recent_trading']:,}",
-            "Symbols with prevDay data only (updated = 0)"
+            "Symbols with prevDay data only (no min bar)"
         )
 
     # Show error categories if there were errors

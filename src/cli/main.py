@@ -47,10 +47,7 @@ class Config:
             data_provider = PolygonDataProvider(self.db_manager)
 
             # Create service
-            self._market_context_service = MarketContextService(
-                data_provider,
-                self.db_manager
-            )
+            self._market_context_service = MarketContextService(data_provider)
 
         return self._market_context_service
 

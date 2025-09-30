@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime, date, timedelta, time as dt_time
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import pytz
 
 from models.market import Market
@@ -24,21 +24,14 @@ class MarketContextService:
     3. What is the current market session?
     """
 
-    def __init__(self, data_provider, db_manager):
+    def __init__(self, data_provider):
         """
-        Initialize service with data provider and database.
+        Initialize service with data provider.
 
         Args:
             data_provider: Data provider instance (Polygon or Emulation)
-            db_manager: Database manager to fetch Market info
         """
         self.data_provider = data_provider
-        self.db_manager = db_manager
-
-        # Cache management - cache per market code
-        self._context_cache: dict[str, MarketContext] = {}
-        self._cache_timestamp: dict[str, datetime] = {}
-        self._cache_duration_seconds = MARKET_CONTEXT_TTL_MINUTES * 60  # Convert minutes to seconds
 
     def get_context(self, market_code: str = "XNYS",
                    force_refresh: bool = False) -> MarketContext:
@@ -52,23 +45,38 @@ class MarketContextService:
         Returns:
             MarketContext with all required information
         """
-        if force_refresh or self._should_refresh_cache(market_code):
-            logger.info(f"Fetching fresh market context for {market_code}")
-            self._context_cache[market_code] = self._fetch_context(market_code)
-            self._cache_timestamp[market_code] = datetime.now()
+        if force_refresh:
+            # Force refresh - invalidate cache and fetch fresh
+            if hasattr(self.data_provider, 'market_context_cache'):
+                self.data_provider.market_context_cache.invalidate(market_code)
+            return self._fetch_context(market_code)
         else:
-            logger.debug(f"Using cached market context for {market_code}")
-
-        return self._context_cache.get(market_code)
+            # Use DataProvider's cached method
+            if hasattr(self.data_provider, 'get_cached_market_context'):
+                return self.data_provider.get_cached_market_context(
+                    market_code,
+                    lambda: self._fetch_context(market_code)
+                )
+            else:
+                # Fallback to direct fetch if cache not available
+                return self._fetch_context(market_code)
 
     def _fetch_context(self, market_code: str) -> MarketContext:
         """Fetch fresh market context from APIs and database."""
+        operation_id = None
         try:
+            # Start tracking this operation
+            if hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
+                operation_id = self.data_provider.update_tracker.start_operation(
+                    operation_type="market_context",
+                    operation_subtype="fetch",
+                    operation_params={"market_code": market_code},
+                    total_items=1
+                )
             # 1. Get Market model from database
             market = self._get_market(market_code)
             if not market:
-                logger.warning(f"Market {market_code} not found in database, using fallback")
-                return self._create_fallback_context(market_code)
+                raise RuntimeError(f"Market {market_code} not found in database")
 
             # 2. Get current time in market timezone
             tz = pytz.timezone(market.timezone)
@@ -100,7 +108,7 @@ class MarketContextService:
                 today, market_status
             )
 
-            return MarketContext(
+            context = MarketContext(
                 market=market,  # Use existing Market model
                 is_trading_day=is_trading_day,
                 previous_trading_date=previous_trading_date,
@@ -112,218 +120,127 @@ class MarketContextService:
                 raw_market_status=market_status
             )
 
+            # Store in cache
+            if hasattr(self.data_provider, 'store_market_context'):
+                self.data_provider.store_market_context(market_code, context)
+
+            # Mark operation as completed
+            if operation_id and hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
+                self.data_provider.update_tracker.complete_operation(
+                    operation_id,
+                    final_stats={"processed": 1},
+                    status="completed"
+                )
+
+            return context
+
         except Exception as e:
+            # Mark operation as failed
+            if operation_id and hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
+                self.data_provider.update_tracker.fail_operation(operation_id, str(e))
+
             logger.error(f"Failed to fetch market context: {e}")
-            # Return safe defaults on error
-            return self._create_fallback_context(market_code)
+            # Re-raise the exception - no fallbacks
+            raise
 
     def _get_market(self, market_code: str) -> Optional[Market]:
-        """Fetch Market from database."""
-        if not self.db_manager:
-            logger.warning("No database manager provided")
-            return None
-
-        try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id, code, name, country, timezone, currency,
-                           premarket_start_time, premarket_end_time,
-                           regular_open_time, regular_close_time,
-                           afterhours_start_time, afterhours_end_time,
-                           is_active, created_at, updated_at
-                    FROM markets
-                    WHERE code = ? AND is_active = TRUE
-                """, (market_code,))
-
-                row = cursor.fetchone()
-                if row:
-                    # Convert time strings to time objects
-                    def parse_time(time_str: Optional[str]) -> Optional[dt_time]:
-                        if time_str:
-                            try:
-                                return datetime.strptime(time_str, '%H:%M:%S').time()
-                            except ValueError:
-                                return None
-                        return None
-
-                    return Market(
-                        id=row[0],
-                        code=row[1],
-                        name=row[2],
-                        country=row[3],
-                        timezone=row[4],
-                        currency=row[5],
-                        premarket_start_time=parse_time(row[6]),
-                        premarket_end_time=parse_time(row[7]),
-                        regular_open_time=parse_time(row[8]) or dt_time(9, 30),
-                        regular_close_time=parse_time(row[9]) or dt_time(16, 0),
-                        afterhours_start_time=parse_time(row[10]),
-                        afterhours_end_time=parse_time(row[11]),
-                        is_active=bool(row[12]),
-                        created_at=datetime.fromisoformat(row[13]) if row[13] else datetime.now(),
-                        updated_at=datetime.fromisoformat(row[14]) if row[14] else datetime.now()
-                    )
-
-        except Exception as e:
-            logger.error(f"Failed to fetch market {market_code}: {e}")
-
-        return None
+        """Fetch Market using data provider."""
+        return self.data_provider.get_market_by_code(market_code)
 
     def _determine_day_type(self, market_status: dict, today: date) -> TradingDayType:
-        """Determine what type of day today is."""
-        # Parse market status to determine day type
-        market = market_status.get('market', '').lower()
-
+        """Determine what type of day today is using Polygon holiday API."""
         # Check if it's a weekend
         if today.weekday() >= 5:  # Saturday = 5, Sunday = 6
             return TradingDayType.CLOSED_WEEKEND
 
-        # Check market status
-        if market in ['open', 'extended-hours']:
-            # Could be regular or early close
-            # For now, assume regular - could check closing time later
-            return TradingDayType.REGULAR_TRADING
+        # Check against Polygon's official holiday calendar (cached)
+        holidays = self.data_provider.get_market_holidays()
+        today_str = today.strftime('%Y-%m-%d')
 
-        # If closed on a weekday, likely a holiday
-        if market == 'closed' and today.weekday() < 5:
-            return TradingDayType.CLOSED_HOLIDAY
+        for holiday in holidays:
+            if holiday.get('date') == today_str:
+                if holiday.get('status') == 'early-close':
+                    return TradingDayType.EARLY_CLOSE
+                elif holiday.get('status') == 'closed':
+                    return TradingDayType.CLOSED_HOLIDAY
 
+        # If not a weekend or holiday, it's a regular trading day
         return TradingDayType.REGULAR_TRADING
 
     def _find_previous_trading_day(self, today: date, market_status: dict) -> date:
-        """Find the most recent trading day before today."""
-        # Simple logic for now - skip weekends and go back max 10 days
+        """Find the most recent trading day before today using Polygon holiday API."""
+        holidays = self.data_provider.get_market_holidays()
+        holiday_dates = {h.get('date') for h in holidays if h.get('status') == 'closed'}
+
         check_date = today - timedelta(days=1)
-        max_days_back = 10  # Safety limit
+        max_days_back = 30  # Safety limit (handle long holiday periods)
 
         for _ in range(max_days_back):
             # Skip weekends
-            while check_date.weekday() >= 5:
-                check_date -= timedelta(days=1)
+            if check_date.weekday() < 5:  # Monday=0, Friday=4
+                # Check if it's a holiday
+                check_date_str = check_date.strftime('%Y-%m-%d')
+                if check_date_str not in holiday_dates:
+                    return check_date
 
-            # For now, assume weekdays are trading days
-            # TODO: Check against holiday calendar
-            return check_date
+            check_date -= timedelta(days=1)
 
-        # Fallback
+        # Fallback - shouldn't happen unless there's a very long holiday period
         return today - timedelta(days=1)
 
     def _determine_session(self, market: Market, market_status: dict,
                           is_trading_day: bool,
                           current_time: datetime) -> MarketSession:
         """
-        Determine session using Market's configured hours.
+        Determine session using Polygon API market status.
+        Raises exception if API data is not available.
         """
-        if not is_trading_day:
-            return MarketSession.CLOSED_POST
+        # Require API market status - no fallbacks
+        if not market_status or 'market' not in market_status:
+            raise RuntimeError("Market status API data is required but not available")
 
-        # Use market's actual trading hours to determine session
-        current_time_only = current_time.time()
+        api_market = market_status.get('market', '').lower()
+        early_hours = market_status.get('earlyHours', False)
+        after_hours = market_status.get('afterHours', False)
 
-        # Check premarket
-        if (market.premarket_start_time and
-            market.premarket_start_time <= current_time_only < market.regular_open_time):
-            return MarketSession.PREMARKET
-
-        # Check regular hours
-        elif market.regular_open_time <= current_time_only < market.regular_close_time:
+        # Use API status to determine session
+        if api_market == 'open':
             return MarketSession.REGULAR
-
-        # Check afterhours
-        elif (market.afterhours_end_time and
-              market.regular_close_time <= current_time_only < market.afterhours_end_time):
-            return MarketSession.AFTERHOURS
-
-        # Check if before premarket
-        elif (market.premarket_start_time and
-              current_time_only < market.premarket_start_time):
-            return MarketSession.CLOSED_PRE
-
-        # Everything else is closed post
-        else:
+        elif api_market == 'extended-hours':
+            if early_hours:
+                return MarketSession.PREMARKET
+            elif after_hours:
+                return MarketSession.AFTERHOURS
+            else:
+                # API says extended hours but didn't specify which - this is an API error
+                raise RuntimeError(f"Polygon API returned extended-hours without earlyHours or afterHours flags: {market_status}")
+        elif api_market == 'closed':
+            # Market is closed - the API has determined this
+            # We'll return CLOSED_POST as the general closed state
+            # The distinction between CLOSED_PRE and CLOSED_POST is less important
+            # when the API already tells us the market is closed
             return MarketSession.CLOSED_POST
+        else:
+            raise RuntimeError(f"Unknown market status from Polygon API: {api_market}")
 
     def _find_next_trading_day(self, today: date, market_status: dict) -> Optional[date]:
-        """Find the next trading day after today."""
+        """Find the next trading day after today using Polygon holiday API."""
+        holidays = self.data_provider.get_market_holidays()
+        holiday_dates = {h.get('date') for h in holidays if h.get('status') == 'closed'}
+
         check_date = today + timedelta(days=1)
-        max_days_forward = 10
+        max_days_forward = 30  # Safety limit (handle long holiday periods)
 
         for _ in range(max_days_forward):
             # Skip weekends
-            while check_date.weekday() >= 5:
-                check_date += timedelta(days=1)
+            if check_date.weekday() < 5:  # Monday=0, Friday=4
+                # Check if it's a holiday
+                check_date_str = check_date.strftime('%Y-%m-%d')
+                if check_date_str not in holiday_dates:
+                    return check_date
 
-            # For now, assume weekdays are trading days
-            # TODO: Check against holiday calendar
-            return check_date
+            check_date += timedelta(days=1)
 
         return None
 
-    def _should_refresh_cache(self, market_code: str) -> bool:
-        """Check if cache should be refreshed for a specific market."""
-        if market_code not in self._context_cache or market_code not in self._cache_timestamp:
-            return True
 
-        elapsed = (datetime.now() - self._cache_timestamp[market_code]).total_seconds()
-        return elapsed > self._cache_duration_seconds
-
-    def _create_fallback_context(self, market_code: str) -> MarketContext:
-        """Create fallback context when API fails or market not found."""
-        # Create basic market for fallback
-        fallback_market = Market(
-            id=0,
-            code=market_code,
-            name=f"Fallback Market {market_code}",
-            country="US",
-            timezone="America/New_York",
-            currency="USD",
-            premarket_start_time=dt_time(4, 0),
-            premarket_end_time=dt_time(9, 30),
-            regular_open_time=dt_time(9, 30),
-            regular_close_time=dt_time(16, 0),
-            afterhours_start_time=dt_time(16, 0),
-            afterhours_end_time=dt_time(20, 0),
-            is_active=True,
-            created_at=datetime.now(),
-            updated_at=datetime.now()
-        )
-
-        # Safe defaults for when we can't reach the API
-        tz = pytz.timezone(fallback_market.timezone)
-        current_time = datetime.now(tz)
-        today = current_time.date()
-
-        # Assume it's a trading day if weekday
-        is_trading_day = today.weekday() < 5
-
-        # Simple previous trading day logic
-        prev_date = today - timedelta(days=1)
-        while prev_date.weekday() >= 5:
-            prev_date -= timedelta(days=1)
-
-        # Simple session determination
-        hour = current_time.hour
-        if not is_trading_day:
-            session = MarketSession.CLOSED_POST
-        elif hour < 4:
-            session = MarketSession.CLOSED_PRE
-        elif hour < 9.5:
-            session = MarketSession.PREMARKET
-        elif hour < 16:
-            session = MarketSession.REGULAR
-        elif hour < 20:
-            session = MarketSession.AFTERHOURS
-        else:
-            session = MarketSession.CLOSED_POST
-
-        return MarketContext(
-            market=fallback_market,
-            day_type=TradingDayType.REGULAR_TRADING if is_trading_day
-                     else TradingDayType.CLOSED_WEEKEND,
-            is_trading_day=is_trading_day,
-            previous_trading_date=prev_date,
-            current_session=session,
-            current_date=today,
-            current_time=current_time
-        )

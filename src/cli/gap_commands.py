@@ -22,7 +22,6 @@ from .asset_commands import display_market_context
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from database.database_manager import DatabaseManager
 from provider.data_provider import PolygonDataProvider
 from screener.screener_engine import ScreenerEngine
 from screener.screener_config import ScreenerConfig

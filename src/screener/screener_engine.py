@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 
 import pytz
 
-from database.database_manager import DatabaseManager
 
 logger = logging.getLogger(__name__)
 
@@ -14,15 +13,13 @@ logger = logging.getLogger(__name__)
 class ScreenerEngine:
     """Execute screener queries based on YAML configuration."""
 
-    def __init__(self, db_manager: DatabaseManager, data_provider=None, config=None):
+    def __init__(self, data_provider, config=None):
         """Initialize screener engine.
 
         Args:
-            db_manager: Database manager instance
-            data_provider: Optional data provider instance
+            data_provider: Data provider instance
             config: Optional config object to get active universe
         """
-        self.db_manager = db_manager
         self.data_provider = data_provider
         self.config = config
 
@@ -44,26 +41,16 @@ class ScreenerEngine:
         # Build the SQL query from screener definition
         query = self._build_query(screener_def)
 
-        # Execute query
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
+        # Execute query through data provider
+        results = self.data_provider.execute_screener_query(query)
 
-            # Get column names
-            columns = [description[0] for description in cursor.description]
+        # Add computed fields to each result
+        enhanced_results = []
+        for result in results:
+            enhanced_result = self._add_computed_fields(result)
+            enhanced_results.append(enhanced_result)
 
-            # Fetch results
-            rows = cursor.fetchall()
-
-            # Convert to list of dictionaries
-            results = []
-            for row in rows:
-                result = dict(zip(columns, row))
-                # Add computed fields
-                result = self._add_computed_fields(result)
-                results.append(result)
-
-            return results
+        return enhanced_results
 
     def _validate_session(self, screener_def: Dict):
         """Validate that screener can run during current session.
@@ -105,10 +92,6 @@ class ScreenerEngine:
             RuntimeError: If market status API call fails
         """
         # Use the data provider to get current session
-        if not self.data_provider:
-            from provider.data_provider import PolygonDataProvider
-            self.data_provider = PolygonDataProvider(self.db_manager)
-
         return self.data_provider.get_current_market_session()
 
     def _build_query(self, screener_def: Dict) -> str:

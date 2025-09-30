@@ -71,7 +71,7 @@ def screener(config, screener_name: str, list_screeners: bool):
 
         screener_config = ScreenerConfig()
         data_provider = config.get_data_provider()
-        screener_engine = ScreenerEngine(config.db_manager, data_provider, config)
+        screener_engine = ScreenerEngine(data_provider, config)
         screener_display = ScreenerDisplay()
 
         # Get screener definition

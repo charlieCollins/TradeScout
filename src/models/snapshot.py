@@ -7,6 +7,20 @@ from decimal import Decimal
 
 
 @dataclass(frozen=True)
+class MinuteBar:
+    """Last minute bar data from market."""
+    timestamp: Optional[int]  # milliseconds
+    open: Optional[Decimal]
+    high: Optional[Decimal]
+    low: Optional[Decimal]
+    close: Optional[Decimal]
+    volume: Optional[int]
+    vwap: Optional[Decimal]
+    accumulated_volume: Optional[int]
+    num_trades: Optional[int]
+
+
+@dataclass(frozen=True)
 class TickerSnapshot:
     """Individual ticker snapshot from market data."""
 
@@ -16,7 +30,7 @@ class TickerSnapshot:
     prev_close: Optional[Decimal]
     prev_volume: Optional[int]
 
-    # Current day data
+    # Current day data (regular session)
     open_price: Optional[Decimal]
     high_price: Optional[Decimal]
     low_price: Optional[Decimal]
@@ -24,18 +38,32 @@ class TickerSnapshot:
     volume: Optional[int]
     vwap: Optional[Decimal]
 
-    # Latest trade
+    # Latest trade (deprecated - use min_bar instead)
     last_price: Optional[Decimal]
     last_timestamp: Optional[datetime]
+
+    # Minute bar data (includes premarket/afterhours)
+    min_bar: Optional[MinuteBar]
+
+    # Polygon's internal update timestamp (nanoseconds)
+    updated_ns: Optional[int]
 
     # Market status
     market_status: Optional[str]
 
     @property
+    def current_price(self) -> Optional[Decimal]:
+        """Get the most recent price (min_bar.close if available, else last_price)."""
+        if self.min_bar and self.min_bar.close is not None:
+            return self.min_bar.close
+        return self.last_price
+
+    @property
     def change(self) -> Optional[Decimal]:
         """Calculate price change from previous close."""
-        if self.last_price and self.prev_close:
-            return self.last_price - self.prev_close
+        current = self.current_price
+        if current and self.prev_close:
+            return current - self.prev_close
         return None
 
     @property
@@ -68,25 +96,43 @@ class MarketSnapshot:
             # Parse previous day data
             prev_day = ticker_data.get('prevDay', {})
 
-            # Parse current day data
+            # Parse current day data (regular session)
             day = ticker_data.get('day', {})
 
-            # Parse last quote/trade
+            # Parse minute bar data (includes extended hours)
+            min_data = ticker_data.get('min', {})
+            min_bar = None
+            if min_data and min_data.get('c') is not None:
+                min_bar = MinuteBar(
+                    timestamp=min_data.get('t'),
+                    open=Decimal(str(min_data.get('o'))) if min_data.get('o') is not None else None,
+                    high=Decimal(str(min_data.get('h'))) if min_data.get('h') is not None else None,
+                    low=Decimal(str(min_data.get('l'))) if min_data.get('l') is not None else None,
+                    close=Decimal(str(min_data.get('c'))) if min_data.get('c') is not None else None,
+                    volume=min_data.get('v'),
+                    vwap=Decimal(str(min_data.get('vw'))) if min_data.get('vw') is not None else None,
+                    accumulated_volume=min_data.get('av'),
+                    num_trades=min_data.get('n')
+                )
+
+            # Parse last quote/trade (legacy - kept for compatibility)
             last_quote = ticker_data.get('lastQuote', {})
             last_trade = ticker_data.get('lastTrade', {})
 
             snapshot = TickerSnapshot(
                 symbol=symbol,
-                prev_close=Decimal(str(prev_day.get('c'))) if prev_day.get('c') else None,
+                prev_close=Decimal(str(prev_day.get('c'))) if prev_day.get('c') is not None else None,
                 prev_volume=prev_day.get('v'),
-                open_price=Decimal(str(day.get('o'))) if day.get('o') else None,
-                high_price=Decimal(str(day.get('h'))) if day.get('h') else None,
-                low_price=Decimal(str(day.get('l'))) if day.get('l') else None,
-                close_price=Decimal(str(day.get('c'))) if day.get('c') else None,
+                open_price=Decimal(str(day.get('o'))) if day.get('o') is not None else None,
+                high_price=Decimal(str(day.get('h'))) if day.get('h') is not None else None,
+                low_price=Decimal(str(day.get('l'))) if day.get('l') is not None else None,
+                close_price=Decimal(str(day.get('c'))) if day.get('c') is not None else None,
                 volume=day.get('v'),
-                vwap=Decimal(str(day.get('vw'))) if day.get('vw') else None,
-                last_price=Decimal(str(last_trade.get('p'))) if last_trade.get('p') else None,
+                vwap=Decimal(str(day.get('vw'))) if day.get('vw') is not None else None,
+                last_price=Decimal(str(last_trade.get('p'))) if last_trade.get('p') is not None else None,
                 last_timestamp=datetime.fromtimestamp(last_trade.get('t') / 1000) if last_trade.get('t') else None,
+                min_bar=min_bar,
+                updated_ns=ticker_data.get('updated'),
                 market_status=ticker_data.get('market_status')
             )
 

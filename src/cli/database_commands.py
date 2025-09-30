@@ -66,7 +66,107 @@ def database_info(config):
                 stats_table.add_row(table_name, str(count))
 
         console.print(stats_table)
-        console.print(f"\n[bold green]Total records: {total_records:,}[/bold green]")
+
+    # Add recent operations table
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from database.database_manager import DatabaseManager
+
+        db_manager = DatabaseManager(config.db_path)
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                WITH latest_operations AS (
+                    SELECT operation_type, operation_subtype, started_at, completed_at, status, total_items,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY operation_type,
+                               CASE WHEN operation_subtype IS NULL THEN '' ELSE operation_subtype END
+                               ORDER BY started_at DESC
+                           ) as rn
+                    FROM data_update_metadata
+                )
+                SELECT operation_type, operation_subtype, started_at, completed_at, status, total_items,
+                       CASE
+                           WHEN started_at IS NOT NULL THEN
+                               ROUND((julianday('now') - julianday(started_at)) * 24, 1)
+                           ELSE NULL
+                       END as age_hours
+                FROM latest_operations
+                WHERE rn = 1
+                ORDER BY started_at DESC
+            """)
+            recent_ops = cursor.fetchall()
+
+        if recent_ops:
+            # Create recent operations table
+            ops_table = Table(title="\nRecent Data Operations", show_header=True)
+            ops_table.add_column("Operation", style="cyan")
+            ops_table.add_column("Started", style="white")
+            ops_table.add_column("Age", justify="right", style="white")
+            ops_table.add_column("Status", style="white")
+            ops_table.add_column("Items", justify="right", style="white")
+            ops_table.add_column("Duration", justify="right", style="white")
+
+            for op in recent_ops:
+                operation_type, operation_subtype, started_at, completed_at, status, total_items, age_hours = op
+
+                # Format operation name
+                if operation_subtype:
+                    operation_name = f"{operation_type}.{operation_subtype}"
+                else:
+                    operation_name = operation_type
+
+                # Parse and format started time
+                from datetime import datetime
+                try:
+                    started_dt = datetime.fromisoformat(started_at.replace('T', ' ').replace('Z', ''))
+                    started_str = started_dt.strftime("%m-%d %H:%M")
+                except:
+                    started_str = started_at[:16] if started_at else "N/A"
+
+                # Format status with colors
+                if status == "completed":
+                    status_str = f"[green]{status}[/green]"
+                elif status == "running":
+                    status_str = f"[yellow]{status}[/yellow]"
+                elif status == "failed":
+                    status_str = f"[red]{status}[/red]"
+                else:
+                    status_str = status or "unknown"
+
+                # Format item count
+                items_str = f"{total_items:,}" if total_items else "-"
+
+                # Format age
+                if age_hours is not None:
+                    if age_hours < 1:
+                        age_str = f"{age_hours * 60:.0f}m"  # Show minutes if less than 1 hour
+                    elif age_hours < 24:
+                        age_str = f"{age_hours:.1f}h"  # Show hours with decimal
+                    else:
+                        age_str = f"{age_hours / 24:.1f}d"  # Show days
+                else:
+                    age_str = "-"
+
+                # Calculate duration
+                if completed_at and started_at:
+                    try:
+                        started_dt = datetime.fromisoformat(started_at.replace('T', ' ').replace('Z', ''))
+                        completed_dt = datetime.fromisoformat(completed_at.replace('T', ' ').replace('Z', ''))
+                        duration = completed_dt - started_dt
+                        duration_str = f"{duration.total_seconds():.1f}s"
+                    except:
+                        duration_str = "-"
+                else:
+                    duration_str = "-" if status == "completed" else "running"
+
+                ops_table.add_row(operation_name, started_str, age_str, status_str, items_str, duration_str)
+
+            console.print(ops_table)
+
+    except Exception as e:
+        # Don't fail the whole command if recent operations table fails
+        console.print(f"[yellow]⚠️  Could not load recent operations: {e}[/yellow]")
 
 
 @database.command('init')

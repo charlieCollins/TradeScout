@@ -20,61 +20,33 @@ class FundamentalsBootstrapper:
         self.db_manager = db_manager
         self.last_stats = {}
         self.current_stats = {}  # Live stats for progress display
-        self.update_tracker = DataUpdateTracker(db_manager) if db_manager else None
+        self.update_tracker = DataUpdateTracker(self.data_provider) if db_manager else None
 
     def ensure_providers_exist(self) -> None:
         """Ensure required providers exist in database."""
-        if not self.db_manager:
-            raise ValueError("Database manager required for provider check")
-
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if polygon provider exists
-            cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
-            if not cursor.fetchone():
-                logger.error("Polygon provider not found in database")
-                raise ValueError("Provider 'polygon' must be bootstrapped first. Run 'tradescout database bootstrap-providers'")
+        if not self.data_provider.ensure_polygon_provider_exists():
+            logger.error("Polygon provider not found in database")
+            raise ValueError("Provider 'polygon' must be bootstrapped first. Run 'tradescout database bootstrap-providers'")
 
     def get_polygon_provider_id(self) -> int:
         """Get Polygon provider ID from database."""
-        if not self.db_manager:
-            raise ValueError("Database manager required")
-
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM providers WHERE name = 'polygon'")
-            result = cursor.fetchone()
-            if not result:
-                raise ValueError("Polygon provider not found")
-            return result[0]
+        provider_id = self.data_provider.get_polygon_provider_id()
+        if provider_id is None:
+            raise ValueError("Polygon provider not found")
+        return provider_id
 
     def get_all_asset_symbols(self) -> List[Dict[str, Any]]:
         """Get asset symbols and IDs from the active universe."""
-        if not self.db_manager:
-            raise ValueError("Database manager required")
+        assets_with_universe = self.data_provider.get_active_universe_asset_symbols()
 
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
+        if not assets_with_universe:
+            raise ValueError("No active universe found or active universe is empty. Use 'tradescout universe activate <name>' to set one.")
 
-            # Get assets from the active universe only
-            cursor.execute("""
-                SELECT a.id, a.symbol, u.name as universe_name
-                FROM assets a
-                JOIN universe_memberships um ON a.id = um.asset_id
-                JOIN universes u ON um.universe_id = u.id
-                WHERE u.is_active = 1 AND a.is_active = 1 AND um.is_active = 1
-                ORDER BY a.symbol
-            """)
-
-            rows = cursor.fetchall()
-            if not rows:
-                raise ValueError("No active universe found or active universe is empty. Use 'tradescout universe activate <name>' to set one.")
-
-            assets = [{"id": row[0], "symbol": row[1]} for row in rows]
-            universe_name = rows[0][2]  # Get universe name from first row
-            logger.debug(f"Found {len(assets)} assets in active universe '{universe_name}'")
-            return assets
+        # Convert to the format expected by existing code (just id and symbol)
+        assets = [{"id": asset["id"], "symbol": asset["symbol"]} for asset in assets_with_universe]
+        universe_name = assets_with_universe[0]["universe_name"] if assets_with_universe else "unknown"
+        logger.debug(f"Found {len(assets)} assets in active universe '{universe_name}'")
+        return assets
 
     def fetch_ticker_overview(self, symbol: str) -> tuple[Optional[Dict[str, Any]], str]:
         """Fetch ticker overview for a single symbol.
@@ -106,64 +78,8 @@ class FundamentalsBootstrapper:
             return None
 
     def upsert_fundamentals(self, fundamentals_list: List[AssetFundamentals]) -> Dict[str, int]:
-        """Upsert fundamentals into database."""
-        if not self.db_manager:
-            raise ValueError("Database manager required for upsert operations")
-
-        stats = {"inserted": 0, "updated": 0, "errors": 0}
-
-        if not fundamentals_list:
-            return stats
-
-        logger.debug(f"Processing {len(fundamentals_list)} fundamentals records...")
-
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-
-            for fundamentals in fundamentals_list:
-                try:
-                    # Check if record exists
-                    cursor.execute(
-                        "SELECT asset_id FROM asset_fundamentals WHERE asset_id = ?",
-                        (fundamentals.asset_id,)
-                    )
-                    exists = cursor.fetchone()
-
-                    # Convert model to dict for database operations
-                    fundamentals_dict = fundamentals.to_dict()
-
-                    if exists:
-                        # Update existing record
-                        update_fields = []
-                        update_values = []
-                        for key, value in fundamentals_dict.items():
-                            if key != "asset_id":  # Don't update the primary key
-                                update_fields.append(f"{key} = ?")
-                                update_values.append(value)
-
-                        if update_fields:
-                            update_values.append(fundamentals.asset_id)
-                            query = f"UPDATE asset_fundamentals SET {', '.join(update_fields)} WHERE asset_id = ?"
-                            cursor.execute(query, update_values)
-                            stats["updated"] += 1
-                    else:
-                        # Insert new record
-                        fields = list(fundamentals_dict.keys())
-                        placeholders = ", ".join(["?" for _ in fields])
-                        values = list(fundamentals_dict.values())
-
-                        query = f"INSERT INTO asset_fundamentals ({', '.join(fields)}) VALUES ({placeholders})"
-                        cursor.execute(query, values)
-                        stats["inserted"] += 1
-
-                except Exception as e:
-                    logger.error(f"Error upserting fundamentals for asset_id {fundamentals.asset_id}: {e}")
-                    stats["errors"] += 1
-
-            conn.commit()
-
-        logger.debug(f"Fundamentals upsert complete: {stats}")
-        return stats
+        """Upsert fundamentals into database using data provider."""
+        return self.data_provider.upsert_fundamentals(fundamentals_list)
 
     def bootstrap_fundamentals(self, symbol: Optional[str] = None, force: bool = False, limit: Optional[int] = None, progress_callback: Optional[Callable] = None) -> Dict[str, Any]:
         """Bootstrap fundamentals data for all assets or a specific symbol.

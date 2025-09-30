@@ -23,7 +23,10 @@ class UniverseBootstrapper:
         else:
             raise ValueError("Either db_path or db_manager required")
 
-        self.update_tracker = DataUpdateTracker(self.db_manager) if self.db_manager else None
+        # Create a minimal data provider for universe operations (no API key needed)
+        from provider.data_provider import PolygonDataProvider
+        self.data_provider = PolygonDataProvider(self.db_manager) if self.db_manager else None
+        self.update_tracker = DataUpdateTracker(self.data_provider) if self.data_provider else None
 
     def apply_filters(self, assets: List[Dict[str, Any]], universe_name: str = "default_universe") -> List[Dict[str, Any]]:
         """Apply filtering criteria to assets based on universe config."""
@@ -234,119 +237,23 @@ class UniverseBootstrapper:
 
     def _fetch_all_assets(self) -> List[Dict[str, Any]]:
         """Fetch all assets from the database with fundamentals data."""
-        # Import here to avoid circular imports
-        from provider.data_provider import PolygonDataProvider
-
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Join with fundamentals table for sector, market cap data
-            cursor.execute("""
-                SELECT a.id, a.symbol, a.name, a.asset_type, a.asset_class,
-                       a.currency, a.is_active, a.provider_id,
-                       m.code as market_code, m.name as market_name,
-                       af.sector, af.market_cap
-                FROM assets a
-                JOIN markets m ON a.market_id = m.id
-                LEFT JOIN asset_fundamentals af ON a.id = af.asset_id
-            """)
-
-            rows = cursor.fetchall()
-            assets = []
-
-            # Create data provider instance for volume lookups
-            data_provider = PolygonDataProvider(db_manager=self.db_manager)
-
-            for row in rows:
-                symbol = row[1]
-                # Use the new utility method to get volume
-                volume = data_provider.get_most_recent_volume(symbol)
-
-                assets.append({
-                    'id': row[0],
-                    'symbol': symbol,
-                    'name': row[2],
-                    'asset_type': row[3],
-                    'asset_class': row[4],
-                    'currency': row[5],
-                    'is_active': bool(row[6]),
-                    'provider_id': row[7],
-                    'market_code': row[8],
-                    'market_name': row[9],
-                    'sector': row[10],
-                    'market_cap': row[11],
-                    'volume': volume
-                })
-
-            return assets
+        return self.data_provider.get_all_assets_with_fundamentals()
 
     def _get_or_create_universe(self, universe_name: str, config: Dict[str, Any]) -> int:
         """Get existing universe ID or create new one."""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-
-            # Check if universe exists
-            cursor.execute("SELECT id FROM universes WHERE name = ?", (universe_name,))
-            result = cursor.fetchone()
-
-            if result:
-                universe_id = result[0]
-                # Update last_updated
-                cursor.execute("""
-                    UPDATE universes SET
-                        last_updated = ?,
-                        updated_at = ?
-                    WHERE id = ?
-                """, (datetime.now().isoformat(), datetime.now().isoformat(), universe_id))
-            else:
-                # Create new universe
-                cursor.execute("""
-                    INSERT INTO universes (name, description, is_active, last_updated, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    universe_name,
-                    config.get('description', 'Default filtered universe'),
-                    True,
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat(),
-                    datetime.now().isoformat()
-                ))
-                universe_id = cursor.lastrowid
-
-            conn.commit()
-            return universe_id
+        universe_id = self.data_provider.get_or_create_universe(universe_name, config)
+        if universe_id is None:
+            raise ValueError(f"Failed to create universe {universe_name}")
+        return universe_id
 
     def _clear_universe_memberships(self, universe_id: int):
         """Clear existing memberships for a universe."""
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM universe_memberships WHERE universe_id = ?", (universe_id,))
-            conn.commit()
-            logger.debug(f"Cleared existing memberships for universe_id {universe_id}")
+        if not self.data_provider.clear_universe_memberships(universe_id):
+            raise ValueError(f"Failed to clear memberships for universe {universe_id}")
 
     def _add_universe_memberships(self, universe_id: int, assets: List[Dict[str, Any]]) -> int:
         """Add assets to universe membership table."""
-        if not assets:
-            return 0
-
-        with self.db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-
-            current_date = datetime.now().date().isoformat()
-
-            # Prepare batch insert data
-            insert_data = [
-                (universe_id, asset['id'], current_date, 'initial_load', True)
-                for asset in assets
-            ]
-
-            cursor.executemany("""
-                INSERT INTO universe_memberships (universe_id, asset_id, added_date, reason, is_active)
-                VALUES (?, ?, ?, ?, ?)
-            """, insert_data)
-
-            conn.commit()
-            return len(insert_data)
+        return self.data_provider.add_universe_memberships(universe_id, assets)
 
     def bootstrap_universe(self, universe_name: str = "default_universe", force: bool = False) -> bool:
         """Bootstrap universe by creating it from current assets.

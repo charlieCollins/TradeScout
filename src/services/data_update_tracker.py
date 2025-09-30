@@ -4,8 +4,8 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from database.database_manager import DatabaseManager
 from config.ttl_config import FUNDAMENTALS_TTL_HOURS
+from models.data_update_metadata import DataUpdateMetadata, OperationStatus
 
 logger = logging.getLogger(__name__)
 
@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 class DataUpdateTracker:
     """Track data update operations across TradeScout."""
 
-    def __init__(self, db_manager: DatabaseManager):
-        """Initialize with database manager."""
-        self.db_manager = db_manager
+    def __init__(self, data_provider):
+        """Initialize with data provider."""
+        self.data_provider = data_provider
 
     def start_operation(self, operation_type: str, operation_subtype: Optional[str] = None,
                        operation_params: Optional[Dict[str, Any]] = None,
@@ -32,23 +32,28 @@ class DataUpdateTracker:
             Operation ID for tracking progress
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            # Create metadata object
+            metadata = DataUpdateMetadata(
+                operation_type=operation_type,
+                operation_subtype=operation_subtype,
+                started_at=datetime.now(),
+                operation_params=operation_params,
+                total_items=total_items,
+                status=OperationStatus.RUNNING
+            )
 
-                params_json = json.dumps(operation_params) if operation_params else None
-                started_at = datetime.now().isoformat()
+            # Convert to dict for database
+            data = metadata.to_dict()
 
-                cursor.execute("""
-                    INSERT INTO data_update_metadata
-                    (operation_type, operation_subtype, started_at, operation_params, total_items, status)
-                    VALUES (?, ?, ?, ?, ?, 'running')
-                """, (operation_type, operation_subtype, started_at, params_json, total_items))
+            operation_id = self.data_provider.execute_metadata_update("""
+                INSERT INTO data_update_metadata
+                (operation_type, operation_subtype, started_at, operation_params, total_items, status)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (data['operation_type'], data['operation_subtype'], data['started_at'],
+                  data['operation_params'], data['total_items'], data['status']))
 
-                operation_id = cursor.lastrowid
-                conn.commit()
-
-                logger.debug(f"Started tracking operation {operation_type}.{operation_subtype} (ID: {operation_id})")
-                return operation_id
+            logger.debug(f"Started tracking operation {metadata.get_operation_name()} (ID: {operation_id})")
+            return operation_id
 
         except Exception as e:
             logger.error(f"Failed to start operation tracking: {e}")
@@ -65,29 +70,25 @@ class DataUpdateTracker:
             stats: Current statistics dictionary
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            update_fields = []
+            update_values = []
 
-                update_fields = []
-                update_values = []
+            if processed_items is not None:
+                update_fields.append("processed_items = ?")
+                update_values.append(processed_items)
 
-                if processed_items is not None:
-                    update_fields.append("processed_items = ?")
-                    update_values.append(processed_items)
+            if api_calls_made is not None:
+                update_fields.append("api_calls_made = ?")
+                update_values.append(api_calls_made)
 
-                if api_calls_made is not None:
-                    update_fields.append("api_calls_made = ?")
-                    update_values.append(api_calls_made)
+            if stats is not None:
+                update_fields.append("stats = ?")
+                update_values.append(json.dumps(stats))
 
-                if stats is not None:
-                    update_fields.append("stats = ?")
-                    update_values.append(json.dumps(stats))
-
-                if update_fields:
-                    update_values.append(operation_id)
-                    query = f"UPDATE data_update_metadata SET {', '.join(update_fields)} WHERE id = ?"
-                    cursor.execute(query, update_values)
-                    conn.commit()
+            if update_fields:
+                update_values.append(operation_id)
+                query = f"UPDATE data_update_metadata SET {', '.join(update_fields)} WHERE id = ?"
+                self.data_provider.execute_metadata_update(query, tuple(update_values))
 
         except Exception as e:
             logger.error(f"Failed to update operation progress: {e}")
@@ -102,20 +103,23 @@ class DataUpdateTracker:
             status: Final status ('completed', 'partial')
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            # Create metadata object for completion
+            metadata = DataUpdateMetadata(
+                operation_type="",  # Placeholder - not needed for update
+                completed_at=datetime.now(),
+                status=OperationStatus(status),
+                stats=final_stats
+            )
 
-                completed_at = datetime.now().isoformat()
-                stats_json = json.dumps(final_stats)
+            data = metadata.to_dict()
 
-                cursor.execute("""
-                    UPDATE data_update_metadata
-                    SET completed_at = ?, status = ?, stats = ?
-                    WHERE id = ?
-                """, (completed_at, status, stats_json, operation_id))
+            self.data_provider.execute_metadata_update("""
+                UPDATE data_update_metadata
+                SET completed_at = ?, status = ?, stats = ?
+                WHERE id = ?
+            """, (data['completed_at'], data['status'], data['stats'], operation_id))
 
-                conn.commit()
-                logger.info(f"Completed operation {operation_id} with status: {status}")
+            logger.info(f"Completed operation {operation_id} with status: {status}")
 
         except Exception as e:
             logger.error(f"Failed to complete operation: {e}")
@@ -128,19 +132,23 @@ class DataUpdateTracker:
             error_message: Error message describing the failure
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            # Create metadata object for failure
+            metadata = DataUpdateMetadata(
+                operation_type="",  # Placeholder - not needed for update
+                completed_at=datetime.now(),
+                status=OperationStatus.FAILED,
+                error_message=error_message
+            )
 
-                completed_at = datetime.now().isoformat()
+            data = metadata.to_dict()
 
-                cursor.execute("""
-                    UPDATE data_update_metadata
-                    SET completed_at = ?, status = 'failed', error_message = ?
-                    WHERE id = ?
-                """, (completed_at, error_message, operation_id))
+            self.data_provider.execute_metadata_update("""
+                UPDATE data_update_metadata
+                SET completed_at = ?, status = ?, error_message = ?
+                WHERE id = ?
+            """, (data['completed_at'], data['status'], data['error_message'], operation_id))
 
-                conn.commit()
-                logger.error(f"Failed operation {operation_id}: {error_message}")
+            logger.error(f"Failed operation {operation_id}: {error_message}")
 
         except Exception as e:
             logger.error(f"Failed to mark operation as failed: {e}")
@@ -156,30 +164,27 @@ class DataUpdateTracker:
             Datetime of last successful completion or None if never run
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            if operation_subtype:
+                results = self.data_provider.execute_metadata_query("""
+                    SELECT * FROM data_update_metadata
+                    WHERE operation_type = ? AND operation_subtype = ?
+                    AND status IN ('completed', 'partial')
+                    ORDER BY completed_at DESC LIMIT 1
+                """, (operation_type, operation_subtype))
+            else:
+                results = self.data_provider.execute_metadata_query("""
+                    SELECT * FROM data_update_metadata
+                    WHERE operation_type = ? AND status IN ('completed', 'partial')
+                    ORDER BY completed_at DESC LIMIT 1
+                """, (operation_type,))
 
-                if operation_subtype:
-                    cursor.execute("""
-                        SELECT completed_at FROM data_update_metadata
-                        WHERE operation_type = ? AND operation_subtype = ?
-                        AND status IN ('completed', 'partial')
-                        ORDER BY completed_at DESC LIMIT 1
-                    """, (operation_type, operation_subtype))
-                else:
-                    cursor.execute("""
-                        SELECT completed_at FROM data_update_metadata
-                        WHERE operation_type = ? AND status IN ('completed', 'partial')
-                        ORDER BY completed_at DESC LIMIT 1
-                    """, (operation_type,))
-
-                result = cursor.fetchone()
-                if result and result[0]:
-                    return datetime.fromisoformat(result[0])
-                return None
+            if results:
+                metadata = DataUpdateMetadata.from_dict(results[0])
+                return metadata.completed_at
+            return None
 
         except Exception as e:
-            logger.error(f"Failed to get last update time: {e}")
+            logger.error(f"Failed to get last update metadata: {e}")
             return None
 
     def get_operation_history(self, operation_type: Optional[str] = None, limit: int = 10) -> List[Dict[str, Any]]:
@@ -190,46 +195,39 @@ class DataUpdateTracker:
             limit: Maximum number of records to return
 
         Returns:
-            List of operation records
+            List of operation records as dictionaries
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            if operation_type:
+                results = self.data_provider.execute_metadata_query("""
+                    SELECT * FROM data_update_metadata
+                    WHERE operation_type = ?
+                    ORDER BY started_at DESC LIMIT ?
+                """, (operation_type, limit))
+            else:
+                results = self.data_provider.execute_metadata_query("""
+                    SELECT * FROM data_update_metadata
+                    ORDER BY started_at DESC LIMIT ?
+                """, (limit,))
 
-                if operation_type:
-                    cursor.execute("""
-                        SELECT operation_type, operation_subtype, started_at, completed_at,
-                               status, stats, api_calls_made, total_items, processed_items
-                        FROM data_update_metadata
-                        WHERE operation_type = ?
-                        ORDER BY started_at DESC LIMIT ?
-                    """, (operation_type, limit))
-                else:
-                    cursor.execute("""
-                        SELECT operation_type, operation_subtype, started_at, completed_at,
-                               status, stats, api_calls_made, total_items, processed_items
-                        FROM data_update_metadata
-                        ORDER BY started_at DESC LIMIT ?
-                    """, (limit,))
-
-                rows = cursor.fetchall()
-                history = []
-
-                for row in rows:
-                    record = {
-                        'operation_type': row[0],
-                        'operation_subtype': row[1],
-                        'started_at': row[2],
-                        'completed_at': row[3],
-                        'status': row[4],
-                        'stats': json.loads(row[5]) if row[5] else {},
-                        'api_calls_made': row[6],
-                        'total_items': row[7],
-                        'processed_items': row[8]
-                    }
-                    history.append(record)
-
-                return history
+            # Convert to metadata objects then back to dicts for backward compatibility
+            history = []
+            for row in results:
+                metadata = DataUpdateMetadata.from_dict(row)
+                # Convert back to dict format expected by callers
+                record = {
+                    'operation_type': metadata.operation_type,
+                    'operation_subtype': metadata.operation_subtype,
+                    'started_at': metadata.started_at.isoformat() if metadata.started_at else None,
+                    'completed_at': metadata.completed_at.isoformat() if metadata.completed_at else None,
+                    'status': metadata.status.value,
+                    'stats': metadata.stats or {},
+                    'api_calls_made': metadata.api_calls_made,
+                    'total_items': metadata.total_items,
+                    'processed_items': metadata.processed_items
+                }
+                history.append(record)
+            return history
 
         except Exception as e:
             logger.error(f"Failed to get operation history: {e}")
@@ -239,36 +237,31 @@ class DataUpdateTracker:
         """Get list of currently running operations.
 
         Returns:
-            List of running operation records
+            List of running operation records as dictionaries
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            results = self.data_provider.execute_metadata_query("""
+                SELECT * FROM data_update_metadata
+                WHERE status = 'running'
+                ORDER BY started_at DESC
+            """)
 
-                cursor.execute("""
-                    SELECT id, operation_type, operation_subtype, started_at,
-                           total_items, processed_items, api_calls_made
-                    FROM data_update_metadata
-                    WHERE status = 'running'
-                    ORDER BY started_at DESC
-                """)
-
-                rows = cursor.fetchall()
-                running_ops = []
-
-                for row in rows:
-                    record = {
-                        'id': row[0],
-                        'operation_type': row[1],
-                        'operation_subtype': row[2],
-                        'started_at': row[3],
-                        'total_items': row[4],
-                        'processed_items': row[5],
-                        'api_calls_made': row[6]
-                    }
-                    running_ops.append(record)
-
-                return running_ops
+            # Convert to metadata objects then back to dicts for backward compatibility
+            running_ops = []
+            for row in results:
+                metadata = DataUpdateMetadata.from_dict(row)
+                # Convert back to dict format expected by callers
+                record = {
+                    'id': metadata.id,
+                    'operation_type': metadata.operation_type,
+                    'operation_subtype': metadata.operation_subtype,
+                    'started_at': metadata.started_at.isoformat() if metadata.started_at else None,
+                    'total_items': metadata.total_items,
+                    'processed_items': metadata.processed_items,
+                    'api_calls_made': metadata.api_calls_made
+                }
+                running_ops.append(record)
+            return running_ops
 
         except Exception as e:
             logger.error(f"Failed to get running operations: {e}")
@@ -298,38 +291,34 @@ class DataUpdateTracker:
             Dictionary with operation types and their status
         """
         try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
+            results = self.data_provider.execute_metadata_query("""
+                SELECT operation_type,
+                       MAX(completed_at) as last_completed,
+                       COUNT(*) as total_runs,
+                       SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful_runs
+                FROM data_update_metadata
+                WHERE status IN ('completed', 'partial', 'failed')
+                GROUP BY operation_type
+                ORDER BY operation_type
+            """)
 
-                cursor.execute("""
-                    SELECT operation_type,
-                           MAX(completed_at) as last_completed,
-                           COUNT(*) as total_runs,
-                           SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as successful_runs
-                    FROM data_update_metadata
-                    WHERE status IN ('completed', 'partial', 'failed')
-                    GROUP BY operation_type
-                    ORDER BY operation_type
-                """)
+            summary = {}
 
-                rows = cursor.fetchall()
-                summary = {}
+            for row in results:
+                op_type = row['operation_type']
+                last_completed = row['last_completed']
+                total_runs = row['total_runs']
+                successful_runs = row['successful_runs']
 
-                for row in rows:
-                    op_type = row[0]
-                    last_completed = row[1]
-                    total_runs = row[2]
-                    successful_runs = row[3]
+                summary[op_type] = {
+                    'last_completed': last_completed,
+                    'total_runs': total_runs,
+                    'successful_runs': successful_runs,
+                    'success_rate': successful_runs / total_runs if total_runs > 0 else 0,
+                    'is_stale': self.is_data_stale(op_type)
+                }
 
-                    summary[op_type] = {
-                        'last_completed': last_completed,
-                        'total_runs': total_runs,
-                        'successful_runs': successful_runs,
-                        'success_rate': successful_runs / total_runs if total_runs > 0 else 0,
-                        'is_stale': self.is_data_stale(op_type)
-                    }
-
-                return summary
+            return summary
 
         except Exception as e:
             logger.error(f"Failed to get operation summary: {e}")

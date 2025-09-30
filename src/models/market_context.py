@@ -3,8 +3,9 @@
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from enum import Enum
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from models.market import Market
+from config import market_context_rules
 
 
 class MarketSession(Enum):
@@ -121,9 +122,177 @@ class MarketContext:
             ) if self.market.afterhours_end_time else None
         }
 
+    def get_current_price_field(self, available_data: Dict[str, Any]) -> Optional[Any]:
+        """
+        Get the appropriate current price based on session context.
+
+        Args:
+            available_data: Dict with keys like 'min_close', 'day_close', 'prevday_close'
+
+        Returns:
+            The appropriate price value based on context, or None if no data available
+        """
+        return market_context_rules.get_field_for_context(
+            "current_price",
+            self.current_session.value,
+            available_data
+        )
+
+    def get_reference_price_field(self, available_data: Dict[str, Any]) -> Optional[Any]:
+        """
+        Get the appropriate reference price for change calculations.
+
+        Args:
+            available_data: Dict with keys like 'min_close', 'day_close', 'prevday_close'
+
+        Returns:
+            The appropriate reference price based on context, or None if no data available
+        """
+        return market_context_rules.get_field_for_context(
+            "reference_price",
+            self.current_session.value,
+            available_data
+        )
+
+    def get_volume_field(self, available_data: Dict[str, Any]) -> Optional[Any]:
+        """
+        Get the appropriate volume field based on session context.
+
+        Args:
+            available_data: Dict with keys like 'min_volume', 'day_volume', 'prevday_volume'
+
+        Returns:
+            The appropriate volume value based on context, or None if no data available
+        """
+        return market_context_rules.get_field_for_context(
+            "volume",
+            self.current_session.value,
+            available_data
+        )
+
+    def get_field_mapping_for_session(self, field_type: str) -> List[str]:
+        """
+        Get the prioritized list of fields to check for a given field type.
+
+        Args:
+            field_type: Type like 'current_price', 'reference_price', 'volume'
+
+        Returns:
+            List of field names in priority order
+        """
+        mappings = market_context_rules.FIELD_MAPPINGS.get(field_type, {})
+        return mappings.get(self.current_session.value, [])
+
+
+    def validate_data_for_calculation(
+        self,
+        operation: str,
+        available_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Check if required fields are available for an operation.
+
+        Args:
+            operation: Operation like 'change_calculation', 'volume_analysis'
+            available_data: Dict of available data fields
+
+        Returns:
+            True if all required fields are non-NULL
+        """
+        return market_context_rules.validate_required_fields(
+            operation,
+            self.current_session.value,
+            available_data
+        )
+
     def __str__(self) -> str:
         """Human-readable representation."""
         return (f"MarketContext({self.market.code}: "
                 f"trading_day={self.is_trading_day}, "
                 f"session={self.current_session.value}, "
                 f"prev_trading={self.previous_trading_date})")
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize MarketContext to dictionary for JSON storage.
+
+        Returns:
+            Dictionary representation of MarketContext
+        """
+        return {
+            'market': self.market.to_dict() if hasattr(self.market, 'to_dict') else {
+                'id': self.market.id,
+                'code': self.market.code,
+                'name': self.market.name,
+                'country': self.market.country,
+                'timezone': self.market.timezone,
+                'currency': self.market.currency,
+                'premarket_start_time': str(self.market.premarket_start_time) if self.market.premarket_start_time else None,
+                'premarket_end_time': str(self.market.premarket_end_time) if self.market.premarket_end_time else None,
+                'regular_open_time': str(self.market.regular_open_time),
+                'regular_close_time': str(self.market.regular_close_time),
+                'afterhours_start_time': str(self.market.afterhours_start_time) if self.market.afterhours_start_time else None,
+                'afterhours_end_time': str(self.market.afterhours_end_time) if self.market.afterhours_end_time else None,
+                'is_active': self.market.is_active
+            },
+            'is_trading_day': self.is_trading_day,
+            'previous_trading_date': self.previous_trading_date.isoformat(),
+            'current_session': self.current_session.value,
+            'day_type': self.day_type.value,
+            'current_date': self.current_date.isoformat(),
+            'current_time': self.current_time.isoformat(),
+            'next_trading_date': self.next_trading_date.isoformat() if self.next_trading_date else None,
+            'raw_market_status': self.raw_market_status
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'MarketContext':
+        """Deserialize MarketContext from dictionary.
+
+        Args:
+            data: Dictionary representation of MarketContext
+
+        Returns:
+            MarketContext instance
+        """
+        from models.market import Market
+        from datetime import datetime, date, time as dt_time
+
+        # Reconstruct Market object
+        market_data = data['market']
+        market = Market(
+            id=market_data['id'],
+            code=market_data['code'],
+            name=market_data['name'],
+            country=market_data.get('country', 'US'),
+            timezone=market_data.get('timezone', 'America/New_York'),
+            currency=market_data.get('currency', 'USD'),
+            premarket_start_time=dt_time.fromisoformat(market_data['premarket_start_time']) if market_data.get('premarket_start_time') else None,
+            premarket_end_time=dt_time.fromisoformat(market_data['premarket_end_time']) if market_data.get('premarket_end_time') else None,
+            regular_open_time=dt_time.fromisoformat(market_data['regular_open_time']),
+            regular_close_time=dt_time.fromisoformat(market_data['regular_close_time']),
+            afterhours_start_time=dt_time.fromisoformat(market_data['afterhours_start_time']) if market_data.get('afterhours_start_time') else None,
+            afterhours_end_time=dt_time.fromisoformat(market_data['afterhours_end_time']) if market_data.get('afterhours_end_time') else None,
+            is_active=market_data.get('is_active', True)
+        )
+
+        # Parse dates and times
+        previous_trading_date = date.fromisoformat(data['previous_trading_date'])
+        current_date = date.fromisoformat(data['current_date'])
+        current_time = datetime.fromisoformat(data['current_time'])
+        next_trading_date = date.fromisoformat(data['next_trading_date']) if data.get('next_trading_date') else None
+
+        # Parse enums
+        current_session = MarketSession(data['current_session'])
+        day_type = TradingDayType(data['day_type'])
+
+        return cls(
+            market=market,
+            is_trading_day=data['is_trading_day'],
+            previous_trading_date=previous_trading_date,
+            current_session=current_session,
+            day_type=day_type,
+            current_date=current_date,
+            current_time=current_time,
+            next_trading_date=next_trading_date,
+            raw_market_status=data.get('raw_market_status')
+        )
