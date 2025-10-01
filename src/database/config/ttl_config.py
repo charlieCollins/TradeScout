@@ -8,7 +8,9 @@ MARKET_SNAPSHOT_TTL_MINUTES = 15        # Bulk market snapshots
 # Bootstrap operation staleness (hours)
 FUNDAMENTALS_TTL_HOURS = 168            # 1 week - fundamentals change rarely
 TICKERS_TTL_HOURS = 72                  # 3 days - new listings/delistings are infrequent
+ASSETS_TTL_HOURS = 72                   # 3 days - new listings/delistings are infrequent
 UNIVERSES_TTL_HOURS = 24                # 1 day - universe membership can change with market cap shifts
+MARKETS_TTL_HOURS = 8760                # 1 year - market/exchange reference data is essentially static
 
 # External data sources
 NEWS_TTL_MINUTES = 30                   # News data cache

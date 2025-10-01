@@ -20,6 +20,8 @@ class DataUpdateMetadataType(Enum):
     FUNDAMENTALS = "fundamentals"
     TICKERS = "tickers"
     UNIVERSES = "universes"
+    PROVIDERS = "providers"
+    MARKETS = "markets"
     ASSET_PRICES = "asset_prices"
     TICKER_SNAPSHOTS = "ticker_snapshots"
     MARKET_SNAPSHOTS = "market_snapshots"

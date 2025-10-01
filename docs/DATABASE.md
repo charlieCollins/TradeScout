@@ -1,64 +1,190 @@
-# TradeScout Database Schema
+# TradeScout Database Architecture
 
-**Last Updated:** 2025-09-28
-**Database:** SQLite
-**Location:** `data/tradescout.db`
-**Schema Version:** 001
-
-## Overview
-
-TradeScout uses SQLite with **11 core tables** for market data management, asset filtering, and operation tracking. The system supports typed models throughout and includes aggressive file-based caching for fundamentals data.
-
-## Table Summary
-
-| Table | Purpose | Status | Records (Typical) |
-|-------|---------|--------|-------------------|
-| **Core Data** | | | |
-| assets | Stock universe from Polygon API | ✅ Active | 11,765 |
-| asset_fundamentals | Company fundamentals (SIC, sector, market cap) | ✅ Active | 2 |
-| asset_prices | Live/historical price data with sessions | ✅ Active | ~50,000+ |
-| **Configuration** | | | |
-| providers | Data source configuration | ✅ Active | 1 |
-| markets | Exchange information | ✅ Active | 7 |
-| **Universe Management** | | | |
-| universes | Asset grouping definitions (default, tech, small_cap) | ✅ Active | 3 |
-| universe_memberships | Asset membership in universes | ✅ Active | 7,521 |
-| **Operation Tracking** | | | |
-| data_update_metadata | All bootstrap/update operation tracking | ✅ Active | Variable |
-| **Future Features** | | | |
-| sentiment_types | Sentiment analysis categories | 📋 Schema Only | 0 |
-| sentiment_events | Sentiment event tracking | 📋 Schema Only | 0 |
-| **Versioning** | | | |
-| schema_versions | Database schema version tracking | ✅ Active | 1 |
+**Last Updated**: 2025-09-30
+**Database**: SQLite
+**Location**: `tradescout.db` (root directory)
+**Schema Version**: 001
+**Architecture**: Manager/Provider Pattern
 
 ---
 
-## Core Tables Detail
+## Overview
 
-### 1. assets
-Complete stock universe from Polygon API.
+TradeScout uses **SQLite with 13 tables** for market data management, sentiment tracking, and operation metadata. The system follows a clean **Manager/Provider architecture** where:
+
+- **Managers** handle database CRUD operations
+- **Providers** handle external API calls
+- **DataService** orchestrates between them
+
+All data types use **immutable model objects** (dataclasses) - no raw dicts or tuples passed around.
+
+---
+
+## Table Summary
+
+| Table | Purpose | Manager | Provider | Status |
+|-------|---------|---------|----------|--------|
+| **Reference Data** |||||
+| `providers` | API provider configuration | ✅ ProviderManager | - | ✅ Active |
+| `markets` | Exchange information | ✅ MarketsManager | ✅ PolygonMarketsProvider | ✅ Active |
+| `assets` | Stock ticker universe | ✅ AssetManager | ✅ PolygonTickersProvider | ✅ Active |
+| `asset_fundamentals` | Company fundamentals | ✅ FundamentalsManager | ✅ PolygonTickersProvider | ✅ Active |
+| **Price Data** |||||
+| `asset_prices` | Historical/live prices | ✅ TickerSnapshotManager<br>✅ MarketSnapshotManager | ✅ PolygonSnapshotProvider | ✅ Active |
+| **Universe Management** |||||
+| `universes` | Asset groupings | ✅ UniverseManager | - | ✅ Active |
+| `universe_memberships` | Membership tracking | ✅ UniverseManager | - | ✅ Active |
+| **Sentiment** |||||
+| `sentiment_types` | Event type definitions | ✅ SentimentTypesManager | - | ✅ Active |
+| `sentiment_events` | Detected events | ✅ SentimentEventsManager | ✅ PolygonNewsProvider | 🚧 Partial |
+| **Metadata** |||||
+| `data_update_metadata` | Operation tracking | ✅ DataUpdateMetadataManager | - | ✅ Active |
+| **Legacy Cache** |||||
+| `market_context_cache` | Market status cache | ❌ Legacy | - | 🔍 Review |
+| `market_holidays` | Holiday calendar | ❌ Legacy | - | 🔍 Review |
+| **System** |||||
+| `schema_versions` | Schema migrations | ✅ System | - | ✅ Active |
+
+**Legend**: ✅ Complete | 🚧 In Progress | 🔍 Under Review | ❌ Legacy
+
+---
+
+## Architecture: Manager/Provider Pattern
+
+### Data Flow
+
+```
+User Request
+    ↓
+DataService (orchestration)
+    ↓
+┌──────────────────────────────┐
+│  Manager (database)          │  ←→  Provider (API)
+│  - CRUD operations           │      - External calls
+│  - TTL validation            │      - Response parsing
+│  - Model conversion          │      - Rate limiting
+└──────────────────────────────┘
+    ↓
+SQLite Database
+```
+
+### Example: Get Market Data
+
+```python
+# User calls DataService
+snapshot = data_service.get_ticker_snapshot("AAPL", force_refresh=False)
+
+# DataService coordinates:
+# 1. Check if data is stale (TTL validation in manager)
+# 2. If stale: Fetch from API (provider)
+# 3. Store to database (manager)
+# 4. Return model object
+
+# Manager handles database:
+manager = TickerSnapshotManager(db_manager, update_tracker, metadata_manager)
+cached_snapshot = manager.get_entity_from_database("AAPL")
+
+# Provider handles API:
+provider = PolygonSnapshotProvider(api_key)
+fresh_snapshot = provider.fetch_single_ticker("AAPL")
+```
+
+### When to Use Metadata Tracking
+
+**USE `data_update_metadata` for**:
+- ✅ **Bulk operations**: Market snapshots (7k tickers at once)
+- ✅ **Bootstrap operations**: Markets, assets, fundamentals (batch from API)
+- ✅ **Scheduled batches**: Universe refresh, fundamentals update
+
+**DON'T use for**:
+- ❌ **Individual CRUD**: Single asset lookups
+- ❌ **Records with `updated_at`**: Check freshness from record itself
+- ❌ **Continuous operations**: Sentiment events created on-demand
+
+**Why?** Metadata tracks "when did we last run this expensive batch operation?" to avoid re-running unnecessarily. Without metadata, we'd scan thousands of rows to check staleness. With metadata, we check ONE row.
+
+---
+
+## Table Schemas
+
+### 1. providers
+
+**Purpose**: API provider configuration
+**Manager**: `ProviderManager` (no metadata tracking)
+**Data Source**: Hardcoded (single Polygon.io entry)
+
+```sql
+CREATE TABLE providers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,              -- 'polygon'
+    display_name TEXT NOT NULL,              -- 'Polygon.io'
+    base_url TEXT,                           -- 'https://api.polygon.io'
+    api_key_required BOOLEAN DEFAULT TRUE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Bootstrap**: `data_service.bootstrap_providers()` - Hardcoded Polygon config
+
+---
+
+### 2. markets
+
+**Purpose**: Exchange/market reference data
+**Manager**: `MarketsManager` (with metadata tracking, TTL: 1 year)
+**Provider**: `PolygonMarketsProvider` → `/v3/reference/exchanges`
+
+```sql
+CREATE TABLE markets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT NOT NULL UNIQUE,               -- 'XNYS', 'XNAS', 'ARCX'
+    name TEXT NOT NULL,                       -- 'New York Stock Exchange'
+    country TEXT DEFAULT 'US',
+    timezone TEXT DEFAULT 'America/New_York',
+    currency TEXT DEFAULT 'USD',
+
+    -- Trading hours (in market timezone)
+    premarket_start_time TIME,               -- '04:00:00'
+    premarket_end_time TIME,                  -- '09:30:00'
+    regular_open_time TIME,                   -- '09:30:00'
+    regular_close_time TIME,                  -- '16:00:00'
+    afterhours_start_time TIME,               -- '16:00:00'
+    afterhours_end_time TIME,                 -- '20:00:00'
+
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Typical Data**: 7-12 US exchanges (XNYS, XNAS, ARCX, BATS, etc.)
+**Bootstrap**: `data_service.bootstrap_markets(asset_class="stocks", locale="us")`
+
+---
+
+### 3. assets
+
+**Purpose**: Complete ticker universe
+**Manager**: `AssetManager` (with metadata tracking, TTL: 3 days)
+**Provider**: `PolygonTickersProvider` → `/v3/reference/tickers`
 
 ```sql
 CREATE TABLE assets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL UNIQUE,         -- 'AAPL', 'MSFT'
-    name TEXT NOT NULL,                   -- 'Apple Inc.'
+    symbol TEXT NOT NULL UNIQUE,             -- 'AAPL', 'MSFT'
+    name TEXT NOT NULL,                       -- 'Apple Inc.'
     market_id INTEGER NOT NULL,
 
-    -- Asset classification
+    -- Classification
     asset_type TEXT CHECK(asset_type IN ('stock', 'etf', 'crypto', 'option', 'forex')) DEFAULT 'stock',
-    asset_class TEXT CHECK(asset_class IN ('equity', 'commodity', 'currency', 'crypto', 'derivative')) DEFAULT 'equity',
 
     -- Trading details
     currency TEXT DEFAULT 'USD',
-    lot_size INTEGER DEFAULT 1,
-    tick_size DECIMAL(10,6),
 
     -- Status
     is_active BOOLEAN DEFAULT TRUE,
     is_delisted BOOLEAN DEFAULT FALSE,
-    listing_date DATE,
-    delisting_date DATE,
 
     -- Provider reference
     provider_id INTEGER,
@@ -70,35 +196,41 @@ CREATE TABLE assets (
 );
 ```
 
-**Data Source**: Polygon `/v3/reference/tickers` API
-**Bootstrap**: `./tradescout database bootstrap-tickers`
+**Typical Data**: ~10,000+ active tickers
+**Bootstrap**: `data_service.bootstrap_assets(market="stocks", active=True)`
+**Index**: `idx_assets_symbol`, `idx_assets_market`, `idx_assets_active`
 
-### 2. asset_fundamentals
-Company fundamentals data for sector classification and screening.
+---
+
+### 4. asset_fundamentals
+
+**Purpose**: Company fundamentals for screening
+**Manager**: `FundamentalsManager` (with metadata tracking, TTL: 1 week)
+**Provider**: `PolygonTickersProvider.fetch_ticker_details_raw()` → `/v3/reference/tickers/{symbol}`
+
+**Note**: Same API endpoint as `assets` - single call provides BOTH ticker reference data AND fundamentals.
 
 ```sql
 CREATE TABLE asset_fundamentals (
-    asset_id INTEGER PRIMARY KEY,        -- One-to-one with assets table
+    asset_id INTEGER PRIMARY KEY,            -- One-to-one with assets
 
     -- Company identification
-    company_name TEXT,                   -- 'Apple Inc.' (for display)
+    company_name TEXT,
 
-    -- Business classification
-    sector TEXT,                         -- 'Technology' (derived from SIC)
-    industry TEXT,                       -- 'Consumer Electronics'
-    sic_code TEXT,                       -- Standard Industrial Classification
+    -- Classification
+    sector TEXT,                             -- 'Technology', 'Healthcare'
+    industry TEXT,                           -- 'Consumer Electronics'
+    sic_code TEXT,                           -- Standard Industrial Classification
 
-    -- Key financials
-    market_cap BIGINT,                   -- Market capitalization in cents
-    shares_outstanding BIGINT,           -- Outstanding shares
+    -- Key metrics
+    market_cap BIGINT,                       -- Market cap in cents
+    shares_outstanding BIGINT,
+    avg_volume_30d BIGINT,                   -- 30-day avg volume
+    beta DECIMAL(6,3),
+    pe_ratio DECIMAL(8,2),
+    dividend_yield DECIMAL(6,4),
 
-    -- Additional metrics for screening
-    avg_volume_30d BIGINT,               -- 30-day average volume
-    beta DECIMAL(6,3),                   -- Beta coefficient
-    pe_ratio DECIMAL(8,2),               -- Price to earnings ratio
-    dividend_yield DECIMAL(6,4),         -- Annual dividend yield
-
-    -- Data tracking
+    -- Tracking
     provider_id INTEGER,
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
 
@@ -107,95 +239,96 @@ CREATE TABLE asset_fundamentals (
 );
 ```
 
-**Data Source**: Polygon `/v3/reference/tickers/{symbol}` API
-**Bootstrap**: `./tradescout database bootstrap-fundamentals`
-**Sector Mapping**: SIC code → GICS-like sectors via `src/config/sic_sector_mapping.py`
+**Typical Data**: Fundamentals for all active assets
+**Bootstrap**: `data_service.bootstrap_fundamentals(limit=None)` - Can take time (one API call per asset)
+**Index**: `idx_fundamentals_sector`, `idx_fundamentals_market_cap`
 
-### 3. asset_prices
-Live and historical price data with session awareness.
+---
+
+### 5. asset_prices
+
+**Purpose**: Live and historical price snapshots
+**Managers**: `TickerSnapshotManager` (single ticker), `MarketSnapshotManager` (bulk)
+**Provider**: `PolygonSnapshotProvider` → `/v2/snapshot/locale/us/markets/stocks/tickers`
 
 ```sql
 CREATE TABLE asset_prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_id INTEGER NOT NULL,
-    symbol TEXT NOT NULL,                    -- Redundant but useful for queries
+    symbol TEXT NOT NULL,
 
     -- Provider tracking
     provider_id INTEGER NOT NULL,
-    provider_updated_at BIGINT,              -- Provider's 'updated' field (nanoseconds for Polygon)
-
-    -- Trading date (derived from provider_updated)
+    provider_updated_at BIGINT,              -- Provider's timestamp (nanoseconds)
     trade_date DATE NOT NULL,
 
-    -- Previous Day Data (prevDay.* from snapshot)
-    prevday_open DECIMAL(12,4),
-    prevday_high DECIMAL(12,4),
-    prevday_low DECIMAL(12,4),
-    prevday_close DECIMAL(12,4),             -- THE reference price
+    -- Previous Day Data (reference price)
+    prevday_close DECIMAL(12,4),             -- THE reference price for % change
     prevday_volume BIGINT,
     prevday_vwap DECIMAL(12,4),
 
-    -- Current Day Regular Session (day.* from snapshot)
+    -- Current Day Regular Session
     day_open DECIMAL(12,4),
     day_high DECIMAL(12,4),
     day_low DECIMAL(12,4),
-    day_close DECIMAL(12,4),                 -- Regular session close (4:00 PM)
+    day_close DECIMAL(12,4),                 -- Regular session close
     day_volume BIGINT,
     day_vwap DECIMAL(12,4),
 
-    -- Last Minute Bar Data (min.* from snapshot)
-    min_timestamp BIGINT,                    -- Timestamp (milliseconds)
-    min_open DECIMAL(12,4),
-    min_high DECIMAL(12,4),
-    min_low DECIMAL(12,4),
+    -- Last Minute Bar (real-time)
+    min_timestamp BIGINT,
     min_close DECIMAL(12,4),                 -- Last traded price (any session)
     min_volume BIGINT,
     min_vwap DECIMAL(12,4),
-    min_accumulated_volume BIGINT,
-    min_num_trades INTEGER,
 
-    -- Metadata
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (asset_id) REFERENCES assets (id),
     FOREIGN KEY (provider_id) REFERENCES providers (id),
-
-    -- One record per asset per provider per fetch
     UNIQUE(asset_id, provider_id, provider_updated_at)
 );
 ```
 
-**Data Source**: Polygon `/v2/snapshot/locale/us/markets/stocks/tickers` API
-**Update**: Market snapshot operations via screener commands
+**Typical Data**: 50,000+ snapshots (grows over time)
+**Update**: `data_service.refresh_market_data(symbols, force_refresh=False)`
+**Index**: `idx_asset_prices_symbol`, `idx_asset_prices_asset`, `idx_asset_prices_date`
 
-### 4. universes
-Asset grouping definitions for different trading strategies.
+---
+
+### 6. universes
+
+**Purpose**: Asset grouping definitions
+**Manager**: `UniverseManager` (with metadata tracking, TTL: 24 hours)
+**Data Source**: Internal filtering (no API)
 
 ```sql
 CREATE TABLE universes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,           -- 'default_universe', 'tech', 'small_cap'
+    name TEXT NOT NULL UNIQUE,               -- 'default_universe', 'tech'
     description TEXT,
 
-    -- Universe parameters
-    min_market_cap BIGINT,
-    min_volume BIGINT,
-    max_assets INTEGER,                   -- Maximum number of assets in universe
+    -- Criteria (JSON)
+    criteria TEXT,                           -- Filtering parameters
 
     -- Status
-    is_active BOOLEAN DEFAULT TRUE,       -- Currently selected universe
+    is_active BOOLEAN DEFAULT TRUE,          -- Currently selected
     last_updated DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
+**Typical Data**: 1-5 universe definitions
 **Configuration**: `src/config/universe_config.py`
-**Management**: `./tradescout universe` commands
-**Bootstrap**: `./tradescout database bootstrap-universes`
+**Bootstrap**: `data_service.bootstrap_universes(universe_name="default_universe")`
 
-### 5. universe_memberships
-Asset membership tracking with historical data.
+---
+
+### 7. universe_memberships
+
+**Purpose**: Asset membership tracking
+**Manager**: `UniverseManager`
+**Data Source**: Internal (created during universe bootstrap)
 
 ```sql
 CREATE TABLE universe_memberships (
@@ -206,7 +339,6 @@ CREATE TABLE universe_memberships (
     -- Membership metadata
     added_date DATE NOT NULL,
     removed_date DATE,
-    reason TEXT,                         -- 'initial_load', 'market_cap_growth', 'delisted'
 
     -- Status
     is_active BOOLEAN DEFAULT TRUE,
@@ -217,165 +349,311 @@ CREATE TABLE universe_memberships (
 );
 ```
 
-**Filtering Logic**: `src/bootstrapping/bootstrapper_universe.py`
+**Typical Data**: 7,000+ memberships for default_universe
+**Index**: `idx_universe_memberships_universe`, `idx_universe_memberships_asset`
 
-### 6. data_update_metadata
-Comprehensive tracking of all data operations.
+---
+
+### 8. sentiment_types
+
+**Purpose**: Sentiment event type definitions
+**Manager**: `SentimentTypesManager` (no metadata tracking - static config)
+**Data Source**: Hardcoded types
+
+```sql
+CREATE TABLE sentiment_types (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,               -- 'news_positive', 'news_negative'
+    description TEXT,
+    category TEXT,                           -- 'news', 'analyst', 'earnings'
+    parameters TEXT,                         -- JSON: {"min_confidence": 0.7}
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Typical Data**: 3-10 predefined types
+**Phase 1**: News sentiment only (news_positive, news_negative, news_neutral)
+**Future**: Earnings events, analyst ratings
+**Bootstrap**: `data_service.bootstrap_sentiment_types()`
+
+---
+
+### 9. sentiment_events
+
+**Purpose**: Detected sentiment events
+**Manager**: `SentimentEventsManager` (no metadata tracking - continuous creation)
+**Provider**: `PolygonNewsProvider` → `/v2/reference/news` (in progress)
+
+```sql
+CREATE TABLE sentiment_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    sentiment_type_id INTEGER NOT NULL,
+
+    -- Event timing
+    event_date DATE NOT NULL,
+    event_time TIME,
+    session TEXT CHECK(session IN ('premarket', 'regular', 'afterhours')),
+
+    -- Event measurements
+    value DECIMAL(12,4),                     -- Sentiment score, confidence
+    magnitude TEXT CHECK(magnitude IN ('small', 'medium', 'large', 'extreme')),
+
+    -- Additional context (JSON)
+    details TEXT,                            -- {"title": "...", "source": "polygon"}
+
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (asset_id) REFERENCES assets (id),
+    FOREIGN KEY (sentiment_type_id) REFERENCES sentiment_types (id)
+);
+```
+
+**Typical Data**: Grows continuously as news/events detected
+**Retention**: 90 days (cleanup, not TTL)
+**Index**: `idx_sentiment_events_asset`, `idx_sentiment_events_type`, `idx_sentiment_events_date`
+
+---
+
+### 10. data_update_metadata
+
+**Purpose**: Track bulk operation timestamps for TTL validation
+**Manager**: `DataUpdateMetadataManager`
 
 ```sql
 CREATE TABLE data_update_metadata (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
 
     -- Operation identification
-    operation_type TEXT NOT NULL,           -- 'fundamentals', 'tickers', 'snapshot', 'universe'
-    operation_subtype TEXT,                 -- 'bootstrap', 'refresh', 'single_symbol'
+    operation_type TEXT NOT NULL,            -- 'markets', 'fundamentals', 'market_snapshots'
+    operation_subtype TEXT,                  -- 'bootstrap', 'refresh'
 
     -- Run metadata
     started_at DATETIME NOT NULL,
     completed_at DATETIME,
 
-    -- Status tracking
-    status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')) DEFAULT 'running',
+    -- Status
+    status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')),
 
-    -- Statistics (JSON for flexibility)
-    stats TEXT,                             -- JSON: '{"inserted": 1234, "updated": 456, "errors": 2}'
+    -- Statistics (JSON)
+    stats TEXT,                              -- {"inserted": 1234, "updated": 456}
 
-    -- Operation details
-    total_items INTEGER,                    -- symbols, assets, etc.
+    -- Details
+    total_items INTEGER,
     processed_items INTEGER DEFAULT 0,
     failed_items INTEGER DEFAULT 0,
     api_calls_made INTEGER DEFAULT 0,
 
-    -- Additional context
-    operation_params TEXT,                  -- JSON: '{"symbol": "AAPL", "force": true, "limit": 100}'
+    -- Context
+    operation_params TEXT,                   -- JSON: {"symbol": "AAPL"}
     error_message TEXT,
 
-    -- Timestamps
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-**Purpose**: Track all bootstrap operations, API usage, success rates, and enable cache decisions
-**Service**: `src/services/data_update_tracker.py`
-
-### 7. providers
-Data source configuration and API management.
-
-```sql
-CREATE TABLE providers (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,          -- Provider identifier
-    display_name TEXT NOT NULL,          -- Human-readable name
-    base_url TEXT,
-    api_key_required BOOLEAN DEFAULT TRUE,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**Current Data**: Single Polygon.io provider entry
-
-### 8. markets
-Exchange and market information.
-
-```sql
-CREATE TABLE markets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL UNIQUE,           -- 'NYSE', 'NASDAQ', 'CRYPTO'
-    name TEXT NOT NULL,                   -- 'New York Stock Exchange'
-    country TEXT DEFAULT 'US',
-    timezone TEXT DEFAULT 'America/New_York',
-    currency TEXT DEFAULT 'USD',
-
-    -- Trading hours (in local timezone)
-    premarket_start_time TIME,           -- '04:00:00'
-    premarket_end_time TIME,              -- '09:30:00'
-    regular_open_time TIME,               -- '09:30:00'
-    regular_close_time TIME,              -- '16:00:00'
-    afterhours_start_time TIME,           -- '16:00:00'
-    afterhours_end_time TIME,             -- '20:00:00'
-
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**Current Data**: 7 major US exchanges from Polygon API
-
-### 9-11. Future Tables
-- **sentiment_types**: Sentiment analysis categories (schema only)
-- **sentiment_events**: Sentiment event tracking (schema only)
-- **schema_versions**: Database version tracking
+**Purpose**: Enables "did we already fetch all markets this week?" checks without scanning table
+**Index**: `idx_data_update_operation`, `idx_data_update_completed`
 
 ---
 
-## Data Flow & Operations
+### 11-12. Legacy Cache Tables
 
-### Bootstrap Sequence
-```bash
-# 1. Initialize database
-./tradescout database init
+**Status**: Under review - may deprecate in favor of new architecture
 
-# 2. Bootstrap providers
-./tradescout database bootstrap-providers
+- `market_context_cache`: Market status cache (open/closed)
+- `market_holidays`: Holiday calendar
 
-# 3. Bootstrap tickers (~11,765 assets)
-./tradescout database bootstrap-tickers
+---
 
-# 4. Bootstrap fundamentals (~12,000 API calls)
-./tradescout database bootstrap-fundamentals
+### 13. schema_versions
 
-# 5. Create universes (default_universe, tech, small_cap)
-./tradescout database bootstrap-universes
+**Purpose**: Database migration tracking
+**Managed by**: `database_initializer.py`
+
+```sql
+CREATE TABLE schema_versions (
+    version TEXT PRIMARY KEY,
+    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
 ```
 
-### Universe Filtering
-- **default_universe**: Basic filtering (US exchanges, active, clean symbols) → ~7,500 assets
-- **tech**: Technology sector (SIC 35, 36, 38, 73) + min market cap → Hundreds of assets
-- **small_cap**: Market cap $300M-$2B + min volume → ~200 assets
+---
 
-### Sector Classification
-- **Source**: SIC codes from Polygon ticker overview
-- **Mapping**: First 2 digits of SIC code → Broad sectors
-- **Implementation**: `src/config/sic_sector_mapping.py`
-- **Documentation**: `docs/SECTOR_CLASSIFICATION.md`
+## Bootstrap Operations
 
-### Operation Tracking
-- **All operations** logged in `data_update_metadata`
-- **Staleness detection**: Automatic cache invalidation after 1 week
-- **Progress tracking**: Real-time progress for long operations
-- **History**: Complete operation history with success rates
+### Dependency Chain
+
+```
+1. Providers (hardcoded)
+   ↓
+2. Markets (API fetch)
+   ↓
+3. Assets (API fetch, needs Markets + Providers)
+   ↓
+4. Fundamentals (API fetch, needs Assets)
+   ↓
+5. Universes (internal filtering, needs Assets + Fundamentals)
+   ↓
+6. Sentiment Types (hardcoded)
+```
+
+### Bootstrap Commands
+
+```python
+from services.data_service import DataService
+
+# Initialize
+data_service = DataService(db_manager, update_tracker, polygon_api_key)
+
+# 1. Providers (1 record)
+data_service.bootstrap_providers()
+
+# 2. Markets (7-12 exchanges)
+data_service.bootstrap_markets(asset_class="stocks", locale="us")
+
+# 3. Assets (~10,000 tickers)
+data_service.bootstrap_assets(market="stocks", active=True)
+
+# 4. Fundamentals (one API call per asset - can be slow)
+data_service.bootstrap_fundamentals(limit=100)  # Or limit=None for all
+
+# 5. Universes (filters existing assets)
+data_service.bootstrap_universes(universe_name="default_universe")
+
+# 6. Sentiment types (3 types for Phase 1)
+data_service.bootstrap_sentiment_types()
+```
+
+### TTL Configuration
+
+**File**: `src/database/config/ttl_config.py`
+
+```python
+# Bootstrap operations
+MARKETS_TTL_HOURS = 8760        # 1 year - markets rarely change
+ASSETS_TTL_HOURS = 72           # 3 days - new listings happen
+FUNDAMENTALS_TTL_HOURS = 168    # 1 week - fundamentals change periodically
+UNIVERSES_TTL_HOURS = 24        # 1 day - membership can shift
+
+# Snapshot operations
+TICKER_SNAPSHOT_TTL_MINUTES = 15
+MARKET_SNAPSHOT_TTL_MINUTES = 15
+```
 
 ---
 
 ## Performance & Indexing
 
 ### Critical Indexes
-```sql
--- Asset lookups
-CREATE INDEX idx_assets_symbol ON assets(symbol);
-CREATE INDEX idx_assets_market ON assets(market_id);
-CREATE INDEX idx_assets_active ON assets(is_active);
 
--- Price queries
-CREATE INDEX idx_asset_prices_symbol ON asset_prices(symbol);
-CREATE INDEX idx_asset_prices_asset ON asset_prices(asset_id);
-CREATE INDEX idx_asset_prices_date ON asset_prices(trade_date);
+All critical indexes are created during schema initialization:
 
--- Universe filtering
-CREATE INDEX idx_universe_memberships_universe ON universe_memberships(universe_id);
-CREATE INDEX idx_universe_memberships_asset ON universe_memberships(asset_id);
+**Asset Lookups**:
+- `idx_assets_symbol` - Fast symbol → asset resolution
+- `idx_assets_market` - Filter by exchange
+- `idx_assets_active` - Filter active tickers only
 
--- Fundamentals screening
-CREATE INDEX idx_fundamentals_sector ON asset_fundamentals(sector);
-CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
+**Price Queries**:
+- `idx_asset_prices_symbol` - Price lookups by ticker
+- `idx_asset_prices_asset` - Price history for asset
+- `idx_asset_prices_date` - Historical date queries
 
--- Operation tracking
-CREATE INDEX idx_data_update_operation ON data_update_metadata(operation_type);
-CREATE INDEX idx_data_update_completed ON data_update_metadata(completed_at);
+**Universe Filtering**:
+- `idx_universe_memberships_universe` - Get all assets in universe
+- `idx_universe_memberships_asset` - Find universe for asset
+- `idx_fundamentals_sector` - Sector-based screening
+- `idx_fundamentals_market_cap` - Market cap filtering
+
+**Sentiment Queries**:
+- `idx_sentiment_events_asset` - Events for specific ticker
+- `idx_sentiment_events_type` - Events by type (news_positive, etc.)
+- `idx_sentiment_events_date` - Events in date range
+
+**Metadata Tracking**:
+- `idx_data_update_operation` - Find last operation by type
+- `idx_data_update_completed` - Sort by completion time
+
+---
+
+## Model Objects
+
+All database operations use **immutable dataclasses** - no raw dicts or tuples.
+
+**Models Location**: `src/models/`
+
+**Available Models**:
+- `Asset` - Stock ticker data
+- `AssetFundamentals` - Company fundamentals
+- `Market` - Exchange information
+- `Universe`, `UniverseMembership` - Universe management
+- `TickerSnapshot`, `MarketSnapshot` - Price data
+- `SentimentType`, `SentimentEvent` - Sentiment tracking
+- `DataUpdateMetadata` - Operation metadata
+
+**Example**:
+```python
+# Manager returns model object, not raw tuple
+asset = asset_manager.get_entity_from_database("AAPL")
+# asset is an Asset dataclass with: id, symbol, name, market_id, etc.
+
+# Can check fields
+if asset.is_active and asset.market_id == 1:
+    # ...
+
+# Immutable - can't accidentally mutate
+# asset.symbol = "MSFT"  # Error: frozen dataclass
 ```
 
 ---
 
-*This schema reflects the complete implemented system as of September 2025, including fundamentals integration, universe management, and comprehensive operation tracking.*
+## Data Service Interface
+
+**File**: `src/services/data_service.py`
+
+The `DataService` class provides the public interface for all data operations:
+
+```python
+class DataService:
+    """Orchestrates data access between managers and providers."""
+
+    # Bootstrap operations
+    def bootstrap_providers() -> int
+    def bootstrap_markets(asset_class, locale) -> int
+    def bootstrap_assets(market, active) -> int
+    def bootstrap_fundamentals(limit) -> int
+    def bootstrap_universes(universe_name) -> Dict[str, int]
+    def bootstrap_sentiment_types() -> int
+
+    # Get operations
+    def get_asset(symbol, force_refresh) -> Optional[Asset]
+    def get_fundamentals(symbol, force_refresh) -> Optional[AssetFundamentals]
+    def get_market(market_code) -> Optional[Market]
+    def get_ticker_snapshot(symbol, force_refresh) -> Optional[TickerSnapshot]
+    def refresh_market_data(symbols, force_refresh) -> int
+    def get_sentiment_events(asset_id, sentiment_type_id, start_date, end_date) -> List[SentimentEvent]
+
+    # Statistics
+    def get_asset_stats() -> dict
+    def get_fundamentals_stats() -> dict
+    def get_markets_stats() -> dict
+    def get_sentiment_types_stats() -> dict
+    def get_sentiment_events_stats() -> dict
+```
+
+---
+
+## Summary
+
+**Architecture**: Clean Manager/Provider separation
+**Data Types**: Immutable model objects throughout
+**Metadata Tracking**: Only for bulk/bootstrap operations
+**Current Status**: 13 tables, 10 active managers, 4 API providers
+**Sentiment**: Phase 1 complete (infrastructure), news integration in progress
+
+**See Also**:
+- `docs/BOOTSTRAPPING.md` - Bootstrap operations guide
+- `docs/SENTIMENT.md` - Sentiment detection system
+- `docs/ARCHITECTURE_MANAGERS.md` - Manager pattern details (future)
+- `docs/ARCHITECTURE_API_PROVIDERS.md` - Provider pattern details (future)
