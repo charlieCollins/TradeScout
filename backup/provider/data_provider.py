@@ -30,7 +30,7 @@ class PolygonDataProvider:
 
     def __init__(self, db_manager=None):
         """Initialize with database manager, loads API key automatically."""
-        from config.api_keys import POLYGON_API_KEY
+        from api.config.api_keys import POLYGON_API_KEY
         self.api_key = POLYGON_API_KEY
         if not self.api_key:
             raise ValueError("Polygon API key is required")

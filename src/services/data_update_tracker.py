@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional, List
-from config.ttl_config import FUNDAMENTALS_TTL_HOURS
+from database.config.ttl_config import FUNDAMENTALS_TTL_HOURS
 from models.data_update_metadata import DataUpdateMetadata, OperationStatus
 
 logger = logging.getLogger(__name__)

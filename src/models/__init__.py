@@ -2,6 +2,7 @@
 
 from .asset import Asset, AssetType, AssetClass
 from .market import Market
+from .market_holiday import MarketHoliday, HolidayStatus
 from .price import AssetPrice
 from .provider import Provider
 from .fundamentals import AssetFundamentals
@@ -14,6 +15,8 @@ __all__ = [
     'AssetType',
     'AssetClass',
     'Market',
+    'MarketHoliday',
+    'HolidayStatus',
     'AssetPrice',
     'Provider',
     'AssetFundamentals',

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class DatabaseInitializer:
     """Handle database creation and initialization."""
 
-    def __init__(self, db_path: str = "tradescout.db"):
+    def __init__(self, db_path: str = "data/tradescout.db"):
         """Initialize with database path."""
         self.db_path = db_path
         self.db_manager = DatabaseManager(db_path)

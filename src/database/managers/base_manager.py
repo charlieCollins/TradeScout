@@ -24,16 +24,14 @@ class BaseManager(ABC):
     which coordinates between database managers and API providers.
     """
 
-    def __init__(self, db_manager, update_tracker, metadata_manager=None):
-        """Initialize with database manager and update tracker.
+    def __init__(self, db_manager, metadata_manager):
+        """Initialize with database manager and metadata manager.
 
         Args:
             db_manager: Database manager instance for SQLite operations
-            update_tracker: Data update tracker for TTL validation (legacy)
-            metadata_manager: DataUpdateMetadataManager for recording updates (new)
+            metadata_manager: DataUpdateMetadataManager for TTL tracking and update recording
         """
         self.db_manager = db_manager
-        self.update_tracker = update_tracker
         self.metadata_manager = metadata_manager
 
     # ============================================================================
@@ -168,15 +166,12 @@ class BaseManager(ABC):
         metadata_type = self.get_data_update_metadata_type()
         ttl_seconds = self.get_ttl_seconds()
 
-        # Use metadata_manager if available (new architecture)
+        # Use metadata_manager for TTL validation
         if self.metadata_manager:
             return self.metadata_manager.is_stale(metadata_type, ttl_seconds)
 
-        # Fall back to update_tracker (legacy)
-        if self.update_tracker:
-            return self.update_tracker.is_data_stale(metadata_type.value, ttl_seconds)
-
-        # No tracking available - always refresh
+        # No metadata manager - always refresh
+        logger.warning(f"No metadata_manager available for {metadata_type}, assuming stale")
         return True
 
     def _record_update(self) -> None:
@@ -198,10 +193,6 @@ class BaseManager(ABC):
         """
         if not self.db_manager:
             logger.warning("Database manager not available")
-            return False
-
-        if not self.update_tracker:
-            logger.warning("Update tracker not available")
             return False
 
         return True

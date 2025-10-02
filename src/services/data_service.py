@@ -12,6 +12,8 @@ from models.snapshot import TickerSnapshot, MarketSnapshot
 from models.asset import Asset
 from models.fundamentals import AssetFundamentals
 from models.market import Market
+from models.market_holiday import MarketHoliday
+from models.market_context import MarketContext
 from models.universe import Universe
 from models.sentiment_type import SentimentType
 from models.sentiment_event import SentimentEvent
@@ -24,11 +26,19 @@ from database.managers import (
     ProviderManager,
     FundamentalsManager,
     MarketsManager,
+    MarketHolidaysManager,
+    MarketContextManager,
     DataUpdateMetadataManager,
     SentimentTypesManager,
     SentimentEventsManager
 )
-from api.provider import PolygonSnapshotProvider, PolygonTickersProvider, PolygonMarketsProvider
+from api.providers import (
+    PolygonSnapshotProvider,
+    PolygonTickersProvider,
+    PolygonMarketsProvider,
+    PolygonMarketStatusProvider,
+    PolygonNewsProvider
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,73 +58,72 @@ class DataService:
     - Implement TTL logic (that's manager responsibility)
     """
 
-    def __init__(self, db_manager, update_tracker, polygon_api_key: str):
+    def __init__(self, db_manager, polygon_api_key: str):
         """Initialize data service with dependencies.
 
         Args:
             db_manager: Database manager for SQLite operations
-            update_tracker: Data update tracker for TTL validation
-            polygon_api_key: Polygon API key for API provider
+            polygon_api_key: Polygon API key for API providers
         """
         self.db_manager = db_manager
-        self.update_tracker = update_tracker
 
         # Initialize metadata manager for TTL tracking
         self.metadata_manager = DataUpdateMetadataManager(db_manager)
 
-        # Initialize database managers (with metadata manager for recording updates)
+        # Initialize database managers (with metadata manager for TTL tracking)
         self.ticker_snapshot_manager = TickerSnapshotManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.market_snapshot_manager = MarketSnapshotManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.asset_manager = AssetManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.universe_manager = UniverseManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.provider_manager = ProviderManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.fundamentals_manager = FundamentalsManager(
             db_manager,
-            update_tracker,
             self.metadata_manager
         )
         self.markets_manager = MarketsManager(
             db_manager,
-            update_tracker,
+            self.metadata_manager
+        )
+        self.market_holidays_manager = MarketHolidaysManager(
+            db_manager,
+            self.metadata_manager
+        )
+        self.market_context_manager = MarketContextManager(
+            db_manager,
             self.metadata_manager
         )
 
         # Initialize sentiment managers (no metadata tracking - see docs/DATA_UPDATE_METADATA.md)
         self.sentiment_types_manager = SentimentTypesManager(
             db_manager,
-            None,  # No update_tracker needed
-            None   # No metadata_manager needed
+            None  # No metadata tracking for config tables
         )
         self.sentiment_events_manager = SentimentEventsManager(
             db_manager,
-            None,  # No update_tracker needed
-            None   # No metadata_manager needed
+            None  # No metadata tracking for continuous events
         )
 
         # Initialize API providers
         self.polygon_snapshot_provider = PolygonSnapshotProvider(polygon_api_key)
         self.polygon_tickers_provider = PolygonTickersProvider(polygon_api_key)
         self.polygon_markets_provider = PolygonMarketsProvider(polygon_api_key)
+        self.polygon_market_status_provider = PolygonMarketStatusProvider(polygon_api_key)
+        self.polygon_news_provider = PolygonNewsProvider(polygon_api_key)
 
         logger.debug("DataService initialized with managers and providers")
 
@@ -950,6 +959,143 @@ class DataService:
 
         logger.info(f"Bootstrapped {stored_count}/{len(markets)} markets successfully")
         return stored_count
+
+    # ============================================================================
+    # MARKET HOLIDAYS OPERATIONS
+    # ============================================================================
+
+    def get_market_holidays(self, force_refresh: bool = False) -> List[MarketHoliday]:
+        """Get market holidays with automatic cache/refresh logic.
+
+        Holidays are fetched from Polygon's /v1/marketstatus/upcoming endpoint.
+        Uses 30-day TTL since holiday calendars are published well in advance.
+
+        Args:
+            force_refresh: If True, bypass cache and always fetch fresh data
+
+        Returns:
+            List of MarketHoliday objects
+        """
+        logger.debug(f"Getting market holidays (force_refresh={force_refresh})")
+
+        # Check if we need to refresh (TTL expired or force_refresh)
+        if force_refresh or self.market_holidays_manager._is_data_stale():
+            logger.debug("Fetching fresh holidays from API")
+
+            # Fetch from Polygon API
+            holidays = self.polygon_market_status_provider.fetch_upcoming_holidays()
+
+            if holidays:
+                # Store to database
+                stored_count = self.market_holidays_manager.store_holidays_bulk(holidays)
+                logger.info(f"Stored {stored_count} holidays")
+
+                # Record metadata timestamp
+                self.market_holidays_manager._record_update()
+
+                return holidays
+            else:
+                logger.warning("Failed to fetch holidays, returning cached data")
+                # Fallback to cached data
+                return self.market_holidays_manager.get_all_holidays()
+        else:
+            # Use cached data
+            logger.debug("Using cached holidays")
+            return self.market_holidays_manager.get_all_holidays()
+
+    def get_upcoming_holidays(self, from_date: Optional[Any] = None) -> List[MarketHoliday]:
+        """Get upcoming holidays from a specific date.
+
+        Args:
+            from_date: Start date (default: today)
+
+        Returns:
+            List of upcoming MarketHoliday objects
+        """
+        return self.market_holidays_manager.get_upcoming_holidays(from_date)
+
+    # ============================================================================
+    # MARKET CONTEXT OPERATIONS
+    # ============================================================================
+
+    def get_market_context(
+        self,
+        market_code: str,
+        force_refresh: bool = False
+    ) -> Optional[MarketContext]:
+        """Get market context (current market state/session) with automatic cache/refresh logic.
+
+        Market context combines market info with current status from Polygon's /v1/marketstatus/now.
+        Uses 5-minute TTL since market state changes throughout the day.
+
+        Args:
+            market_code: Market code (e.g., 'XNYS', 'XNAS')
+            force_refresh: If True, bypass cache and always fetch fresh data
+
+        Returns:
+            MarketContext object or None if error
+
+        Note: This requires the market to exist in the markets table.
+              Run bootstrap_markets() first if needed.
+        """
+        logger.debug(f"Getting market context for {market_code} (force_refresh={force_refresh})")
+
+        # Use get_or_fetch pattern
+        return self.market_context_manager.get_or_fetch(
+            key=market_code,
+            fetch_fn=lambda: self._fetch_market_context_for_market(market_code),
+            force_refresh=force_refresh
+        )
+
+    def _fetch_market_context_for_market(self, market_code: str) -> Optional[MarketContext]:
+        """Internal helper to fetch and construct MarketContext.
+
+        Args:
+            market_code: Market code (e.g., 'XNYS')
+
+        Returns:
+            MarketContext object or None if error
+        """
+        # Get market from database
+        market = self.markets_manager.get_entity_from_database(market_code)
+        if not market:
+            logger.error(f"Market {market_code} not found in database")
+            return None
+
+        # Fetch raw market status from Polygon API
+        status_data = self.polygon_market_status_provider.fetch_market_status()
+        if not status_data:
+            logger.error(f"Failed to fetch market status for {market_code}")
+            return None
+
+        # TODO: Construct MarketContext from status_data + market
+        # This requires parsing the Polygon market status API response
+        # and determining session, trading day, etc.
+        # For now, we'll need the MarketContextService to handle this
+        # See src/services/market_context_service.py
+
+        logger.warning("MarketContext construction not fully implemented yet - needs MarketContextService")
+        return None
+
+    # ============================================================================
+    # MARKET HOLIDAYS/CONTEXT STATISTICS
+    # ============================================================================
+
+    def get_market_holidays_stats(self) -> dict:
+        """Get statistics from market holidays manager.
+
+        Returns:
+            Dictionary with manager statistics
+        """
+        return self.market_holidays_manager.get_stats()
+
+    def get_market_context_stats(self) -> dict:
+        """Get statistics from market context manager.
+
+        Returns:
+            Dictionary with manager statistics
+        """
+        return self.market_context_manager.get_stats()
 
     def bootstrap_sentiment_types(self) -> int:
         """Bootstrap predefined sentiment types to database.

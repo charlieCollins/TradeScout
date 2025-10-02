@@ -1,6 +1,6 @@
 # TradeScout Database Architecture
 
-**Last Updated**: 2025-09-30
+**Last Updated**: 2025-10-01
 **Database**: SQLite
 **Location**: `tradescout.db` (root directory)
 **Schema Version**: 001
@@ -36,12 +36,12 @@ All data types use **immutable model objects** (dataclasses) - no raw dicts or t
 | `universe_memberships` | Membership tracking | ✅ UniverseManager | - | ✅ Active |
 | **Sentiment** |||||
 | `sentiment_types` | Event type definitions | ✅ SentimentTypesManager | - | ✅ Active |
-| `sentiment_events` | Detected events | ✅ SentimentEventsManager | ✅ PolygonNewsProvider | 🚧 Partial |
+| `sentiment_events` | Detected events | ✅ SentimentEventsManager | ✅ PolygonNewsProvider | ✅ Active |
+| **Market Status** |||||
+| `market_holidays` | Holiday calendar | ✅ MarketHolidaysManager | ✅ PolygonMarketStatusProvider | ✅ Active |
+| `market_context_cache` | Market status/session | ✅ MarketContextManager | ✅ PolygonMarketStatusProvider | ✅ Active |
 | **Metadata** |||||
 | `data_update_metadata` | Operation tracking | ✅ DataUpdateMetadataManager | - | ✅ Active |
-| **Legacy Cache** |||||
-| `market_context_cache` | Market status cache | ❌ Legacy | - | 🔍 Review |
-| `market_holidays` | Holiday calendar | ❌ Legacy | - | 🔍 Review |
 | **System** |||||
 | `schema_versions` | Schema migrations | ✅ System | - | ✅ Active |
 
@@ -383,7 +383,7 @@ CREATE TABLE sentiment_types (
 
 **Purpose**: Detected sentiment events
 **Manager**: `SentimentEventsManager` (no metadata tracking - continuous creation)
-**Provider**: `PolygonNewsProvider` → `/v2/reference/news` (in progress)
+**Provider**: `PolygonNewsProvider` → `/v2/reference/news`
 
 ```sql
 CREATE TABLE sentiment_events (
@@ -458,12 +458,50 @@ CREATE TABLE data_update_metadata (
 
 ---
 
-### 11-12. Legacy Cache Tables
+### 11. market_holidays
 
-**Status**: Under review - may deprecate in favor of new architecture
+**Purpose**: Market holiday calendar
+**Manager**: `MarketHolidaysManager` (with metadata tracking, TTL: 30 days)
+**Provider**: `PolygonMarketStatusProvider` → `/v1/marketstatus/upcoming`
 
-- `market_context_cache`: Market status cache (open/closed)
-- `market_holidays`: Holiday calendar
+```sql
+CREATE TABLE market_holidays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,            -- YYYY-MM-DD format
+    name TEXT,                            -- Holiday name
+    status TEXT NOT NULL                  -- 'closed' or 'early_close'
+);
+```
+
+**Typical Data**: 12-15 upcoming holidays
+**Update**: `data_service.get_market_holidays(force_refresh=False)` - Auto-refreshes when stale
+**Query**: `data_service.get_upcoming_holidays(from_date=None)` - Get upcoming holidays only
+**Index**: `idx_market_holidays_date`
+
+**Note**: Polygon returns one holiday per exchange (NYSE, NASDAQ, etc.). We deduplicate by date since all US exchanges share the same holiday schedule.
+
+---
+
+### 12. market_context_cache
+
+**Purpose**: Current market state/session context
+**Manager**: `MarketContextManager` (with metadata tracking, TTL: 5 minutes)
+**Provider**: `PolygonMarketStatusProvider` → `/v1/marketstatus/now`
+
+```sql
+CREATE TABLE market_context_cache (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    market_code TEXT NOT NULL UNIQUE,     -- 'XNYS', 'XNAS', etc.
+    context_data TEXT NOT NULL            -- Serialized MarketContext object (JSON)
+);
+```
+
+**Typical Data**: 1-3 market contexts (NYSE, NASDAQ, etc.)
+**Update**: `data_service.get_market_context(market_code, force_refresh=False)`
+**Model**: `MarketContext` - Combines market info with current status (session, trading day, etc.)
+**Index**: `idx_market_context_code`
+
+**Note**: MarketContext requires coordination with `market_holidays` table to determine `is_trading_day`.
 
 ---
 
@@ -497,6 +535,8 @@ CREATE TABLE schema_versions (
 5. Universes (internal filtering, needs Assets + Fundamentals)
    ↓
 6. Sentiment Types (hardcoded)
+   ↓
+7. Market Holidays (API fetch, independent)
 ```
 
 ### Bootstrap Commands
@@ -524,6 +564,9 @@ data_service.bootstrap_universes(universe_name="default_universe")
 
 # 6. Sentiment types (3 types for Phase 1)
 data_service.bootstrap_sentiment_types()
+
+# 7. Market Holidays (12-15 upcoming holidays)
+data_service.get_market_holidays(force_refresh=True)
 ```
 
 ### TTL Configuration
@@ -540,6 +583,10 @@ UNIVERSES_TTL_HOURS = 24        # 1 day - membership can shift
 # Snapshot operations
 TICKER_SNAPSHOT_TTL_MINUTES = 15
 MARKET_SNAPSHOT_TTL_MINUTES = 15
+
+# Market status operations
+MARKET_HOLIDAYS_TTL_DAYS = 30       # 30 days - holidays rarely change
+MARKET_CONTEXT_TTL_MINUTES = 5      # 5 minutes - market state changes throughout day
 ```
 
 ---
@@ -587,6 +634,8 @@ All database operations use **immutable dataclasses** - no raw dicts or tuples.
 - `Asset` - Stock ticker data
 - `AssetFundamentals` - Company fundamentals
 - `Market` - Exchange information
+- `MarketHoliday` - Holiday calendar entries
+- `MarketContext` - Current market state/session
 - `Universe`, `UniverseMembership` - Universe management
 - `TickerSnapshot`, `MarketSnapshot` - Price data
 - `SentimentType`, `SentimentEvent` - Sentiment tracking
@@ -632,12 +681,17 @@ class DataService:
     def get_market(market_code) -> Optional[Market]
     def get_ticker_snapshot(symbol, force_refresh) -> Optional[TickerSnapshot]
     def refresh_market_data(symbols, force_refresh) -> int
+    def get_market_holidays(force_refresh) -> List[MarketHoliday]
+    def get_upcoming_holidays(from_date) -> List[MarketHoliday]
+    def get_market_context(market_code, force_refresh) -> Optional[MarketContext]
     def get_sentiment_events(asset_id, sentiment_type_id, start_date, end_date) -> List[SentimentEvent]
 
     # Statistics
     def get_asset_stats() -> dict
     def get_fundamentals_stats() -> dict
     def get_markets_stats() -> dict
+    def get_market_holidays_stats() -> dict
+    def get_market_context_stats() -> dict
     def get_sentiment_types_stats() -> dict
     def get_sentiment_events_stats() -> dict
 ```
@@ -649,8 +703,15 @@ class DataService:
 **Architecture**: Clean Manager/Provider separation
 **Data Types**: Immutable model objects throughout
 **Metadata Tracking**: Only for bulk/bootstrap operations
-**Current Status**: 13 tables, 10 active managers, 4 API providers
-**Sentiment**: Phase 1 complete (infrastructure), news integration in progress
+**Current Status**: 13 tables, 12 active managers, 6 API providers
+**Market Status**: Market holidays and context fully integrated with Manager/Provider pattern
+**Sentiment**: Phase 1 complete - infrastructure, managers, and PolygonNewsProvider all active
+
+**Directory Structure**:
+- **Managers**: `src/database/managers/` - Database CRUD operations
+- **Providers**: `src/api/providers/` - External API integrations
+- **Models**: `src/models/` - Immutable dataclasses
+- **Service**: `src/services/data_service.py` - Public orchestration layer
 
 **See Also**:
 - `docs/BOOTSTRAPPING.md` - Bootstrap operations guide

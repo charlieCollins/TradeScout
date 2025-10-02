@@ -1,55 +1,56 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-09-30*
+*Last updated: 2025-10-01*
 
-## 🎯 Current Focus: Architecture Refactor - Phase 2
+## 🎯 Current Focus: CLI Migration to New Architecture
 
-### Phase 1 Complete ✅
-Ticker/Market snapshots migrated to Manager/Provider/DataService architecture. 74 tests passing.
+### Architecture Refactor Status ✅
+**Manager/Provider/DataService architecture COMPLETE** for all core entities:
+- ✅ Ticker/Market snapshots (Phase 1)
+- ✅ Assets, Markets, Fundamentals, Universes, Sentiment (Phase 2)
+- ✅ Market holidays and market context (Phase 2)
+- ✅ 238 tests passing (87 provider + 133 manager + 18 service)
 
-### Phase 2: Migrate Remaining Entities
+### CLI Migration - READY TO EXECUTE
 
-**Entities Still Using OLD Architecture:**
-- [ ] Fundamentals data (company info, financials, etc.)
-- [ ] News data
-- [ ] Historical price data
-- [ ] Earnings data
-- [ ] Market holidays/context data
-- [ ] Any other data types in old `data_provider.py`
+**Reference:** `docs/MIGRATION_PLAN.md`
 
-**Migration Pattern** (follow for each entity):
-1. **Create Manager** - Extend `BaseManager` in `src/database/managers/`
-   - Implement `get_entity_from_database()` - read from DB
-   - Implement `set_entity_to_database()` - write to DB
-   - Define `get_ttl_seconds()` - return TTL for this data type
-   - Define `get_data_update_metadata_type()` - return metadata enum
-2. **Add Provider Methods** - Add to appropriate API provider
-   - e.g., `PolygonFundamentalsProvider.fetch_company_info()`
-   - Parse API JSON → Model objects
-3. **Add to DataService** - Wire manager + provider
-   - e.g., `get_company_fundamentals(symbol, force_refresh=False)`
-   - Coordinate cache-or-fetch logic
-4. **Write Tests**
-   - Unit tests for manager (mock DB)
-   - Unit tests for provider (mock HTTP)
-   - Integration tests via DataService
-5. **Update Business Logic** - Migrate old code to use DataService
+**Phase 1: Add Missing DataService Methods** (PRIORITY)
+- [ ] Snapshot operations (get_ticker_snapshot, refresh_market_data)
+- [ ] Asset price operations (get_latest_asset_price, save_asset_price_data, transform methods)
+- [ ] Snapshot metadata (get_market_snapshot_metadata, start/complete_snapshot_run)
+- [ ] Universe operations (get_active_universe_symbols, get_universe_stats, create/delete_universe)
+- [ ] Market operations (get_market_by_code, get_active_markets_by_codes, get_current_market_session)
+- [ ] Screener support (execute_screener_query)
 
-**Old Code Cleanup:**
-- [ ] Audit what's still using old `data_provider.py`
-- [ ] Migrate CLI commands to new DataService methods
-- [ ] Remove deprecated classes once migration complete
+**Phase 2: Update CLI Files** (7 files)
+- [ ] src/cli/main.py - Config class
+- [ ] src/cli/asset_commands.py
+- [ ] src/cli/market_commands.py
+- [ ] src/cli/gap_commands.py
+- [ ] src/cli/screener_commands.py
+- [ ] src/cli/universe_commands.py
+- [ ] src/cli/database_commands.py
 
-### 📋 Additional Providers (Future)
-- [ ] Alpha Vantage provider (market movers, sector performance)
-- [ ] Finnhub provider (fundamentals, news sentiment)
-- [ ] YFinance provider (fallback for free data)
+**Phase 3: Update Supporting Services**
+- [ ] src/services/market_context_service.py
+- [ ] src/screener/screener_engine.py
+
+**Phase 4: Testing & Validation**
+- [ ] Test all asset commands (local, info)
+- [ ] Test all market commands (info, update, context, session)
+- [ ] Test screener commands (--list, gainers, losers)
+- [ ] Test universe commands (list, info, activate)
+- [ ] Test gap commands (analyze)
+- [ ] Test database commands (info)
+
+### Known Issues to Address
+- [ ] Fundamentals bulk TTL issue: get_or_fetch needs fallback for new tickers added after bootstrap
 
 ---
 
 ## 📝 Key Architecture Rules
 
 - Manager (storage/TTL) + Provider (API) + DataService (orchestration)
-- Don't mix old and new architecture
-- Reference: `docs/ARCHITECTURE_MANAGERS.md`, `docs/ARCHITECTURE_API_PROVIDERS.md`
-- Template: `TickerSnapshotManager` (standard entity manager)
+- Legacy code in `backup/` - DO NOT TOUCH without permission
+- Reference: `docs/ARCHITECTURE_MANAGERS.md`, `docs/ARCHITECTURE_API_PROVIDERS.md`, `docs/MIGRATION_PLAN.md`

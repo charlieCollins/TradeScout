@@ -337,7 +337,7 @@ def bootstrap_tickers(config, limit, force):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from database.database_manager import DatabaseManager
-        from config.api_keys import POLYGON_API_KEY
+        from api.config.api_keys import POLYGON_API_KEY
         from bootstrapping.bootstrapper_ticker import TickerBootstrapper
 
         db_manager = DatabaseManager(config.db_path)
@@ -641,7 +641,7 @@ def bootstrap_all(config, force):
     # 4. Tickers
     console.print("\n[bold]Step 4: Tickers from Polygon[/bold]")
     try:
-        from config.api_keys import POLYGON_API_KEY
+        from api.config.api_keys import POLYGON_API_KEY
         from bootstrapping.bootstrapper_ticker import TickerBootstrapper
 
         bootstrapper_ticker = TickerBootstrapper(api_key=POLYGON_API_KEY, db_manager=db_manager)

@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import Mock, patch
 from decimal import Decimal
 
-from api.provider.polygon_snapshot_provider import PolygonSnapshotProvider
+from api.providers.polygon_snapshot_provider import PolygonSnapshotProvider
 from models.snapshot import TickerSnapshot, MarketSnapshot
 
 
@@ -100,7 +100,7 @@ class TestPolygonSnapshotProvider:
 
     def test_provider_name(self, provider):
         """Test provider name is correct."""
-        assert provider.get_provider_name() == "polygon"
+        assert provider.get_provider_info()["name"] == "polygon"
 
     def test_provider_info(self, provider):
         """Test provider info contains expected fields."""
@@ -128,7 +128,7 @@ class TestPolygonSnapshotProvider:
     # FETCH SINGLE TICKER TESTS
     # ============================================================================
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_single_ticker_success(self, mock_request, provider, sample_polygon_ticker_response):
         """Test successful single ticker snapshot fetch."""
         # Mock successful API response
@@ -145,7 +145,7 @@ class TestPolygonSnapshotProvider:
         assert result.prev_close == Decimal("150.00")
         assert result.close_price == Decimal("151.50")
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_single_ticker_not_found(self, mock_request, provider):
         """Test fetch when ticker not found."""
         mock_response = Mock()
@@ -157,7 +157,7 @@ class TestPolygonSnapshotProvider:
 
         assert result is None
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_single_ticker_api_error(self, mock_request, provider):
         """Test fetch handles API errors gracefully."""
         mock_response = Mock()
@@ -170,7 +170,7 @@ class TestPolygonSnapshotProvider:
         # Should return None on error, not raise
         assert result is None
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_single_ticker_rate_limit(self, mock_request, provider, sample_polygon_ticker_response):
         """Test fetch handles rate limiting with retry."""
         # First response: rate limit
@@ -195,7 +195,7 @@ class TestPolygonSnapshotProvider:
     # FETCH BULK MARKET SNAPSHOT TESTS
     # ============================================================================
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_bulk_snapshot_success(self, mock_request, provider, sample_polygon_bulk_response):
         """Test successful bulk market snapshot fetch."""
         mock_response = Mock()
@@ -211,7 +211,7 @@ class TestPolygonSnapshotProvider:
         assert "AAPL" in result.tickers
         assert "MSFT" in result.tickers
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_bulk_snapshot_with_symbols(self, mock_request, provider, sample_polygon_bulk_response):
         """Test bulk fetch with specific symbols list."""
         mock_response = Mock()
@@ -228,7 +228,7 @@ class TestPolygonSnapshotProvider:
         assert "tickers" in call_args.kwargs["params"]
         assert call_args.kwargs["params"]["tickers"] == "AAPL,MSFT"
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_fetch_bulk_snapshot_empty_response(self, mock_request, provider):
         """Test bulk fetch with empty response."""
         mock_response = Mock()
@@ -244,7 +244,7 @@ class TestPolygonSnapshotProvider:
     # HEALTH CHECK TESTS
     # ============================================================================
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_health_check_success(self, mock_request, provider):
         """Test health check passes with valid API."""
         mock_response = Mock()
@@ -256,7 +256,7 @@ class TestPolygonSnapshotProvider:
 
         assert result is True
 
-    @patch('api.provider.base_provider.requests.request')
+    @patch('api.providers.base_provider.requests.request')
     def test_health_check_failure(self, mock_request, provider):
         """Test health check fails with invalid API."""
         mock_response = Mock()

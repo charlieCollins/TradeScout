@@ -16,10 +16,14 @@ from .base_provider import BaseAPIProvider
 from .polygon_snapshot_provider import PolygonSnapshotProvider
 from .polygon_tickers_provider import PolygonTickersProvider
 from .polygon_markets_provider import PolygonMarketsProvider
+from .polygon_market_status_provider import PolygonMarketStatusProvider
+from .polygon_news_provider import PolygonNewsProvider
 
 __all__ = [
     "BaseAPIProvider",
     "PolygonSnapshotProvider",
     "PolygonTickersProvider",
     "PolygonMarketsProvider",
+    "PolygonMarketStatusProvider",
+    "PolygonNewsProvider",
 ]

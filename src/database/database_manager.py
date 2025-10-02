@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class DatabaseManager:
     """Manage SQLite database connections and operations."""
 
-    def __init__(self, db_path: str = "tradescout.db"):
+    def __init__(self, db_path: str = "data/tradescout.db"):
         """Initialize database manager with path."""
         self.db_path = db_path
         self.schema_dir = Path(__file__).parent / "schema"

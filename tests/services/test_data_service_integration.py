@@ -9,7 +9,7 @@ from services.data_service import DataService
 from models.snapshot import TickerSnapshot, MarketSnapshot, MinuteBar
 from database.managers.ticker_snapshot_manager import TickerSnapshotManager
 from database.managers.market_snapshot_manager import MarketSnapshotManager
-from api.provider.polygon_snapshot_provider import PolygonSnapshotProvider
+from api.providers.polygon_snapshot_provider import PolygonSnapshotProvider
 
 
 class TestDataServiceIntegration:
