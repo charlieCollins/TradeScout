@@ -9,7 +9,7 @@ from models.market import Market
 from models.market_context import (
     MarketContext, MarketSession, TradingDayType
 )
-from config.ttl_config import MARKET_CONTEXT_TTL_MINUTES
+from database.config.ttl_config import MARKET_CONTEXT_TTL_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -38,31 +38,21 @@ class MarketContextService:
         """
         Get current market context for a specific market.
 
+        Computes market context on-demand from markets table, holidays cache,
+        and current Polygon API status. No derived caching - the data records
+        (markets, market_holidays) are the cache.
+
         Args:
             market_code: Market code (e.g., 'XNYS', 'XNAS')
-            force_refresh: Force API call even if cache is valid
+            force_refresh: Ignored (kept for API compatibility)
 
         Returns:
             MarketContext with all required information
         """
-        if force_refresh:
-            # Force refresh - invalidate cache and fetch fresh
-            if hasattr(self.data_provider, 'market_context_cache'):
-                self.data_provider.market_context_cache.invalidate(market_code)
-            return self._fetch_context(market_code)
-        else:
-            # Use DataProvider's cached method
-            if hasattr(self.data_provider, 'get_cached_market_context'):
-                return self.data_provider.get_cached_market_context(
-                    market_code,
-                    lambda: self._fetch_context(market_code)
-                )
-            else:
-                # Fallback to direct fetch if cache not available
-                return self._fetch_context(market_code)
+        return self._compute_context(market_code)
 
-    def _fetch_context(self, market_code: str) -> MarketContext:
-        """Fetch fresh market context from APIs and database."""
+    def _compute_context(self, market_code: str) -> MarketContext:
+        """Compute market context from data sources (markets table, holidays, API status)."""
         try:
             # 1. Get Market model from database
             market = self._get_market(market_code)
@@ -110,10 +100,6 @@ class MarketContextService:
                 next_trading_date=next_trading_date,
                 raw_market_status=market_status
             )
-
-            # Store in cache
-            if hasattr(self.data_provider, 'store_market_context'):
-                self.data_provider.store_market_context(market_code, context)
 
             return context
 

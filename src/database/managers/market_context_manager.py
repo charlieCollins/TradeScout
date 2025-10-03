@@ -139,6 +139,19 @@ class MarketContextManager(BaseManager):
             logger.error(f"Error clearing market context for {market_code}: {e}")
             return False
 
+    def invalidate(self, market_code: str) -> bool:
+        """Invalidate (clear) cached context for a specific market.
+
+        Alias for clear_context() to match legacy interface expectations.
+
+        Args:
+            market_code: Market code to invalidate
+
+        Returns:
+            True if successful, False otherwise
+        """
+        return self.clear_context(market_code)
+
     def clear_all_contexts(self) -> bool:
         """Clear all cached market contexts.
 

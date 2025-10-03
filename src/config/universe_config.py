@@ -91,7 +91,42 @@ UNIVERSE_CONFIG = {
             "active_only": True,
             "min_market_cap": 300000000,    # $300M minimum
             "max_market_cap": 2000000000,   # $2B maximum (small cap definition)
-            "min_volume": 100000            # Minimum daily volume for liquidity
+            # NOTE: min_volume removed - fundamentals don't include volume data
+        },
+
+        # Excluded criteria
+        "excluded": {
+            "non_us_securities": True,
+            "preferred_stocks": True,
+            "investment_vehicles": {
+                "etns": True,
+                "mutual_funds": True,
+                "closed_end_funds": True
+            },
+            "invalid_symbols": {
+                "test_symbols": True,
+                "inactive_delisted": True,
+                "special_characters": True,
+                "duplicate_classes": True
+            }
+        }
+    },
+
+    "large_cap": {
+        "name": "large_cap",
+        "description": "Large cap stocks over $10B market cap",
+
+        # Included criteria
+        "included": {
+            "ticker_types": ["CS"],  # Common Stock only
+            "exchanges": [
+                "XNYS",  # New York Stock Exchange
+                "XNAS"   # NASDAQ
+            ],
+            "symbol_pattern": "^[A-Z]{1,5}$",  # 1-5 alphabetic characters only
+            "active_only": True,
+            "min_market_cap": 10000000000,   # $10B minimum (large cap definition)
+            # NOTE: min_volume removed - fundamentals don't include volume data
         },
 
         # Excluded criteria

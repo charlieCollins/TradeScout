@@ -1,21 +1,26 @@
 """Market command group for bulk market operations."""
 
+import logging
 import sys
-from pathlib import Path
+import traceback
 from datetime import datetime
+from pathlib import Path
 
 import click
-from rich.console import Console
-from rich.table import Table
 from rich import box
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
-from rich.live import Live
+from rich.console import Console
 from rich.panel import Panel
+from rich.progress import (BarColumn, Progress, SpinnerColumn,
+                           TaskProgressColumn, TextColumn)
+from rich.table import Table
 
-from .main import pass_config
+from config.market_context_rules import get_field_for_context
+
 from .asset_commands import display_market_context
+from .main import pass_config
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 @click.group()
@@ -26,141 +31,9 @@ def market(config):
 
 
 @market.command()
+@click.option("--force", is_flag=True, help="Force refresh, bypass TTL cache")
 @pass_config
-def info(config):
-    """
-    Show market snapshot status and metadata.
-
-    Displays when the market snapshot was last run and current market status.
-
-    Example:
-        tradescout market info
-    """
-
-    # Display market context at the top
-    display_market_context(config)
-
-    # Get market context (which includes comprehensive market information)
-    with console.status("[bold blue]Checking market context...", spinner="dots"):
-        try:
-            market_context = config.market_context
-        except Exception as e:
-            console.print(f"[red]❌ Failed to get market context: {e}[/red]")
-            return
-
-    # Display market context
-    context_table = Table(
-        title="Market Context",
-        box=box.ROUNDED,
-        header_style="bold blue"
-    )
-    context_table.add_column("Field", style="bold", width=20)
-    context_table.add_column("Value", style="", width=30)
-
-    if market_context:
-        # Main market info
-        context_table.add_row("Market", market_context.market.name)
-        context_table.add_row("Current Session", market_context.current_session.value.title().replace('_', ' '))
-        context_table.add_row("Trading Day", "✅ Yes" if market_context.is_trading_day else "❌ No")
-        context_table.add_row("Market Open", "✅ Yes" if market_context.is_market_open else "❌ No")
-
-        # Session details
-        if market_context.current_session.value == "premarket":
-            context_table.add_row("Premarket", "✅ Active")
-        elif market_context.current_session.value == "afterhours":
-            context_table.add_row("After Hours", "✅ Active")
-        elif market_context.current_session.value == "regular":
-            context_table.add_row("Regular Hours", "✅ Active")
-
-        # Trading dates
-        context_table.add_row("Previous Trading", str(market_context.previous_trading_date))
-        if market_context.next_trading_date:
-            context_table.add_row("Next Trading", str(market_context.next_trading_date))
-
-        # Current time in market timezone
-        context_table.add_row("Current Time", market_context.current_time.strftime("%Y-%m-%d %H:%M:%S %Z"))
-
-    console.print(context_table)
-
-    # Check last market snapshot run metadata
-    console.print("")
-    console.print("[bold]Last Market Snapshot Run:[/bold]")
-
-    try:
-        data_service = config.get_data_service()
-        snapshot_metadata = data_service.get_market_snapshot_metadata()
-
-        if snapshot_metadata:
-            snapshot_table = Table(
-                box=box.ROUNDED,
-                show_header=False
-            )
-            snapshot_table.add_column("", style="bold", width=20)
-            snapshot_table.add_column("", style="", width=40)
-
-            # Status with emoji
-            status = snapshot_metadata.get('status', 'unknown')
-            status_display = {
-                "completed": "[green]✅ Completed[/green]",
-                "partial": "[yellow]⚠️  Partial[/yellow]",
-                "failed": "[red]❌ Failed[/red]",
-                "running": "[blue]🔄 Running[/blue]"
-            }.get(status, status)
-
-            snapshot_table.add_row("Status", status_display)
-
-            if 'completed_at' in snapshot_metadata and snapshot_metadata['completed_at']:
-                completed_at = datetime.fromisoformat(snapshot_metadata['completed_at'])
-                snapshot_table.add_row("Completed", completed_at.strftime("%Y-%m-%d %H:%M:%S"))
-
-                # Calculate age
-                age = datetime.now() - completed_at
-                age_str = f"{age.total_seconds() / 60:.1f} minutes ago"
-                if age.total_seconds() > 3600:
-                    age_str = f"{age.total_seconds() / 3600:.1f} hours ago"
-                if age.total_seconds() > 86400:
-                    age_str = f"{age.total_seconds() / 86400:.1f} days ago"
-                snapshot_table.add_row("Run age", age_str)
-
-            if 'total_symbols' in snapshot_metadata:
-                snapshot_table.add_row("Total symbols", f"{snapshot_metadata['total_symbols']:,}")
-
-            if 'successful_updates' in snapshot_metadata:
-                snapshot_table.add_row("Successful", f"{snapshot_metadata['successful_updates']:,}")
-
-            if 'failed_updates' in snapshot_metadata and snapshot_metadata['failed_updates'] > 0:
-                snapshot_table.add_row("Failed", f"[red]{snapshot_metadata['failed_updates']:,}[/red]")
-
-            if 'successful_updates' in snapshot_metadata and 'total_symbols' in snapshot_metadata:
-                if snapshot_metadata['total_symbols'] > 0:
-                    success_rate = (snapshot_metadata['successful_updates'] / snapshot_metadata['total_symbols'] * 100)
-                    snapshot_table.add_row("Success rate", f"{success_rate:.1f}%")
-
-            if 'api_calls_made' in snapshot_metadata and snapshot_metadata['api_calls_made']:
-                snapshot_table.add_row("API calls", f"{snapshot_metadata['api_calls_made']:,}")
-
-            if 'error_message' in snapshot_metadata and snapshot_metadata['error_message']:
-                snapshot_table.add_row("Error", f"[red]{snapshot_metadata['error_message']}[/red]")
-
-            console.print(snapshot_table)
-
-            # Check if currently running
-            if status == 'running':
-                console.print("")
-                console.print(f"[yellow]⚠️  A market snapshot is currently running[/yellow]")
-
-        else:
-            console.print("[yellow]No market snapshot data available[/yellow]")
-            console.print("[dim]Run 'tradescout market update' to fetch market data[/dim]")
-
-    except Exception as e:
-        console.print("[yellow]No market snapshot data available[/yellow]")
-        console.print("[dim]Run 'tradescout market update' to fetch market data[/dim]")
-
-
-@market.command()
-@pass_config
-def update(config):
+def update(config, force):
     """
     Update market snapshot data for all assets in universe.
 
@@ -169,6 +42,7 @@ def update(config):
 
     Example:
         tradescout market update
+        tradescout market update --force
     """
 
     # Display market context at the top
@@ -183,89 +57,82 @@ def update(config):
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
 
-    # Check if we need to update based on snapshot metadata
-    console.print("[bold blue]Checking last update time...[/bold blue]")
-    try:
-        snapshot_metadata = data_service.get_market_snapshot_metadata()
-        if snapshot_metadata and snapshot_metadata.get('status') == 'running':
-            console.print("[yellow]⚠️  Market snapshot is currently running. Please wait.[/yellow]")
-            return
-
-        # Could add time-based checks here if needed
-        # if snapshot_metadata and recent enough: return early
-
-    except Exception as e:
-        console.print(f"[yellow]⚠️  Could not check snapshot metadata: {e}[/yellow]")
-
-    # Get universe assets from data provider
-    console.print("[bold blue]Loading asset universe...[/bold blue]")
-    try:
-        universe_symbols = data_service.get_active_universe_symbols()
-
-        if not universe_symbols:
-            console.print("[red]❌ No active assets found in universe[/red]")
-            console.print("[yellow]💡 Run 'tradescout bootstrap universe' to populate the universe[/yellow]")
-            return
-
-        console.print(f"[green]✅ Found {len(universe_symbols)} assets in universe[/green]")
-
-    except Exception as e:
-        console.print(f"[red]❌ Failed to load universe: {e}[/red]")
-        return
-
-    # Start snapshot run tracking
-    console.print("[bold blue]Starting market snapshot run...[/bold blue]")
-    operation_id = data_service.start_market_snapshot_run(len(universe_symbols))
-    if not operation_id:
-        console.print("[red]❌ Failed to start snapshot run tracking[/red]")
-        return
-
-    # Fetch bulk market snapshot - chunked API calls for universe symbols
-    console.print(f"[bold blue]Fetching bulk market snapshot for {len(universe_symbols)} universe symbols...[/bold blue]")
+    # Fetch ALL tickers from Polygon (manager handles TTL checks)
+    console.print("[bold blue]Fetching market snapshot...[/bold blue]")
 
     try:
-        # Calculate chunk info for progress display
-        chunk_size = 100
-        total_chunks = (len(universe_symbols) + chunk_size - 1) // chunk_size
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            fetch_task = progress.add_task("Checking cache and API...", total=None)
 
-        console.print(f"[bold blue]Making {total_chunks} API calls (100 symbols per chunk)...[/bold blue]")
-
-        # Progress tracking for chunks
-        progress_text = f"Processing chunk 0/{total_chunks}"
-
-        def update_progress(chunk_num, total, chunk_symbols):
-            nonlocal progress_text
-            progress_text = f"Processing chunk {chunk_num}/{total} ({chunk_symbols} symbols)"
-
-        with Live(progress_text, console=console, refresh_per_second=10) as live:
-            # Chunked API calls for universe symbols (100 symbols per chunk)
+            # Fetch all tickers (None = get everything)
+            # Manager returns None if data is fresh (within TTL) and not forced
             bulk_snapshot_data = data_service.get_market_snapshot(
-                universe_symbols,
-                progress_callback=lambda chunk_num, total, symbols: (
-                    live.update(f"[blue]Processing chunk {chunk_num}/{total} ({symbols} symbols)[/blue]")
-                )
+                None, force_refresh=force
             )
 
-        if not bulk_snapshot_data or not bulk_snapshot_data.tickers:
-            console.print("[red]❌ No data returned from bulk snapshot API[/red]")
-            data_service.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, "Failed: No data returned")
+            progress.update(fetch_task, completed=True)
+
+        # Manager returns None if data is fresh (within TTL)
+        if not bulk_snapshot_data:
+            if force:
+                # Force was requested but no data returned - API error
+                console.print("[red]❌ API returned no data[/red]")
+            else:
+                # Data is fresh, no update needed
+                console.print(
+                    "[green]✅ Data is fresh (within TTL), no update needed[/green]"
+                )
+                console.print("[dim]Use --force to fetch fresh data anyway[/dim]")
             return
 
-        console.print(f"[green]✅ Received data for {len(bulk_snapshot_data.tickers)} symbols[/green]")
+        if not bulk_snapshot_data.tickers:
+            console.print("[red]❌ API returned empty ticker list[/red]")
+            return
 
-        # Process each ticker from the chunked response
-        total_updated = 0
-        total_errors = 0
-        total_skipped = 0
+        console.print(
+            f"[green]✅ Received data for {len(bulk_snapshot_data.tickers):,} tickers from Polygon[/green]"
+        )
 
-        # Track processing categories
+        # Load all assets for quick symbol lookups
+        console.print("")
+        console.print("[bold blue]Loading asset database...[/bold blue]")
+        try:
+            assets_dict = data_service.get_all_assets_dict()
+
+            if not assets_dict:
+                console.print("[red]❌ No assets found in database[/red]")
+                console.print(
+                    "[yellow]💡 Run 'tradescout database bootstrap-assets' to populate assets[/yellow]"
+                )
+                return
+
+            console.print(
+                f"[green]✅ Loaded {len(assets_dict):,} assets from database[/green]"
+            )
+
+        except Exception as e:
+            console.print(f"[red]❌ Failed to load assets: {e}[/red]")
+            return
+
+        # Process tickers - transform to AssetPrice objects for symbols we have in our database
+        console.print("")
+        console.print("[bold blue]Processing ticker data...[/bold blue]")
+
+        # Get market context to determine what "active" means for current session
+        market_context = config.market_context
+        current_session = market_context.current_session.value
+
+        asset_prices_to_save = []
         processing_stats = {
-            "with_recent_trading": 0,    # updated > 0 (actively trading)
-            "without_recent_trading": 0, # updated = 0 (no recent activity, still valid data)
-            "no_asset_data": 0,          # Asset not found in database (actual error)
-            "transform_failed": 0,       # Failed to transform data (actual error)
-            "save_failed": 0,           # Database save failed (actual error)
-            "other_errors": []          # Other exceptions with details (actual errors)
+            "matched_symbols": 0,  # Symbols we have in our database
+            "unmatched_symbols": 0,  # Symbols from Polygon we don't have
+            "active_trading": 0,  # Currently trading (has data for current session)
+            "inactive": 0,  # Not trading (only prevday or old data)
+            "transform_failed": 0,  # Failed to transform data
         }
 
         with Progress(
@@ -273,79 +140,124 @@ def update(config):
             TextColumn("[progress.description]{task.description}"),
             BarColumn(),
             TaskProgressColumn(),
-            console=console
+            console=console,
         ) as progress:
-
-            processing_task = progress.add_task("Processing snapshot data...", total=len(bulk_snapshot_data.tickers))
+            processing_task = progress.add_task(
+                "Transforming ticker data...", total=len(bulk_snapshot_data.tickers)
+            )
 
             # Process each ticker from the MarketSnapshot model
             for symbol, ticker_snapshot in bulk_snapshot_data.tickers.items():
-
                 try:
-                    # Get asset data for this symbol
-                    asset_data = data_service.get_asset_with_market(symbol)
-                    if not asset_data:
-                        total_errors += 1
-                        processing_stats["no_asset_data"] += 1
+                    # Check if we have this asset in our database
+                    asset_id = assets_dict.get(symbol)
+
+                    if not asset_id:
+                        processing_stats["unmatched_symbols"] += 1
                         progress.update(processing_task, advance=1)
                         continue
 
-                    asset, market = asset_data
-                    asset_id = asset.id
+                    processing_stats["matched_symbols"] += 1
 
-                    # Transform TickerSnapshot to AssetPrice using the model
-                    asset_price = data_service.transform_ticker_snapshot_to_asset_price(symbol, asset_id, ticker_snapshot)
+                    # Transform TickerSnapshot to AssetPrice
+                    asset_price = data_service.transform_ticker_snapshot_to_asset_price(
+                        symbol, asset_id, ticker_snapshot
+                    )
 
                     if not asset_price:
-                        total_errors += 1
                         processing_stats["transform_failed"] += 1
                         progress.update(processing_task, advance=1)
                         continue
 
-                    # Track whether this symbol has min bar data (actual trading activity)
-                    # Min bar data exists when there's been any trading, including extended hours
-                    has_min_data = ticker_snapshot.min_bar is not None and ticker_snapshot.min_bar.close is not None
-                    if has_min_data:
-                        processing_stats["with_recent_trading"] += 1
-                    else:
-                        processing_stats["without_recent_trading"] += 1
+                    # Determine if actively trading using market context rules
+                    # Build available data dict from ticker snapshot
+                    available_data = {
+                        "min_volume": (
+                            ticker_snapshot.min_bar.volume
+                            if ticker_snapshot.min_bar
+                            else None
+                        ),
+                        "day_volume": ticker_snapshot.volume,
+                        "prevday_volume": ticker_snapshot.prev_volume,
+                    }
 
-                    if data_service.save_asset_price_data(asset_price):
-                        total_updated += 1
+                    # Get appropriate volume field for current session
+                    current_volume = get_field_for_context(
+                        "volume", current_session, available_data
+                    )
+
+                    # Active if volume > 0 for the current session's volume field
+                    is_active = current_volume is not None and current_volume > 0
+
+                    if is_active:
+                        processing_stats["active_trading"] += 1
                     else:
-                        total_errors += 1
-                        processing_stats["save_failed"] += 1
+                        processing_stats["inactive"] += 1
+
+                    asset_prices_to_save.append(asset_price)
 
                 except Exception as e:
-                    total_errors += 1
-                    processing_stats["other_errors"].append(f"{symbol}: {str(e)}")
+                    processing_stats["transform_failed"] += 1
+                    logger.error(f"Error transforming {symbol}: {e}")
 
                 progress.update(processing_task, advance=1)
 
-        # Complete snapshot run tracking
-        error_message = f"Errors: {total_errors}" if total_errors > 0 else None
-        data_service.complete_market_snapshot_run(operation_id, total_updated, total_errors, total_chunks, error_message)
+        console.print(
+            f"[green]✅ Prepared {len(asset_prices_to_save):,} asset prices for database update[/green]"
+        )
+
+        # Batch save to database
+        console.print("")
+        console.print("[bold blue]Saving to database...[/bold blue]")
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            save_task = progress.add_task("Batch inserting asset prices...", total=None)
+
+            successful, failed = data_service.batch_save_asset_prices(
+                asset_prices_to_save
+            )
+
+            progress.update(save_task, completed=True)
+
+        console.print(
+            f"[green]✅ Saved {successful:,} asset prices to database[/green]"
+        )
+        if failed > 0:
+            console.print(f"[yellow]⚠️  {failed:,} failed to save[/yellow]")
 
     except Exception as e:
         console.print(f"[red]❌ Error during bulk snapshot: {e}[/red]")
-        data_service.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, f"API Error: {e}")
+        logger.error(f"Market update error: {traceback.format_exc()}")
         return
 
     # Summary
     console.print("")
     console.print("[bold green]Market Update Complete[/bold green]")
 
-    summary_table = Table(
-        box=box.ROUNDED,
-        show_header=False
-    )
-    summary_table.add_column("", style="bold", width=20)
+    summary_table = Table(box=box.ROUNDED, show_header=False)
+    summary_table.add_column("", style="bold", width=25)
     summary_table.add_column("", style="", width=15)
 
-    summary_table.add_row("Assets processed", f"{total_updated + total_errors:,}")
-    summary_table.add_row("Successfully updated", f"{total_updated:,}")
-    summary_table.add_row("Errors", f"{total_errors:,}")
-    summary_table.add_row("Success rate", f"{(total_updated / (total_updated + total_errors) * 100):.1f}%" if (total_updated + total_errors) > 0 else "0%")
+    summary_table.add_row(
+        "Tickers from Polygon", f"{len(bulk_snapshot_data.tickers):,}"
+    )
+    summary_table.add_row(
+        "Matched to our assets", f"{processing_stats['matched_symbols']:,}"
+    )
+    summary_table.add_row("Successfully saved", f"{successful:,}")
+    summary_table.add_row("Failed to save", f"{failed:,}")
+    summary_table.add_row(
+        "Success rate",
+        (
+            f"{(successful / processing_stats['matched_symbols'] * 100):.1f}%"
+            if processing_stats["matched_symbols"] > 0
+            else "0%"
+        ),
+    )
     summary_table.add_row("Completed at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     console.print(summary_table)
@@ -354,78 +266,70 @@ def update(config):
     console.print("")
     console.print("[bold blue]Processing Breakdown:[/bold blue]")
 
-    breakdown_table = Table(
-        box=box.ROUNDED,
-        show_header=False
-    )
-    breakdown_table.add_column("Category", style="bold", width=25)
-    breakdown_table.add_column("Count", style="", width=10)
+    breakdown_table = Table(box=box.ROUNDED, show_header=False)
+    breakdown_table.add_column("Category", style="bold", width=30)
+    breakdown_table.add_column("Count", style="", width=12)
     breakdown_table.add_column("Description", style="dim", width=40)
 
-    # Show successful processing categories
-    if processing_stats["with_recent_trading"] > 0:
-        breakdown_table.add_row(
-            "With recent trading",
-            f"{processing_stats['with_recent_trading']:,}",
-            "Symbols with min bar data (includes extended hours)"
-        )
+    # Show ticker matching stats
+    breakdown_table.add_row(
+        "Total tickers from Polygon",
+        f"{len(bulk_snapshot_data.tickers):,}",
+        "All tickers in API response",
+    )
+    breakdown_table.add_row(
+        "Matched to our assets",
+        f"{processing_stats['matched_symbols']:,}",
+        "Tickers we have in our database",
+    )
+    breakdown_table.add_row(
+        "Unmatched symbols",
+        f"{processing_stats['unmatched_symbols']:,}",
+        "Tickers from Polygon we don't track",
+    )
 
-    if processing_stats["without_recent_trading"] > 0:
+    breakdown_table.add_row("", "", "")  # Separator
+
+    # Show trading activity for current session
+    if processing_stats["active_trading"] > 0 or processing_stats["inactive"] > 0:
+        breakdown_table.add_row("", "", "")  # Separator
         breakdown_table.add_row(
-            "Without recent trading",
-            f"{processing_stats['without_recent_trading']:,}",
-            "Symbols with prevDay data only (no min bar)"
+            "Active in session",
+            f"{processing_stats['active_trading']:,}",
+            f"Symbols with volume > 0 (current session)",
+        )
+        breakdown_table.add_row(
+            "Inactive in session",
+            f"{processing_stats['inactive']:,}",
+            "Symbols with no volume (current session)",
         )
 
     # Show error categories if there were errors
-    if total_errors > 0:
+    if processing_stats["transform_failed"] > 0 or failed > 0:
         breakdown_table.add_row("", "", "")  # Separator
         breakdown_table.add_row("[bold red]ERRORS", "", "")
-
-        if processing_stats["no_asset_data"] > 0:
-            breakdown_table.add_row(
-                "Asset not in database",
-                f"{processing_stats['no_asset_data']:,}",
-                "Symbols in snapshot but not in our universe database"
-            )
 
         if processing_stats["transform_failed"] > 0:
             breakdown_table.add_row(
                 "Data transformation failed",
                 f"{processing_stats['transform_failed']:,}",
-                "Failed to convert snapshot data to asset price format"
+                "Failed to convert ticker snapshot to asset price",
             )
 
-        if processing_stats["save_failed"] > 0:
+        if failed > 0:
             breakdown_table.add_row(
                 "Database save failed",
-                f"{processing_stats['save_failed']:,}",
-                "Failed to write asset price data to database"
-            )
-
-        if processing_stats["other_errors"]:
-            breakdown_table.add_row(
-                "Other exceptions",
-                f"{len(processing_stats['other_errors']):,}",
-                "Various processing errors (see details below)"
+                f"{failed:,}",
+                "Failed to write asset price data to database",
             )
 
     console.print(breakdown_table)
-
-    # Show details of other errors if any (but limit to first 5)
-    if processing_stats["other_errors"]:
-        console.print("")
-        console.print("[dim]Other error details (first 5):[/dim]")
-        for i, error in enumerate(processing_stats["other_errors"][:5]):
-            console.print(f"[dim]  • {error}[/dim]")
-        if len(processing_stats["other_errors"]) > 5:
-            console.print(f"[dim]  ... and {len(processing_stats['other_errors']) - 5} more[/dim]")
 
 
 @market.command()
 @pass_config
 def context(config):
-    """Show current market context for default universe"""
+    """Show current market context, universe composition, and last snapshot status"""
 
     try:
         # Get universe statistics using data provider
@@ -443,7 +347,9 @@ def context(config):
         ctx = config.market_context
 
         # Create main context table
-        table = Table(title=f"📊 {active_universe.title()} Market Context", show_header=True)
+        table = Table(
+            title=f"📊 {active_universe.title()} Market Context", show_header=True
+        )
         table.add_column("Property", style="cyan", width=25)
         table.add_column("Value", style="white")
 
@@ -480,7 +386,7 @@ def context(config):
         table.add_row("Current Session", ctx.current_session.value)
 
         # Add additional context
-        table.add_row("Day Type", ctx.day_type.value.replace('_', ' ').title())
+        table.add_row("Day Type", ctx.day_type.value.replace("_", " ").title())
         table.add_row("Current Date", str(ctx.current_date))
         table.add_row("Current Time", ctx.current_time.strftime("%Y-%m-%d %H:%M:%S %Z"))
         table.add_row("Session Name (for screeners)", ctx.session_name)
@@ -504,7 +410,7 @@ def context(config):
             times_table.add_column("Time", style="white")
 
             for session_name, time_val in session_times.items():
-                formatted_name = session_name.replace('_', ' ').title()
+                formatted_name = session_name.replace("_", " ").title()
                 if time_val:
                     formatted_time = time_val.strftime("%H:%M")
                 else:
@@ -515,35 +421,67 @@ def context(config):
 
         # Show timezone info
         console.print()
-        console.print(Panel(
-            f"Market Timezone: {ctx.market.timezone}\n"
-            f"Currency: {ctx.market.currency}\n"
-            f"Extended Hours Support: {'Yes' if ctx.market.has_extended_hours else 'No'}",
-            title="Market Details"
-        ))
+        console.print(
+            Panel(
+                f"Market Timezone: {ctx.market.timezone}\n"
+                f"Currency: {ctx.market.currency}\n"
+                f"Extended Hours Support: {'Yes' if ctx.market.has_extended_hours else 'No'}",
+                title="Market Details",
+            )
+        )
+
+        # Show last market snapshot run metadata
+        console.print()
+        console.print("[bold]Last Market Snapshot Update:[/bold]")
+
+        try:
+            # Query data_update_metadata directly
+            with data_service.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT completed_at, status
+                    FROM data_update_metadata
+                    WHERE operation_type = 'market_snapshots' AND operation_subtype = 'fetch'
+                    ORDER BY completed_at DESC LIMIT 1
+                """)
+                result = cursor.fetchone()
+
+            if result:
+                completed_at_str, status = result
+                completed_at = datetime.fromisoformat(completed_at_str)
+
+                # Calculate age
+                age = datetime.now() - completed_at
+                if age.total_seconds() < 60:
+                    age_str = f"{age.total_seconds():.0f} seconds ago"
+                elif age.total_seconds() < 3600:
+                    age_str = f"{age.total_seconds() / 60:.1f} minutes ago"
+                elif age.total_seconds() < 86400:
+                    age_str = f"{age.total_seconds() / 3600:.1f} hours ago"
+                else:
+                    age_str = f"{age.total_seconds() / 86400:.1f} days ago"
+
+                status_display = {
+                    "completed": "[green]✅ Completed[/green]",
+                    "failed": "[red]❌ Failed[/red]",
+                    "running": "[blue]🔄 Running[/blue]",
+                }.get(status, status)
+
+                snapshot_table = Table(box=box.ROUNDED, show_header=False)
+                snapshot_table.add_column("", style="bold", width=20)
+                snapshot_table.add_column("", style="", width=40)
+                snapshot_table.add_row("Status", status_display)
+                snapshot_table.add_row("Last Update", completed_at.strftime("%Y-%m-%d %H:%M:%S"))
+                snapshot_table.add_row("Data Age", age_str)
+                console.print(snapshot_table)
+            else:
+                console.print("[yellow]No market snapshot data available[/yellow]")
+                console.print(
+                    "[dim]Run 'tradescout market update' to fetch market data[/dim]"
+                )
+
+        except Exception as e:
+            console.print(f"[yellow]Unable to fetch snapshot metadata: {e}[/yellow]")
 
     except Exception as e:
         console.print(f"❌ Error getting market context: {e}")
-
-
-@market.command()
-@pass_config
-def session(config):
-    """Show just the current session info"""
-
-    try:
-        ctx = config.market_context
-
-        # Simple session display
-        console.print(f"Current Session: [bold]{ctx.current_session.value}[/bold]")
-        console.print(f"Session Name (screeners): [bold]{ctx.session_name}[/bold]")
-        console.print(f"Market Status: [bold]{'OPEN' if ctx.is_market_open else 'CLOSED'}[/bold]")
-
-        if ctx.is_extended_hours:
-            console.print("[yellow]⚠️ Extended hours trading[/yellow]")
-
-        if not ctx.is_trading_day:
-            console.print(f"[red]📅 Not a trading day ({ctx.day_type.value})[/red]")
-
-    except Exception as e:
-        console.print(f"❌ Error getting session info: {e}")

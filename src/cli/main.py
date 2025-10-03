@@ -164,7 +164,7 @@ from .asset_commands import asset
 from .database_commands import database
 from .market_commands import market
 from .gap_commands import gap
-from .universe_commands import universe
+from .universe_commands import universes
 
 
 main.add_command(screener)
@@ -172,7 +172,7 @@ main.add_command(asset)
 main.add_command(database)
 main.add_command(market)
 main.add_command(gap)
-main.add_command(universe)
+main.add_command(universes)
 
 
 if __name__ == "__main__":

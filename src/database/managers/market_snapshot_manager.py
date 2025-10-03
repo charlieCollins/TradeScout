@@ -64,10 +64,7 @@ class MarketSnapshotManager(BaseManager):
     """
 
     def get_or_fetch(
-        self,
-        key: str,
-        fetch_fn,
-        force_refresh: bool = False
+        self, key: str, fetch_fn, force_refresh: bool = False
     ) -> Optional[MarketSnapshot]:
         """Get market snapshot with TTL-based staleness checking.
 
@@ -87,7 +84,9 @@ class MarketSnapshotManager(BaseManager):
         """
         # Force refresh bypasses all TTL logic
         if force_refresh:
-            logger.debug(f"Force refresh requested for market snapshot '{key}', bypassing TTL")
+            logger.debug(
+                f"Force refresh requested for market snapshot '{key}', bypassing TTL"
+            )
             market_snapshot = fetch_fn()
             if market_snapshot:
                 self.set_entity_to_database(key, market_snapshot)
@@ -96,7 +95,9 @@ class MarketSnapshotManager(BaseManager):
 
         # Check if we need to fetch based on TTL
         if self._is_data_stale():
-            logger.debug(f"Market snapshot data is stale for key '{key}', fetching from API")
+            logger.debug(
+                f"Market snapshot data is stale for key '{key}', fetching from API"
+            )
             market_snapshot = fetch_fn()
             if market_snapshot:
                 self.set_entity_to_database(key, market_snapshot)
@@ -104,7 +105,7 @@ class MarketSnapshotManager(BaseManager):
             return market_snapshot
         else:
             # Data is fresh - skip API call to respect rate limits
-            logger.info(
+            logger.debug(
                 f"Market snapshot for key '{key}' was recently fetched (within TTL). "
                 f"Skipping API call. Use force_refresh=True to fetch anyway."
             )
@@ -133,7 +134,9 @@ class MarketSnapshotManager(BaseManager):
         """
         # MarketSnapshot is not stored as an entity
         # Individual tickers can be retrieved via TickerSnapshotManager
-        logger.debug(f"MarketSnapshot entity not stored in database, fetch required for key: {key}")
+        logger.debug(
+            f"MarketSnapshot entity not stored in database, fetch required for key: {key}"
+        )
         return None
 
     def set_entity_to_database(self, key: str, entity: MarketSnapshot) -> bool:
@@ -181,7 +184,7 @@ class MarketSnapshotManager(BaseManager):
         return {
             "metadata_type": self.get_data_update_metadata_type().value,
             "ttl_minutes": MARKET_SNAPSHOT_TTL_MINUTES,
-            "storage": "metadata only (individual tickers stored separately)"
+            "storage": "metadata only (individual tickers stored separately)",
         }
 
     # ============================================================================

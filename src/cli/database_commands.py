@@ -88,7 +88,7 @@ def database_info(config):
                 SELECT operation_type, operation_subtype, started_at, completed_at, status, total_items,
                        CASE
                            WHEN started_at IS NOT NULL THEN
-                               ROUND((julianday('now') - julianday(started_at)) * 24, 1)
+                               ROUND((julianday('now', 'localtime') - julianday(started_at)) * 24, 1)
                            ELSE NULL
                        END as age_hours
                 FROM latest_operations
@@ -444,11 +444,11 @@ def bootstrap_fundamentals(config, symbol, force, limit):
         # Bootstrap fundamentals
         count = data_service.bootstrap_fundamentals(limit=limit)
 
-        console.print(f"[green]✅ Fundamentals bootstrap complete: {count:,} records processed[/bold green]")
+        console.print(f"[green]✅ Fundamentals bootstrap complete: {count:,} records processed[/green]")
 
         # Show stats
         fundamentals_stats = data_service.get_fundamentals_stats()
-        console.print(f"  Total fundamentals in database: {fundamentals_stats.get('total_count', 0):,}")
+        console.print(f"  Total fundamentals in database: {fundamentals_stats.get('total_fundamentals', 0):,}")
 
     except Exception as e:
         console.print(f"[red]❌ Fundamentals bootstrap failed: {e}[/red]")

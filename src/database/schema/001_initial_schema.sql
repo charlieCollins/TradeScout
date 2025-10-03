@@ -199,22 +199,13 @@ CREATE TABLE IF NOT EXISTS universe_memberships (
     universe_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
 
-    -- Membership metadata
-    added_date DATE NOT NULL,
-    removed_date DATE,
-    reason TEXT,                         -- 'initial_load', 'market_cap_growth', 'delisted'
-
-    -- Status
-    is_active BOOLEAN DEFAULT TRUE,
-
     FOREIGN KEY (universe_id) REFERENCES universes (id),
     FOREIGN KEY (asset_id) REFERENCES assets (id),
-    UNIQUE(universe_id, asset_id, added_date)
+    UNIQUE(universe_id, asset_id)  -- Each asset can only appear once per universe
 );
 
 CREATE INDEX idx_universe_memberships_universe ON universe_memberships(universe_id);
 CREATE INDEX idx_universe_memberships_asset ON universe_memberships(asset_id);
-CREATE INDEX idx_universe_memberships_active ON universe_memberships(is_active);
 
 -- ==========================================
 -- 8. SENTIMENT TYPES
@@ -301,7 +292,19 @@ CREATE INDEX idx_data_update_completed ON data_update_metadata(completed_at);
 CREATE INDEX idx_data_update_status ON data_update_metadata(status);
 
 -- ==========================================
--- 11. SCHEMA VERSIONS
+-- 11. MARKET HOLIDAYS CACHE
+-- ==========================================
+CREATE TABLE IF NOT EXISTS market_holidays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,            -- YYYY-MM-DD format
+    name TEXT,                            -- Holiday name
+    status TEXT NOT NULL                  -- 'closed' or 'early-close'
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_holidays_date ON market_holidays(date);
+
+-- ==========================================
+-- 12. SCHEMA VERSIONS
 -- ==========================================
 CREATE TABLE IF NOT EXISTS schema_versions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -321,8 +324,8 @@ DROP TABLE IF EXISTS system_metrics;
 DROP TABLE IF EXISTS market_snapshot_runs;
 DROP TABLE IF EXISTS market_snapshot_metadata;
 
--- Insert initial schema version
+-- Insert initial schema version (includes market holidays cache)
 INSERT INTO schema_versions (version, description)
-VALUES ('001', 'Complete schema with all core tables');
+VALUES ('001', 'Complete schema with all core tables including market holidays cache');
 
 

@@ -359,13 +359,13 @@ class UniverseManager(BaseManager):
                 for asset_id in asset_ids:
                     try:
                         cursor.execute("""
-                            INSERT INTO universe_memberships (
-                                universe_id, asset_id, added_date, is_active
-                            ) VALUES (?, ?, ?, 1)
-                        """, (universe_id, asset_id, datetime.now().isoformat()))
+                            INSERT OR REPLACE INTO universe_memberships (
+                                universe_id, asset_id
+                            ) VALUES (?, ?)
+                        """, (universe_id, asset_id))
                         added_count += 1
                     except Exception as e:
-                        logger.debug(f"Asset {asset_id} already in universe or error: {e}")
+                        logger.debug(f"Error adding asset {asset_id} to universe: {e}")
                         continue
 
                 conn.commit()
@@ -453,7 +453,7 @@ class UniverseManager(BaseManager):
                     FROM universe_memberships um
                     JOIN assets a ON um.asset_id = a.id
                     JOIN markets m ON a.market_id = m.id
-                    WHERE um.universe_id = ? AND um.is_active = 1
+                    WHERE um.universe_id = ?
                     GROUP BY m.id
                     ORDER BY count DESC
                 """, (universe_id,))
@@ -523,28 +523,23 @@ class UniverseManager(BaseManager):
 
                 universe_id, last_updated = result
 
-                # Get active members count
+                # Get total members count
                 cursor.execute("""
                     SELECT COUNT(*) FROM universe_memberships
-                    WHERE universe_id = ? AND is_active = 1
+                    WHERE universe_id = ?
                 """, (universe_id,))
-                active_members = cursor.fetchone()[0]
+                total_members = cursor.fetchone()[0]
 
-                # Get inactive members count
-                cursor.execute("""
-                    SELECT COUNT(*) FROM universe_memberships
-                    WHERE universe_id = ? AND is_active = 0
-                """, (universe_id,))
-                inactive_members = cursor.fetchone()[0]
-
-                total_members = active_members + inactive_members
+                # No inactive members anymore (simplified schema)
+                active_members = total_members
+                inactive_members = 0
 
                 # Get by asset type (using market info as proxy for asset type)
                 cursor.execute("""
                     SELECT a.asset_type, COUNT(*) as count
                     FROM universe_memberships um
                     JOIN assets a ON um.asset_id = a.id
-                    WHERE um.universe_id = ? AND um.is_active = 1
+                    WHERE um.universe_id = ?
                     GROUP BY a.asset_type
                 """, (universe_id,))
                 by_asset_type = {row[0]: row[1] for row in cursor.fetchall()}
@@ -555,7 +550,7 @@ class UniverseManager(BaseManager):
                     FROM universe_memberships um
                     JOIN assets a ON um.asset_id = a.id
                     JOIN markets m ON a.market_id = m.id
-                    WHERE um.universe_id = ? AND um.is_active = 1
+                    WHERE um.universe_id = ?
                     GROUP BY m.code
                     ORDER BY count DESC
                 """, (universe_id,))
@@ -592,8 +587,7 @@ class UniverseManager(BaseManager):
                     FROM assets a
                     JOIN universe_memberships um ON a.id = um.asset_id
                     JOIN universes u ON um.universe_id = u.id
-                    WHERE um.is_active = 1
-                    AND a.is_active = 1
+                    WHERE a.is_active = 1
                     AND u.is_active = 1
                     ORDER BY a.symbol
                 """)

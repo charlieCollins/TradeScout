@@ -15,12 +15,12 @@ console = Console()
 
 @click.group()
 @pass_config
-def universe(config):
+def universes(config):
     """Manage asset universes for trading."""
     pass
 
 
-@universe.command('list')
+@universes.command('list')
 @pass_config
 def universe_list(config):
     """List all available universes."""
@@ -70,7 +70,7 @@ def universe_list(config):
         sys.exit(1)
 
 
-@universe.command('info')
+@universes.command('info')
 @click.argument('universe_name', required=False)
 @pass_config
 def universe_info(config, universe_name):
@@ -159,7 +159,7 @@ def universe_info(config, universe_name):
         sys.exit(1)
 
 
-@universe.command('activate')
+@universes.command('activate')
 @click.argument('universe_name')
 @pass_config
 def universe_activate(config, universe_name):
@@ -174,11 +174,11 @@ def universe_activate(config, universe_name):
         console.print(f"[dim]This universe contains {count:,} assets[/dim]")
     else:
         console.print(f"[red]❌ Failed to activate universe '{universe_name}'[/red]")
-        console.print("[yellow]Use 'tradescout universe list' to see available universes[/yellow]")
+        console.print("[yellow]Use 'tradescout universes list' to see available universes[/yellow]")
         sys.exit(1)
 
 
-@universe.command('current')
+@universes.command('current')
 @pass_config
 def universe_current(config):
     """Show the currently active universe."""
@@ -186,75 +186,3 @@ def universe_current(config):
     console.print(f"Active universe: [bold cyan]{active}[/bold cyan]")
 
 
-@universe.command('create')
-@click.argument('name')
-@click.option('--description', '-d', help='Description of the universe')
-@click.option('--min-market-cap', type=int, help='Minimum market cap filter')
-@click.option('--min-volume', type=int, help='Minimum volume filter')
-@click.option('--max-assets', type=int, help='Maximum number of assets')
-@pass_config
-def universe_create(config, name, description, min_market_cap, min_volume, max_assets):
-    """Create a new empty universe."""
-    try:
-        data_service = config.get_data_service()
-
-        if data_service.create_universe(name, description, min_market_cap, min_volume, max_assets):
-            console.print(f"[green]✅ Created universe: {name}[/green]")
-
-            if description:
-                console.print(f"[dim]{description}[/dim]")
-
-            console.print("[yellow]Note: Universe created empty. Use 'tradescout database bootstrap-universes' to populate it.[/yellow]")
-        else:
-            console.print(f"[red]Universe '{name}' already exists[/red]")
-            sys.exit(1)
-
-    except Exception as e:
-        console.print(f"[red]❌ Failed to create universe: {e}[/red]")
-        sys.exit(1)
-
-
-@universe.command('delete')
-@click.argument('name')
-@click.option('--force', '-f', is_flag=True, help='Skip confirmation')
-@pass_config
-def universe_delete(config, name, force):
-    """Delete a universe and all its memberships."""
-    if name == "default_universe":
-        console.print("[red]❌ Cannot delete default_universe[/red]")
-        sys.exit(1)
-
-    if name == config.get_active_universe():
-        console.print("[red]❌ Cannot delete the currently active universe[/red]")
-        console.print("[yellow]Activate a different universe first[/yellow]")
-        sys.exit(1)
-
-    try:
-        data_service = config.get_data_service()
-
-        # Get current member count for confirmation
-        stats = data_service.get_universe_stats(name)
-        if not stats:
-            console.print(f"[red]Universe '{name}' not found[/red]")
-            sys.exit(1)
-
-        member_count = stats.total_members
-
-        # Confirm deletion
-        if not force:
-            console.print(f"[yellow]⚠️  This will delete universe '{name}' and {member_count:,} memberships[/yellow]")
-            if not click.confirm("Are you sure?"):
-                console.print("Deletion cancelled")
-                return
-
-        # Delete the universe
-        success, deleted_count = data_service.delete_universe(name)
-        if success:
-            console.print(f"[green]✅ Deleted universe '{name}' and {deleted_count:,} memberships[/green]")
-        else:
-            console.print(f"[red]❌ Failed to delete universe '{name}'[/red]")
-            sys.exit(1)
-
-    except Exception as e:
-        console.print(f"[red]❌ Failed to delete universe: {e}[/red]")
-        sys.exit(1)
