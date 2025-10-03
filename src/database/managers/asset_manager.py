@@ -1,7 +1,8 @@
 """Asset database manager for asset reference data operations."""
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
+from models.asset import Asset
 from datetime import datetime
 from models.asset import Asset, AssetType, AssetClass
 from models.data_update_metadata import DataUpdateMetadataType
@@ -107,14 +108,28 @@ class AssetManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Use INSERT OR REPLACE to handle both new and existing assets
+                # Upsert asset - preserve ID if exists, update other fields
                 query = """
-                    INSERT OR REPLACE INTO assets (
+                    INSERT INTO assets (
                         symbol, name, asset_type, asset_class, market_id,
                         currency, lot_size, tick_size,
                         is_active, is_delisted, listing_date, delisting_date,
                         provider_id, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol) DO UPDATE SET
+                        name = excluded.name,
+                        asset_type = excluded.asset_type,
+                        asset_class = excluded.asset_class,
+                        market_id = excluded.market_id,
+                        currency = excluded.currency,
+                        lot_size = excluded.lot_size,
+                        tick_size = excluded.tick_size,
+                        is_active = excluded.is_active,
+                        is_delisted = excluded.is_delisted,
+                        listing_date = excluded.listing_date,
+                        delisting_date = excluded.delisting_date,
+                        provider_id = excluded.provider_id,
+                        updated_at = excluded.updated_at
                 """
 
                 values = (
@@ -183,3 +198,101 @@ class AssetManager(BaseManager):
         except Exception as e:
             logger.error(f"Error getting asset manager stats: {e}")
             return {"error": str(e)}
+
+    def get_all_active_asset_ids(self, limit: Optional[int] = None) -> List[Tuple[int, str]]:
+        """Get list of all active asset IDs and symbols.
+
+        Args:
+            limit: Optional limit on number of results
+
+        Returns:
+            List of (asset_id, symbol) tuples
+        """
+        if not self._check_dependencies():
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                query = "SELECT id, symbol FROM assets WHERE is_active = 1 ORDER BY symbol"
+                if limit:
+                    query += f" LIMIT {limit}"
+
+                cursor.execute(query)
+                return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"Error getting all active asset IDs: {e}")
+            return []
+
+    def bulk_insert_assets(self, assets: List[Asset]) -> int:
+        """Bulk insert/update assets in a single transaction.
+
+        Args:
+            assets: List of Asset objects to store
+
+        Returns:
+            Number of assets successfully stored
+        """
+        if not self._check_dependencies() or not assets:
+            return 0
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                query = """
+                    INSERT INTO assets (
+                        symbol, name, asset_type, asset_class, market_id,
+                        currency, lot_size, tick_size,
+                        is_active, is_delisted, listing_date, delisting_date,
+                        provider_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol) DO UPDATE SET
+                        name = excluded.name,
+                        asset_type = excluded.asset_type,
+                        asset_class = excluded.asset_class,
+                        market_id = excluded.market_id,
+                        currency = excluded.currency,
+                        lot_size = excluded.lot_size,
+                        tick_size = excluded.tick_size,
+                        is_active = excluded.is_active,
+                        is_delisted = excluded.is_delisted,
+                        listing_date = excluded.listing_date,
+                        delisting_date = excluded.delisting_date,
+                        provider_id = excluded.provider_id,
+                        updated_at = excluded.updated_at
+                """
+
+                # Prepare all values
+                values_list = []
+                for entity in assets:
+                    values = (
+                        entity.symbol,
+                        entity.name,
+                        entity.asset_type.value,
+                        entity.asset_class.value,
+                        entity.market_id,
+                        entity.currency,
+                        entity.lot_size,
+                        float(entity.tick_size) if entity.tick_size else None,
+                        entity.is_active,
+                        entity.is_delisted,
+                        entity.listing_date.isoformat() if entity.listing_date else None,
+                        entity.delisting_date.isoformat() if entity.delisting_date else None,
+                        entity.provider_id,
+                        entity.created_at.isoformat(),
+                        datetime.now().isoformat()
+                    )
+                    values_list.append(values)
+
+                # Execute bulk insert
+                cursor.executemany(query, values_list)
+                conn.commit()
+
+                logger.info(f"Bulk inserted {len(assets)} assets successfully")
+                return len(assets)
+
+        except Exception as e:
+            logger.error(f"Error bulk inserting assets: {e}")
+            return 0

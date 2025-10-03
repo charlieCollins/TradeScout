@@ -17,7 +17,7 @@ class DataUpdateMetadataManager:
     - Querying last update timestamps
 
     It does NOT handle complex operation tracking (progress, stats, etc.) -
-    that's still handled by DataUpdateTracker for bootstrap operations.
+    that's handled by this manager for bootstrap operations.
     """
 
     def __init__(self, db_manager):

@@ -87,8 +87,8 @@ def info(config):
     console.print("[bold]Last Market Snapshot Run:[/bold]")
 
     try:
-        data_provider = config.get_data_provider()
-        snapshot_metadata = data_provider.get_market_snapshot_metadata()
+        data_service = config.get_data_service()
+        snapshot_metadata = data_service.get_market_snapshot_metadata()
 
         if snapshot_metadata:
             snapshot_table = Table(
@@ -177,9 +177,8 @@ def update(config):
     # Initialize data provider
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from provider.data_provider import PolygonDataProvider
 
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
@@ -187,7 +186,7 @@ def update(config):
     # Check if we need to update based on snapshot metadata
     console.print("[bold blue]Checking last update time...[/bold blue]")
     try:
-        snapshot_metadata = data_provider.get_market_snapshot_metadata()
+        snapshot_metadata = data_service.get_market_snapshot_metadata()
         if snapshot_metadata and snapshot_metadata.get('status') == 'running':
             console.print("[yellow]⚠️  Market snapshot is currently running. Please wait.[/yellow]")
             return
@@ -201,7 +200,7 @@ def update(config):
     # Get universe assets from data provider
     console.print("[bold blue]Loading asset universe...[/bold blue]")
     try:
-        universe_symbols = data_provider.get_active_universe_symbols()
+        universe_symbols = data_service.get_active_universe_symbols()
 
         if not universe_symbols:
             console.print("[red]❌ No active assets found in universe[/red]")
@@ -216,7 +215,7 @@ def update(config):
 
     # Start snapshot run tracking
     console.print("[bold blue]Starting market snapshot run...[/bold blue]")
-    operation_id = data_provider.start_market_snapshot_run(len(universe_symbols))
+    operation_id = data_service.start_market_snapshot_run(len(universe_symbols))
     if not operation_id:
         console.print("[red]❌ Failed to start snapshot run tracking[/red]")
         return
@@ -240,7 +239,7 @@ def update(config):
 
         with Live(progress_text, console=console, refresh_per_second=10) as live:
             # Chunked API calls for universe symbols (100 symbols per chunk)
-            bulk_snapshot_data = data_provider.get_market_snapshot(
+            bulk_snapshot_data = data_service.get_market_snapshot(
                 universe_symbols,
                 progress_callback=lambda chunk_num, total, symbols: (
                     live.update(f"[blue]Processing chunk {chunk_num}/{total} ({symbols} symbols)[/blue]")
@@ -249,7 +248,7 @@ def update(config):
 
         if not bulk_snapshot_data or not bulk_snapshot_data.tickers:
             console.print("[red]❌ No data returned from bulk snapshot API[/red]")
-            data_provider.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, "Failed: No data returned")
+            data_service.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, "Failed: No data returned")
             return
 
         console.print(f"[green]✅ Received data for {len(bulk_snapshot_data.tickers)} symbols[/green]")
@@ -284,7 +283,7 @@ def update(config):
 
                 try:
                     # Get asset data for this symbol
-                    asset_data = data_provider.get_asset_data(symbol)
+                    asset_data = data_service.get_asset_with_market(symbol)
                     if not asset_data:
                         total_errors += 1
                         processing_stats["no_asset_data"] += 1
@@ -295,7 +294,7 @@ def update(config):
                     asset_id = asset.id
 
                     # Transform TickerSnapshot to AssetPrice using the model
-                    asset_price = data_provider.transform_ticker_snapshot_to_asset_price(symbol, asset_id, ticker_snapshot)
+                    asset_price = data_service.transform_ticker_snapshot_to_asset_price(symbol, asset_id, ticker_snapshot)
 
                     if not asset_price:
                         total_errors += 1
@@ -311,7 +310,7 @@ def update(config):
                     else:
                         processing_stats["without_recent_trading"] += 1
 
-                    if data_provider.save_asset_price_data(asset_price):
+                    if data_service.save_asset_price_data(asset_price):
                         total_updated += 1
                     else:
                         total_errors += 1
@@ -325,11 +324,11 @@ def update(config):
 
         # Complete snapshot run tracking
         error_message = f"Errors: {total_errors}" if total_errors > 0 else None
-        data_provider.complete_market_snapshot_run(operation_id, total_updated, total_errors, total_chunks, error_message)
+        data_service.complete_market_snapshot_run(operation_id, total_updated, total_errors, total_chunks, error_message)
 
     except Exception as e:
         console.print(f"[red]❌ Error during bulk snapshot: {e}[/red]")
-        data_provider.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, f"API Error: {e}")
+        data_service.complete_market_snapshot_run(operation_id, 0, len(universe_symbols), total_chunks, f"API Error: {e}")
         return
 
     # Summary
@@ -431,13 +430,13 @@ def context(config):
     try:
         # Get universe statistics using data provider
         active_universe = config.get_active_universe()
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
         # Get universe market breakdown
-        universe_markets = data_provider.get_universe_market_breakdown(active_universe)
+        universe_markets = data_service.get_universe_market_breakdown(active_universe)
 
         # Get total universe count
-        universe_stats = data_provider.get_universe_stats(active_universe)
+        universe_stats = data_service.get_universe_stats(active_universe)
         total_universe = universe_stats.total_members if universe_stats else 0
 
         # Get market context - using NYSE as representative since NASDAQ and NYSE share same sessions

@@ -7,7 +7,7 @@ Markets data changes very rarely (new exchanges are infrequent), so uses 1-year 
 """
 
 import logging
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, time
 from models.market import Market
 from models.data_update_metadata import DataUpdateMetadataType
@@ -93,15 +93,28 @@ class MarketsManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Use INSERT OR REPLACE to handle both new and existing markets
+                # Upsert market - preserve ID if exists, update other fields
                 query = """
-                    INSERT OR REPLACE INTO markets (
+                    INSERT INTO markets (
                         code, name, country, timezone, currency,
                         premarket_start_time, premarket_end_time,
                         regular_open_time, regular_close_time,
                         afterhours_start_time, afterhours_end_time,
                         is_active, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(code) DO UPDATE SET
+                        name = excluded.name,
+                        country = excluded.country,
+                        timezone = excluded.timezone,
+                        currency = excluded.currency,
+                        premarket_start_time = excluded.premarket_start_time,
+                        premarket_end_time = excluded.premarket_end_time,
+                        regular_open_time = excluded.regular_open_time,
+                        regular_close_time = excluded.regular_close_time,
+                        afterhours_start_time = excluded.afterhours_start_time,
+                        afterhours_end_time = excluded.afterhours_end_time,
+                        is_active = excluded.is_active,
+                        updated_at = excluded.updated_at
                 """
 
                 values = (
@@ -347,3 +360,29 @@ class MarketsManager(BaseManager):
         except Exception as e:
             logger.error(f"Error getting markets manager stats: {e}")
             return {"error": str(e)}
+
+    def get_markets_by_codes(self, codes: List[str]) -> List[Tuple[str, str]]:
+        """Get markets by their codes.
+
+        Args:
+            codes: List of market codes (e.g., ['XNYS', 'XNAS'])
+
+        Returns:
+            List of (code, name) tuples for matching active markets
+        """
+        if not self._check_dependencies() or not codes:
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                placeholders = ','.join('?' * len(codes))
+                cursor.execute(
+                    f"SELECT code, name FROM markets WHERE code IN ({placeholders}) AND is_active = TRUE ORDER BY code",
+                    codes
+                )
+                return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"Error getting markets by codes: {e}")
+            return []

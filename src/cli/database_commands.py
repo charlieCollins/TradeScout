@@ -257,29 +257,19 @@ def bootstrap_providers(config):
         sys.exit(1)
 
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_manager import DatabaseManager
-        from bootstrapping.bootstrapper_provider import ProviderBootstrapper
-
-        db_manager = DatabaseManager(config.db_path)
-        bootstrapper = ProviderBootstrapper(db_manager=db_manager)
+        data_service = config.get_data_service()
+        count = data_service.bootstrap_providers()
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize ProviderBootstrapper: {e}[/red]")
+        console.print(f"[red]❌ Failed to bootstrap providers: {e}[/red]")
         sys.exit(1)
 
-    stats = bootstrapper.bootstrap_providers()
-
     console.print("[green]✅ Provider initialization completed[/green]")
-    console.print(f"  Inserted: {stats.get('inserted', 0)}")
-    console.print(f"  Updated: {stats.get('updated', 0)}")
-    console.print(f"  Errors: {stats.get('errors', 0)}")
+    console.print(f"  Providers stored: {count}")
 
-    # Show active providers
-    active = bootstrapper.get_active_providers()
-    if active:
-        console.print("\nActive providers:")
-        for provider in active:
-            console.print(f"  - {provider}")
+    # Show active provider
+    active_provider = data_service.get_active_provider()
+    if active_provider:
+        console.print(f"\nActive provider: {active_provider.name}")
 
 
 @database.command('bootstrap-markets')
@@ -295,29 +285,23 @@ def bootstrap_markets(config):
         sys.exit(1)
 
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_manager import DatabaseManager
-        from bootstrapping.bootstrapper_market import MarketBootstrapper
-
-        db_manager = DatabaseManager(config.db_path)
-        bootstrapper = MarketBootstrapper(db_manager=db_manager)
+        data_service = config.get_data_service()
+        count = data_service.bootstrap_markets(asset_class="stocks", locale="us")
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize MarketBootstrapper: {e}[/red]")
+        console.print(f"[red]❌ Failed to bootstrap markets: {e}[/red]")
         sys.exit(1)
 
-    stats = bootstrapper.bootstrap_markets()
-
     console.print("[green]✅ Market initialization completed[/green]")
-    console.print(f"  Inserted: {stats.get('inserted', 0)}")
-    console.print(f"  Updated: {stats.get('updated', 0)}")
-    console.print(f"  Errors: {stats.get('errors', 0)}")
+    console.print(f"  Markets stored: {count}")
 
     # Show markets
-    markets = bootstrapper.get_markets()
+    markets = data_service.get_all_markets(active_only=True)
     if markets:
-        console.print("\nConfigured markets:")
-        for market in markets:
-            console.print(f"  - {market}")
+        console.print(f"\nConfigured markets ({len(markets)}):")
+        for market in markets[:10]:  # Show first 10
+            console.print(f"  - {market.code}: {market.name}")
+        if len(markets) > 10:
+            console.print(f"  ... and {len(markets) - 10} more")
 
 
 @database.command('bootstrap-tickers')
@@ -328,6 +312,9 @@ def bootstrap_tickers(config, limit, force):
     """Initialize/update ticker data from Polygon API."""
     console.print("[blue]Initializing tickers from Polygon...[/blue]")
 
+    if limit:
+        console.print(f"[yellow]Note: --limit not supported by bootstrap_assets, will fetch all tickers[/yellow]")
+
     # Check if database exists
     if not Path(config.db_path).exists():
         console.print(f"[red]Database not found: {config.db_path}[/red]")
@@ -335,30 +322,21 @@ def bootstrap_tickers(config, limit, force):
         sys.exit(1)
 
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_manager import DatabaseManager
-        from api.config.api_keys import POLYGON_API_KEY
-        from bootstrapping.bootstrapper_ticker import TickerBootstrapper
-
-        db_manager = DatabaseManager(config.db_path)
-        bootstrapper = TickerBootstrapper(api_key=POLYGON_API_KEY, db_manager=db_manager)
+        data_service = config.get_data_service()
+        count = data_service.bootstrap_assets(market="stocks", active=True)
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize TickerBootstrapper: {e}[/red]")
+        console.print(f"[red]❌ Failed to bootstrap assets: {e}[/red]")
         sys.exit(1)
 
-    # Fetch tickers with optional filtering
-    success = bootstrapper.bootstrap_all_tickers(limit=limit, force=force)
+    console.print("[green]✅ Ticker initialization completed[/green]")
+    console.print(f"  Assets stored: {count:,}")
 
-    if success:
-        stats = bootstrapper.get_bootstrap_stats()
-        console.print("[green]✅ Ticker initialization completed[/green]")
-        console.print(f"  Total fetched: {stats.get('total_fetched', 0):,}")
-        console.print(f"  Inserted: {stats.get('inserted', 0):,}")
-        console.print(f"  Updated: {stats.get('updated', 0):,}")
-        console.print(f"  Errors: {stats.get('errors', 0):,}")
-    else:
-        console.print("[red]❌ Ticker initialization failed[/red]")
-        sys.exit(1)
+    # Show stats
+    try:
+        asset_stats = data_service.get_asset_stats()
+        console.print(f"  Total assets in database: {asset_stats.get('total_active_assets', 0):,}")
+    except Exception as e:
+        console.print(f"[yellow]⚠️  Could not fetch stats: {e}[/yellow]")
 
 
 @database.command('bootstrap-universes')
@@ -376,12 +354,11 @@ def bootstrap_universes(config, force):
 
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from bootstrapping.bootstrapper_universe import UniverseBootstrapper
         from config.universe_config import UNIVERSE_CONFIG
 
-        bootstrapper = UniverseBootstrapper(db_manager=config.db_manager)
+        data_service = config.get_data_service()
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize UniverseBootstrapper: {e}[/red]")
+        console.print(f"[red]❌ Failed to initialize DataService: {e}[/red]")
         sys.exit(1)
 
     # Get all universe names from config
@@ -396,21 +373,18 @@ def bootstrap_universes(config, force):
         console.print(f"\n[bold]Bootstrapping '{universe_name}'...[/bold]")
 
         try:
-            success = bootstrapper.bootstrap_universe(universe_name, force=force)
+            stats = data_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
 
-            if success:
-                stats = bootstrapper.get_universe_stats(universe_name)
-                members = stats.get('total_members', 0)
+            if stats and not stats.get('skipped', False):
+                members = stats.get('filtered_assets', 0)
                 if members == 0:
                     console.print(f"[yellow]⚠️  {universe_name}: {members:,} members - Universe is empty! This may indicate missing fundamentals data.[/yellow]")
                 else:
                     console.print(f"[green]✅ {universe_name}: {members:,} members[/green]")
 
-                # Show breakdown by type if available
-                if 'by_type' in stats and stats['by_type']:
-                    breakdown = ", ".join([f"{t}: {c}" for t, c in stats['by_type'].items()])
-                    console.print(f"[dim]  └─ {breakdown}[/dim]")
-
+                total_success += 1
+            elif stats and stats.get('skipped'):
+                console.print(f"[cyan]⏭️  {universe_name}: Skipped (data is fresh)[/cyan]")
                 total_success += 1
             else:
                 console.print(f"[red]❌ {universe_name}: Failed to bootstrap[/red]")
@@ -423,10 +397,8 @@ def bootstrap_universes(config, force):
     # Set default_universe as active after all universes are created
     if total_success > 0:
         console.print(f"\n[blue]Setting default_universe as active...[/blue]")
-        if config.set_active_universe("default_universe"):
-            console.print(f"[green]✅ default_universe is now the active universe[/green]")
-        else:
-            console.print(f"[yellow]⚠️  Could not set default_universe as active[/yellow]")
+        data_service.set_active_universe("default_universe")
+        console.print(f"[green]✅ default_universe is now the active universe[/green]")
 
     # Summary
     console.print(f"\n[bold]Universe Bootstrap Complete[/bold]")
@@ -447,8 +419,7 @@ def bootstrap_fundamentals(config, symbol, force, limit):
     """Bootstrap fundamentals data from Polygon API ticker overview."""
     if symbol:
         console.print(f"[blue]Bootstrapping fundamentals for {symbol}...[/blue]")
-    else:
-        console.print("[blue]Bootstrapping fundamentals for active universe assets...[/blue]")
+        console.print(f"[yellow]Note: Single symbol bootstrap not yet supported, will bootstrap all assets[/yellow]")
 
     # Check if database exists
     if not Path(config.db_path).exists():
@@ -457,101 +428,27 @@ def bootstrap_fundamentals(config, symbol, force, limit):
         sys.exit(1)
 
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from bootstrapping.bootstrapper_fundamentals import FundamentalsBootstrapper
+        data_service = config.get_data_service()
 
-        bootstrapper = FundamentalsBootstrapper(db_manager=config.db_manager)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to initialize FundamentalsBootstrapper: {e}[/red]")
-        sys.exit(1)
+        # Get active universe info for display
+        active_universe = data_service.get_active_universe()
+        universe_name = active_universe.name if active_universe else "unknown"
+        universe_stats = data_service.get_universe_stats(universe_name) if active_universe else None
+        num_assets = universe_stats.total_members if universe_stats else 0
 
-    try:
-        # Set up progress tracking
-        progress_task = None
-        current_symbol = None
-
-        def progress_callback(symbol_name, current, total):
-            nonlocal progress_task, current_symbol
-            current_symbol = symbol_name
-            if progress_task:
-                progress.update(progress_task, completed=current, description=f"Processing {symbol_name}")
-
-        # Run the bootstrap with progress display
-        if symbol:
-            console.print(f"[blue]Processing single symbol: {symbol}[/blue]")
-            stats = bootstrapper.bootstrap_fundamentals(symbol=symbol, force=force, limit=limit)
+        if limit:
+            console.print(f"[blue]Processing up to {limit:,} assets from database[/blue]")
         else:
-            # Get active universe info for display
-            data_provider = config.get_data_provider()
-            active_universe = data_provider.get_active_universe()
-            universe_name = active_universe.name if active_universe else "unknown"
-            universe_stats = data_provider.get_universe_stats(universe_name) if active_universe else None
-            num_assets = universe_stats.total_members if universe_stats else 0
+            console.print(f"[blue]Processing all assets from database[/blue]")
 
-            if limit:
-                console.print(f"[blue]Processing up to {limit:,} assets from active universe: [cyan]{universe_name}[/cyan] ({num_assets:,} assets)[/blue]")
-            else:
-                console.print(f"[blue]Processing assets from active universe: [cyan]{universe_name}[/cyan] ({num_assets:,} assets)[/blue]")
+        # Bootstrap fundamentals
+        count = data_service.bootstrap_fundamentals(limit=limit)
 
-            # Rich Live for real-time updates
-            progress_text = "Initializing..."
+        console.print(f"[green]✅ Fundamentals bootstrap complete: {count:,} records processed[/bold green]")
 
-            with Live(progress_text, console=console, refresh_per_second=4) as live:
-                def enhanced_progress_callback(symbol_name, current, total):
-                    # Get current stats from bootstrapper
-                    current_stats = getattr(bootstrapper, 'current_stats', {})
-                    not_found_count = current_stats.get('not_found', 0)
-
-                    # Calculate percentage
-                    percentage = (current / total * 100) if total > 0 else 0
-
-                    if not_found_count > 0:
-                        status_text = f"[blue]Processing [cyan]{symbol_name}[/cyan] ({current:,}/{total:,}) [yellow]404s: {not_found_count}[/yellow] - {percentage:.1f}%[/blue]"
-                    else:
-                        status_text = f"[blue]Processing [cyan]{symbol_name}[/cyan] ({current:,}/{total:,}) - {percentage:.1f}%[/blue]"
-
-                    live.update(status_text)
-
-                stats = bootstrapper.bootstrap_fundamentals(
-                    symbol=symbol,
-                    force=force,
-                    limit=limit,
-                    progress_callback=enhanced_progress_callback
-                )
-
-            # Show completion message like market update
-            total_processed = stats['inserted'] + stats['updated']
-            console.print(f"[green]✅ Processed {total_processed:,} fundamentals records[/green]")
-
-        # Display results
-        console.print("\n[bold]Fundamentals Bootstrap Results:[/bold]")
-        console.print(f"[green]✅ Inserted: {stats['inserted']:,}[/green]")
-        console.print(f"[cyan]🔄 Updated: {stats['updated']:,}[/cyan]")
-        console.print(f"[yellow]⏭️ Skipped: {stats['skipped']:,}[/yellow]")
-        console.print(f"[blue]📡 API Calls: {stats['api_calls']:,}[/blue]")
-
-        if stats.get('not_found', 0) > 0:
-            console.print(f"[yellow]🔍 Not Found (404): {stats['not_found']:,}[/yellow]")
-
-        if stats['errors'] > 0:
-            console.print(f"[red]❌ Errors: {stats['errors']:,}[/red]")
-
-        total_processed = stats['inserted'] + stats['updated']
-        console.print(f"\n[bold green]✅ Fundamentals bootstrap complete: {total_processed:,} records processed[/bold green]")
-
-        # Show not found symbols if any
-        not_found_symbols = stats.get('not_found_symbols', [])
-        if not_found_symbols:
-            console.print(f"\n[yellow]❓ Symbols not found in Polygon API ({len(not_found_symbols)})[/yellow]")
-            if len(not_found_symbols) <= 20:
-                # Show all if 20 or fewer
-                console.print(f"[dim]{', '.join(not_found_symbols)}[/dim]")
-            else:
-                # Show first 15 and indicate there are more
-                console.print(f"[dim]{', '.join(not_found_symbols[:15])}, ... and {len(not_found_symbols) - 15} more[/dim]")
-
-        if total_processed == 0 and not symbol:
-            console.print("[yellow]ℹ️  No new fundamentals data was added. Use --force to refresh existing data.[/yellow]")
+        # Show stats
+        fundamentals_stats = data_service.get_fundamentals_stats()
+        console.print(f"  Total fundamentals in database: {fundamentals_stats.get('total_count', 0):,}")
 
     except Exception as e:
         console.print(f"[red]❌ Fundamentals bootstrap failed: {e}[/red]")
@@ -570,10 +467,11 @@ def bootstrap_all(config, force):
             from database.database_manager import DatabaseManager
             db_manager = DatabaseManager(config.db_path)
 
-            # Use data provider to get database stats
-            from provider.data_provider import PolygonDataProvider
-            data_provider = PolygonDataProvider(db_manager)
-            stats = data_provider.get_database_stats()
+            # Use data service to get database stats
+            from services.data_service import DataService
+            from api.config.api_keys import POLYGON_API_KEY
+            data_service = DataService(db_manager, POLYGON_API_KEY)
+            stats = data_service.get_database_stats()
 
             if not stats:
                 console.print("[red]❌ Failed to get database statistics[/red]")
@@ -611,75 +509,57 @@ def bootstrap_all(config, force):
         console.print(f"[red]Database initialization failed: {e}[/red]")
         sys.exit(1)
 
+    # Get DataService for remaining operations
+    try:
+        data_service = config.get_data_service()
+    except Exception as e:
+        console.print(f"[red]Failed to initialize DataService: {e}[/red]")
+        sys.exit(1)
+
     # 2. Providers
     console.print("\n[bold]Step 2: Data Providers[/bold]")
     try:
-        from database.database_manager import DatabaseManager
-        from bootstrapping.bootstrapper_provider import ProviderBootstrapper
-
-        db_manager = DatabaseManager(config.db_path)
-        bootstrapper_provider = ProviderBootstrapper(db_manager=db_manager)
-        stats = bootstrapper_provider.bootstrap_providers()
-        console.print(f"[green]✅ Providers: {stats['inserted']} inserted, {stats['updated']} updated[/green]")
+        count = data_service.bootstrap_providers()
+        console.print(f"[green]✅ Providers: {count} stored[/green]")
     except Exception as e:
         console.print(f"[red]Provider bootstrap failed: {e}[/red]")
         sys.exit(1)
 
-    # 3. Markets (if bootstrapper exists)
+    # 3. Markets
     console.print("\n[bold]Step 3: Markets[/bold]")
     try:
-        from bootstrapping.bootstrapper_market import MarketBootstrapper
-        bootstrapper_market = MarketBootstrapper(db_manager=db_manager)
-        stats = bootstrapper_market.bootstrap_markets()
-        console.print(f"[green]✅ Markets: {stats['inserted']} inserted, {stats['updated']} updated[/green]")
-    except ImportError:
-        console.print("[yellow]⚠️  Market bootstrapper not found, skipping[/yellow]")
+        count = data_service.bootstrap_markets(asset_class="stocks", locale="us")
+        console.print(f"[green]✅ Markets: {count} stored[/green]")
     except Exception as e:
         console.print(f"[red]Market bootstrap failed: {e}[/red]")
         # Continue anyway as markets might be created by ticker bootstrap
 
-    # 4. Tickers
-    console.print("\n[bold]Step 4: Tickers from Polygon[/bold]")
+    # 4. Assets/Tickers
+    console.print("\n[bold]Step 4: Assets from Polygon[/bold]")
     try:
-        from api.config.api_keys import POLYGON_API_KEY
-        from bootstrapping.bootstrapper_ticker import TickerBootstrapper
-
-        bootstrapper_ticker = TickerBootstrapper(api_key=POLYGON_API_KEY, db_manager=db_manager)
-        if not bootstrapper_ticker.bootstrap_all_tickers(force=force):
-            console.print("[red]Ticker bootstrap failed, stopping[/red]")
-            sys.exit(1)
-        stats = bootstrapper_ticker.get_bootstrap_stats()
-        console.print(f"[green]✅ Tickers: {stats['inserted']:,} inserted, {stats['updated']:,} updated[/green]")
+        count = data_service.bootstrap_assets(market="stocks", active=True)
+        console.print(f"[green]✅ Assets: {count:,} stored[/green]")
     except Exception as e:
-        console.print(f"[red]Ticker bootstrap failed: {e}[/red]")
+        console.print(f"[red]Asset bootstrap failed: {e}[/red]")
         sys.exit(1)
 
     # 5. Universes (all from config)
     console.print("\n[bold]Step 5: Asset Universes[/bold]")
     try:
-        from bootstrapping.bootstrapper_universe import UniverseBootstrapper
         from config.universe_config import UNIVERSE_CONFIG
 
-        bootstrapper_universe = UniverseBootstrapper(db_manager=config.db_manager)
         universe_names = list(UNIVERSE_CONFIG.keys())
 
-        total_members = 0
         for universe_name in universe_names:
-            if bootstrapper_universe.bootstrap_universe(universe_name, force=force):
-                stats = bootstrapper_universe.get_universe_stats(universe_name)
-                members = stats.get('total_members', 0)
-                if members == 0:
-                    console.print(f"[yellow]⚠️  {universe_name}: {members:,} members - Universe is empty! This may indicate missing fundamentals data.[/yellow]")
-                else:
-                    console.print(f"[green]✅ {universe_name}: {members:,} members[/green]")
-                if universe_name == 'default_universe':  # Track default for summary
-                    total_members = members
+            stats = data_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
+            members = stats.get('filtered_assets', 0)
+            if members == 0:
+                console.print(f"[yellow]⚠️  {universe_name}: {members:,} members - Universe is empty! This may indicate missing fundamentals data.[/yellow]")
             else:
-                console.print(f"[red]❌ {universe_name}: Failed[/red]")
+                console.print(f"[green]✅ {universe_name}: {members:,} members[/green]")
 
-        if total_members == 0:
-            console.print("[red]Universe bootstrap failed, stopping[/red]")
-            sys.exit(1)
+        # Set default_universe as active
+        data_service.set_active_universe("default_universe")
 
     except Exception as e:
         console.print(f"[red]Universe bootstrap failed: {e}[/red]")

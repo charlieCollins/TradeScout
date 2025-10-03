@@ -67,11 +67,10 @@ def screener(config, screener_name: str, list_screeners: bool):
     # Load and execute screener
     try:
         # Initialize components
-        from provider.data_provider import PolygonDataProvider
 
         screener_config = ScreenerConfig()
-        data_provider = config.get_data_provider()
-        screener_engine = ScreenerEngine(data_provider, config)
+        data_service = config.get_data_service()
+        screener_engine = ScreenerEngine(data_service, config)
         screener_display = ScreenerDisplay()
 
         # Get screener definition
@@ -81,7 +80,7 @@ def screener(config, screener_name: str, list_screeners: bool):
         snapshot_time = None
         snapshot_warning = None
         try:
-            metadata = data_provider.get_market_snapshot_metadata()
+            metadata = data_service.get_market_snapshot_metadata()
             if metadata and metadata.get('completed_at'):
                 from datetime import datetime
                 completed_at = datetime.fromisoformat(metadata['completed_at'])
@@ -103,7 +102,7 @@ def screener(config, screener_name: str, list_screeners: bool):
         sessions_text = f"Valid sessions: {', '.join(valid_sessions)}" if valid_sessions else ""
 
         # Add session-specific warnings
-        current_session = data_provider.get_current_market_session()
+        current_session = data_service.get_current_market_session()
         session_warnings = []
 
         if current_session == "closed":

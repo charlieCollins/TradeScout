@@ -71,10 +71,10 @@ TradeScout provides real-time market screening across different trading sessions
 - `tradescout database bootstrap-all` - Run all bootstrap operations
 
 ### Data Management
-- **Database**: SQLite with 11 core tables for assets, prices, markets, universes
-- **Universe**: 7,521 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
+- **Database**: SQLite with 13 tables for assets, prices, markets, universes, sentiment
+- **Universe**: ~7,500 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
 - **Data Source**: Polygon.io Premium (15-minute delayed, extended hours support)
-- **Caching**: Aggressive file-based fundamentals caching + local price caching with TTL
+- **Caching**: TTL-based caching with automatic refresh logic (configurable per data type)
 
 ### Session Awareness
 - **Market Sessions**: Premarket (4-9:30 AM), Regular (9:30 AM-4 PM), Afterhours (4-8 PM), Closed
@@ -159,6 +159,33 @@ TradeScout provides real-time market screening across different trading sessions
 - **Polygon.io Premium API** ($50/month - provides extended hours data)
 - **SQLite** (included with Python)
 - **Linux/Ubuntu/WSL2** (primary development platform)
+
+## Documentation
+
+### Getting Started
+- **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete installation and setup tutorial
+
+### API Reference
+- **[Base Classes](docs/API_REFERENCE_BASE_CLASSES.md)** - BaseManager and BaseProvider documentation
+- **[DataService](docs/API_REFERENCE_DATA_SERVICE.md)** - Complete DataService API reference
+
+### Architecture
+- **[Database Managers](docs/ARCHITECTURE_MANAGERS.md)** - Manager/Provider pattern and TTL logic
+- **[API Providers](docs/ARCHITECTURE_API_PROVIDERS.md)** - External API integration patterns
+- **[Database Schema](docs/DATABASE.md)** - Complete database schema and table reference
+
+### Feature Guides
+- **[Screeners](docs/SCREENERS.md)** - Screener system and configuration
+- **[Bootstrapping](docs/BOOTSTRAPPING.md)** - Reference data initialization
+- **[Gap Trading](docs/GAP_TRADING_STRATEGY.md)** - Gap analysis and trading strategies
+- **[Sentiment](docs/SENTIMENT.md)** - Sentiment detection system (future feature)
+
+### Data Sources
+- **[Polygon.io Integration](docs/DATA_SOURCE_POLYGON.md)** - Polygon API usage
+- **[Snapshot API Details](docs/DATA_SOURCE_POLYGON_SNAPSHOT_INFO.md)** - Snapshot API behavior by session
+
+### Project Management
+- **[Lessons Learned](CLAUDE_LESSONS_LEARNED.md)** - Development insights and anti-patterns
 
 ---
 

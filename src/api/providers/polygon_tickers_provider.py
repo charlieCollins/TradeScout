@@ -118,7 +118,8 @@ class PolygonTickersProvider(BaseAPIProvider):
         self,
         market: str = "stocks",
         active: bool = True,
-        limit: int = 1000
+        limit: int = 1000,
+        market_code_to_id: Optional[Dict[str, int]] = None
     ) -> List[Asset]:
         """Fetch all tickers from Polygon API (paginated).
 
@@ -128,6 +129,7 @@ class PolygonTickersProvider(BaseAPIProvider):
             market: Market type (default: "stocks")
             active: Only active tickers (default: True)
             limit: Results per page (default: 1000, max: 1000)
+            market_code_to_id: Mapping of market codes (XNAS, XNYS) to database IDs
 
         Returns:
             List of Asset objects
@@ -163,7 +165,7 @@ class PolygonTickersProvider(BaseAPIProvider):
                 # Parse each ticker to Asset
                 for ticker_data in tickers:
                     try:
-                        asset = self._parse_ticker_to_asset(ticker_data)
+                        asset = self._parse_ticker_to_asset(ticker_data, market_code_to_id)
                         if asset:
                             all_assets.append(asset)
                     except Exception as e:
@@ -198,17 +200,36 @@ class PolygonTickersProvider(BaseAPIProvider):
             Parsed JSON response
         """
         import requests
+        from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
         logger.debug(f"Making paginated request to {full_url}")
 
+        # Parse URL and add API key to parameters
+        parsed = urlparse(full_url)
+        params = parse_qs(parsed.query)
+
+        # Add API key (Polygon expects it as a query parameter)
+        params['apikey'] = [self.api_key]
+
+        # Reconstruct URL with API key
+        new_query = urlencode(params, doseq=True)
+        authenticated_url = urlunparse((
+            parsed.scheme,
+            parsed.netloc,
+            parsed.path,
+            parsed.params,
+            new_query,
+            parsed.fragment
+        ))
+
         try:
-            response = requests.get(full_url)
+            response = requests.get(authenticated_url)
 
             # Handle rate limiting
             if response.status_code == 429:
                 logger.warning("Rate limit hit, waiting before retry...")
                 self._handle_rate_limit(response)
-                response = requests.get(full_url)
+                response = requests.get(authenticated_url)
 
             response.raise_for_status()
             return response.json()
@@ -217,11 +238,16 @@ class PolygonTickersProvider(BaseAPIProvider):
             logger.error(f"Request failed: {e}")
             raise
 
-    def _parse_ticker_to_asset(self, ticker_data: Dict[str, Any]) -> Optional[Asset]:
+    def _parse_ticker_to_asset(
+        self,
+        ticker_data: Dict[str, Any],
+        market_code_to_id: Optional[Dict[str, int]] = None
+    ) -> Optional[Asset]:
         """Parse Polygon ticker data into Asset model.
 
         Args:
             ticker_data: Raw ticker data from Polygon API
+            market_code_to_id: Mapping of market codes (XNAS, XNYS) to database IDs
 
         Returns:
             Asset object or None if parsing fails
@@ -239,11 +265,25 @@ class PolygonTickersProvider(BaseAPIProvider):
             # Map to AssetClass (simplified - all equity for now)
             asset_class = AssetClass.EQUITY
 
-            # Get market ID (we'll need to look this up from markets table)
-            # For now, default to 1 (assuming XNYS/NYSE)
-            market_id = 1
+            # Get market_id from primary_exchange using the mapping
+            primary_exchange = ticker_data.get("primary_exchange")
 
-            # Provider ID for Polygon (hardcoded for now)
+            if not primary_exchange:
+                raise ValueError(f"Ticker {symbol} missing primary_exchange field - cannot assign to market")
+
+            if not market_code_to_id:
+                raise ValueError(f"No market mapping provided - cannot assign ticker {symbol} to market {primary_exchange}")
+
+            market_id = market_code_to_id.get(primary_exchange)
+            if not market_id:
+                available_markets = list(market_code_to_id.keys())
+                raise ValueError(
+                    f"Market '{primary_exchange}' for ticker {symbol} not found in markets table. "
+                    f"Available markets: {available_markets}. "
+                    f"Run 'bootstrap-markets' to add missing exchanges."
+                )
+
+            # Provider ID for Polygon (hardcoded for now, will be fixed by bootstrap)
             provider_id = 1
 
             return Asset(

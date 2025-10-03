@@ -47,6 +47,9 @@
 ### Known Issues to Address
 - [ ] Fundamentals bulk TTL issue: get_or_fetch needs fallback for new tickers added after bootstrap
 
+### Future Architecture Improvements
+- [ ] Separate display/output from DataService - DataService should return data structures, not format output (Rich progress bars, etc.). This allows DataService to serve CLI, web API, reports, etc. with different formatters/outputters handling display per context.
+
 ---
 
 ## 📝 Key Architecture Rules

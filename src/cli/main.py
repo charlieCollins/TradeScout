@@ -41,32 +41,34 @@ class Config:
         """Get market context service (creates if needed)."""
         if self._market_context_service is None:
             from services.market_context_service import MarketContextService
-            from provider.data_provider import PolygonDataProvider
+            from services.data_service import DataService
+            from api.config.api_keys import POLYGON_API_KEY
 
-            # Create data provider
-            data_provider = PolygonDataProvider(self.db_manager)
+            # Create data service
+            data_service = DataService(self.db_manager, POLYGON_API_KEY)
 
             # Create service
-            self._market_context_service = MarketContextService(data_provider)
+            self._market_context_service = MarketContextService(data_service)
 
         return self._market_context_service
 
-    def get_data_provider(self):
-        """Get data provider instance (creates if needed)."""
-        # Reuse the data provider from market context service if available
+    def get_data_service(self):
+        """Get data service instance (creates if needed)."""
+        # Reuse the data service from market context service if available
         if self._market_context_service is not None:
             return self._market_context_service.data_provider
 
         # Otherwise create a new one
-        from provider.data_provider import PolygonDataProvider
-        return PolygonDataProvider(self.db_manager)
+        from services.data_service import DataService
+        from api.config.api_keys import POLYGON_API_KEY
+        return DataService(self.db_manager, POLYGON_API_KEY)
 
     def get_active_universe(self) -> str:
         """Get the currently active universe name."""
         if self._active_universe is None:
             try:
-                data_provider = self.get_data_provider()
-                active_universe = data_provider.get_active_universe()
+                data_service = self.get_data_service()
+                active_universe = data_service.get_active_universe()
                 if active_universe:
                     self._active_universe = active_universe.name
                 else:
@@ -81,8 +83,8 @@ class Config:
     def set_active_universe(self, universe_name: str) -> bool:
         """Set the active universe in database."""
         try:
-            data_provider = self.get_data_provider()
-            success = data_provider.set_active_universe(universe_name)
+            data_service = self.get_data_service()
+            success = data_service.set_active_universe(universe_name)
 
             if success:
                 # Update cache

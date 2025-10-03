@@ -22,7 +22,6 @@ from .asset_commands import display_market_context
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from provider.data_provider import PolygonDataProvider
 from screener.screener_engine import ScreenerEngine
 from screener.screener_config import ScreenerConfig
 from analysis.gap_analyzer import GapAnalyzer, GapCandidate, GapAssessment
@@ -76,14 +75,14 @@ def analyze(config, symbols):
     display_market_context(config)
 
     try:
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
         console.print(f"🔍 Analyzing {len(symbols)} symbols for gap information...")
 
         for symbol in symbols:
             try:
                 # Get current snapshot data
-                snapshot = data_provider.get_single_ticker_snapshot(symbol.upper())
+                snapshot = data_service.get_ticker_snapshot(symbol.upper())
                 if not snapshot:
                     console.print(f"❌ No snapshot data available for {symbol}")
                     continue

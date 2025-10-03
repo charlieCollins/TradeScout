@@ -6,7 +6,7 @@ Provides clean interface for business logic to access data.
 
 import logging
 import re
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime
 from models.snapshot import TickerSnapshot, MarketSnapshot
 from models.asset import Asset
@@ -22,6 +22,7 @@ from database.managers import (
     TickerSnapshotManager,
     MarketSnapshotManager,
     AssetManager,
+    AssetPriceManager,
     UniverseManager,
     ProviderManager,
     FundamentalsManager,
@@ -80,6 +81,10 @@ class DataService:
             self.metadata_manager
         )
         self.asset_manager = AssetManager(
+            db_manager,
+            self.metadata_manager
+        )
+        self.asset_price_manager = AssetPriceManager(
             db_manager,
             self.metadata_manager
         )
@@ -169,12 +174,13 @@ class DataService:
     # MARKET SNAPSHOT OPERATIONS (BULK REFRESH)
     # ============================================================================
 
-    def refresh_market_data(
+    def get_market_snapshot(
         self,
         symbols: Optional[List[str]] = None,
-        force_refresh: bool = False
+        force_refresh: bool = False,
+        progress_callback: Optional[callable] = None
     ) -> Optional[MarketSnapshot]:
-        """Refresh market data via bulk snapshot API call.
+        """Get bulk market snapshot via Polygon API.
 
         This is a bulk operation that fetches snapshots for many tickers in a single
         API call, then stores each ticker individually to asset_prices table.
@@ -185,6 +191,7 @@ class DataService:
         Args:
             symbols: Optional list of symbols to fetch (None = all tickers)
             force_refresh: If True, bypass TTL and always fetch fresh data
+            progress_callback: Optional callback function for progress updates
 
         Returns:
             MarketSnapshot object with bulk data, or None if refresh was skipped (within TTL)
@@ -193,14 +200,17 @@ class DataService:
         cache_key = "all" if not symbols else ",".join(sorted(symbols))
 
         logger.debug(
-            f"Refreshing market data for {len(symbols) if symbols else 'all'} symbols "
+            f"Getting market snapshot for {len(symbols) if symbols else 'all'} symbols "
             f"(force_refresh={force_refresh})"
         )
 
         # The manager handles TTL logic and decides whether to fetch
         market_snapshot = self.market_snapshot_manager.get_or_fetch(
             key=cache_key,
-            fetch_fn=lambda: self.polygon_snapshot_provider.fetch_bulk_market_snapshot(symbols),
+            fetch_fn=lambda: self.polygon_snapshot_provider.fetch_bulk_market_snapshot(
+                symbols,
+                progress_callback=progress_callback
+            ),
             force_refresh=force_refresh
         )
 
@@ -234,8 +244,127 @@ class DataService:
         logger.debug(f"Stored {stored_count}/{len(market_snapshot.tickers)} individual tickers from market snapshot")
 
     # ============================================================================
+    # ASSET PRICE OPERATIONS
+    # ============================================================================
+
+    def get_latest_asset_price(self, asset_id: int) -> Optional['AssetPrice']:
+        """Get the most recent price record for an asset.
+
+        Args:
+            asset_id: Asset database ID
+
+        Returns:
+            AssetPrice object or None if not found
+        """
+        from models.price import AssetPrice
+
+        logger.debug(f"Getting latest asset price for asset_id {asset_id}")
+        return self.asset_price_manager.get_entity_from_database(str(asset_id))
+
+    def save_asset_price_data(self, asset_price: 'AssetPrice') -> bool:
+        """Save asset price data to database.
+
+        Args:
+            asset_price: AssetPrice object to save
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.debug(f"Saving asset price for asset_id {asset_price.asset_id}")
+        return self.asset_price_manager.set_entity_to_database(str(asset_price.asset_id), asset_price)
+
+    def transform_ticker_snapshot_to_asset_price(
+        self,
+        symbol: str,
+        asset_id: int,
+        ticker_snapshot: TickerSnapshot
+    ) -> Optional['AssetPrice']:
+        """Transform TickerSnapshot model to AssetPrice model.
+
+        Args:
+            symbol: Stock symbol
+            asset_id: Asset database ID
+            ticker_snapshot: TickerSnapshot object to transform
+
+        Returns:
+            AssetPrice object or None if error
+        """
+        try:
+            from models.price import AssetPrice
+
+            # Get provider ID (default to 1 = Polygon)
+            provider_id = 1
+
+            # Use Polygon's updated timestamp or default to 0
+            provider_updated_at = ticker_snapshot.updated_ns or 0
+
+            # Determine trade date
+            if provider_updated_at and provider_updated_at != 0:
+                updated_seconds = provider_updated_at // 1_000_000_000
+                trade_date = datetime.fromtimestamp(updated_seconds).date()
+            elif ticker_snapshot.min_bar and ticker_snapshot.min_bar.timestamp:
+                trade_date = datetime.fromtimestamp(ticker_snapshot.min_bar.timestamp / 1000).date()
+            else:
+                trade_date = datetime.now().date()
+
+            return AssetPrice(
+                id=0,  # Will be set by database auto-increment
+                asset_id=asset_id,
+                symbol=symbol,
+                provider_id=provider_id,
+                provider_updated_at=provider_updated_at,
+                trade_date=trade_date,
+                updated_at=datetime.now(),
+                # Previous day data
+                prevday_open=ticker_snapshot.prev_close,
+                prevday_high=ticker_snapshot.prev_close,
+                prevday_low=ticker_snapshot.prev_close,
+                prevday_close=ticker_snapshot.prev_close,
+                prevday_volume=ticker_snapshot.prev_volume,
+                prevday_vwap=None,
+                # Current day data
+                day_open=ticker_snapshot.open_price,
+                day_high=ticker_snapshot.high_price,
+                day_low=ticker_snapshot.low_price,
+                day_close=ticker_snapshot.close_price,
+                day_volume=ticker_snapshot.volume,
+                day_vwap=ticker_snapshot.vwap,
+                # Min data
+                min_timestamp=ticker_snapshot.min_bar.timestamp if ticker_snapshot.min_bar else None,
+                min_open=ticker_snapshot.min_bar.open if ticker_snapshot.min_bar else None,
+                min_high=ticker_snapshot.min_bar.high if ticker_snapshot.min_bar else None,
+                min_low=ticker_snapshot.min_bar.low if ticker_snapshot.min_bar else None,
+                min_close=ticker_snapshot.min_bar.close if ticker_snapshot.min_bar else None,
+                min_volume=ticker_snapshot.min_bar.volume if ticker_snapshot.min_bar else None,
+                min_vwap=ticker_snapshot.min_bar.vwap if ticker_snapshot.min_bar else None,
+                min_accumulated_volume=ticker_snapshot.min_bar.accumulated_volume if ticker_snapshot.min_bar else None,
+                min_num_trades=ticker_snapshot.min_bar.num_trades if ticker_snapshot.min_bar else None
+            )
+
+        except Exception as e:
+            logger.error(f"Error transforming TickerSnapshot for {symbol}: {e}")
+            return None
+
+    # ============================================================================
     # ASSET OPERATIONS (REFERENCE DATA)
     # ============================================================================
+
+    def get_asset_with_market(self, symbol: str, force_refresh: bool = False) -> Optional[Tuple[Asset, 'Market']]:
+        """Get asset and its associated market (orchestrates managers).
+
+        Args:
+            symbol: Stock symbol
+            force_refresh: Force refresh from API
+
+        Returns:
+            Tuple of (Asset, Market) or None if not found
+        """
+        asset = self.get_asset(symbol, force_refresh)
+        if not asset:
+            return None
+
+        market = self.get_market_by_code(asset.market_code) if asset.market_code else None
+        return (asset, market)
 
     def get_asset(self, symbol: str, force_refresh: bool = False) -> Optional[Asset]:
         """Get asset reference data for a symbol with automatic cache/refresh logic.
@@ -283,25 +412,104 @@ class DataService:
 
         Returns:
             Number of assets stored
+
+        Raises:
+            RuntimeError: If prerequisites (providers, markets) are not met
         """
         logger.info(f"Bootstrapping assets from Polygon (market={market}, active={active})")
 
-        # Fetch all tickers from API
-        assets = self.polygon_tickers_provider.fetch_all_tickers(market=market, active=active)
+        # Check prerequisites
+        providers = self.get_all_providers()
+        if not providers:
+            raise RuntimeError("Cannot bootstrap assets: No providers in database. Run 'bootstrap-providers' first.")
+
+        markets = self.get_all_markets(active_only=False)
+        if not markets:
+            raise RuntimeError("Cannot bootstrap assets: No markets in database. Run 'bootstrap-markets' first.")
+
+        # Get Polygon provider ID (should be the active one)
+        polygon_provider = next((p for p in providers if p.name == "polygon"), None)
+        if not polygon_provider:
+            raise RuntimeError("Cannot bootstrap assets: Polygon provider not found in database.")
+
+        # Create market_code to market_id mapping for the provider
+        market_code_to_id = {m.code: m.id for m in markets}
+
+        # Fetch all tickers from API with market mapping
+        raw_assets = self.polygon_tickers_provider.fetch_all_tickers(
+            market=market,
+            active=active,
+            market_code_to_id=market_code_to_id
+        )
+
+        # Fix provider_id for all assets (provider uses placeholder provider_id)
+        # Asset is frozen dataclass, so we need to use dataclasses.replace()
+        from dataclasses import replace
+        assets = []
+        for asset in raw_assets:
+            fixed_asset = replace(asset, provider_id=polygon_provider.id)
+            assets.append(fixed_asset)
 
         if not assets:
             logger.warning("No assets fetched from Polygon")
             return 0
 
-        # Store each asset to database
+        # Bulk insert assets to database in batches with progress bar
+        from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+        from rich.console import Console
+        import logging
+
+        batch_size = 1000
         stored_count = 0
-        for asset in assets:
-            try:
-                if self.asset_manager.set_entity_to_database(asset.symbol, asset):
-                    stored_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to store asset {asset.symbol}: {e}")
-                continue
+        failed_count = 0
+        total = len(assets)
+
+        # Temporarily suppress all logging during progress bar
+        original_levels = {}
+        for name in logging.root.manager.loggerDict:
+            log = logging.getLogger(name)
+            if log.level != logging.NOTSET:
+                original_levels[name] = log.level
+                log.setLevel(logging.CRITICAL)
+
+        root_logger = logging.getLogger()
+        original_root_level = root_logger.level
+        root_logger.setLevel(logging.CRITICAL)
+
+        console = Console()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("•"),
+            TextColumn("{task.completed}/{task.total}"),
+            TextColumn("•"),
+            TextColumn("[green]✓ {task.fields[stored]}[/green]"),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Storing assets", total=total, stored=0)
+
+            for i in range(0, total, batch_size):
+                batch = assets[i:i + batch_size]
+                batch_stored = self.asset_manager.bulk_insert_assets(batch)
+                stored_count += batch_stored
+                failed_count += (len(batch) - batch_stored)
+
+                progress.update(task, advance=len(batch), stored=stored_count)
+
+        # Restore original log levels
+        root_logger.setLevel(original_root_level)
+        for name, level in original_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+        # Display summary
+        console.print(f"\n✅ Successfully stored {stored_count}/{total} assets")
+        if failed_count > 0:
+            console.print(f"⚠️  Failed: {failed_count} assets")
 
         # Record the bootstrap operation timestamp
         self.asset_manager._record_update()
@@ -312,51 +520,6 @@ class DataService:
     # ============================================================================
     # FUNDAMENTALS OPERATIONS
     # ============================================================================
-
-    def get_fundamentals(
-        self,
-        symbol: str,
-        force_refresh: bool = False
-    ) -> Optional[AssetFundamentals]:
-        """Get asset fundamentals with automatic cache/refresh logic.
-
-        Fundamentals are company data (market cap, sector, industry, etc.) that
-        change infrequently. Uses 1-week TTL for refresh checks.
-
-        This method:
-        1. Looks up asset_id from symbol (via assets table)
-        2. Checks if fundamentals are cached and fresh (TTL check)
-        3. Fetches from Polygon tickers API if stale or forced
-        4. Stores to database and returns AssetFundamentals
-
-        Args:
-            symbol: Stock symbol (e.g., 'AAPL')
-            force_refresh: If True, bypass cache and always fetch fresh data
-
-        Returns:
-            AssetFundamentals object or None if not found
-        """
-        logger.debug(f"Getting fundamentals for {symbol} (force_refresh={force_refresh})")
-
-        # First, get the asset to get its asset_id
-        # We need asset_id to store fundamentals (foreign key constraint)
-        asset = self.asset_manager.get_entity_from_database(symbol)
-        if not asset:
-            # Asset not in database - fetch it first
-            logger.debug(f"Asset {symbol} not found, fetching asset first")
-            asset = self.get_asset(symbol)
-            if not asset:
-                logger.warning(f"Cannot get fundamentals for {symbol}: asset not found")
-                return None
-
-        asset_id = asset.id
-
-        # Use get_or_fetch pattern with asset_id as key
-        return self.fundamentals_manager.get_or_fetch(
-            key=str(asset_id),
-            fetch_fn=lambda: self._fetch_fundamentals_for_symbol(symbol, asset_id),
-            force_refresh=force_refresh
-        )
 
     def _fetch_fundamentals_for_symbol(
         self,
@@ -410,51 +573,99 @@ class DataService:
 
         Returns:
             Number of fundamentals stored successfully
+
+        Raises:
+            RuntimeError: If prerequisites (assets) are not met
         """
         logger.info(f"Bootstrapping fundamentals (limit={limit})")
 
-        # Get all assets from database
-        # We'll query directly rather than using AssetManager to get all symbols
-        try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                query = "SELECT id, symbol FROM assets WHERE is_active = 1"
-                if limit:
-                    query += f" LIMIT {limit}"
-
-                cursor.execute(query)
-                assets = cursor.fetchall()
-
-        except Exception as e:
-            logger.error(f"Error fetching assets from database: {e}")
-            return 0
+        # Get all assets from database via AssetManager
+        assets = self.asset_manager.get_all_active_asset_ids(limit=limit)
 
         if not assets:
-            logger.warning("No assets found in database")
-            return 0
+            raise RuntimeError("Cannot bootstrap fundamentals: No assets in database. Run 'bootstrap-tickers' first.")
 
         logger.info(f"Fetching fundamentals for {len(assets)} assets")
 
-        # Fetch and store fundamentals for each asset
+        # Fetch and store fundamentals for each asset with progress bar
+        from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
+        from rich.console import Console
+        import logging
+
         stored_count = 0
-        for asset_id, symbol in assets:
-            try:
-                # Fetch fundamentals (bypasses cache to force fresh fetch during bootstrap)
-                fundamentals = self._fetch_fundamentals_for_symbol(symbol, asset_id)
-                if fundamentals:
-                    # Store to database
-                    if self.fundamentals_manager.set_entity_to_database(str(asset_id), fundamentals):
-                        stored_count += 1
-                        if stored_count % 100 == 0:
-                            logger.info(f"Bootstrapped {stored_count}/{len(assets)} fundamentals...")
-            except Exception as e:
-                logger.warning(f"Failed to fetch fundamentals for {symbol}: {e}")
-                continue
+        failed_count = 0
+        errors = []  # Collect errors to display at the end
+
+        # Temporarily suppress all logging during progress bar
+        # Save original levels for all active loggers
+        original_levels = {}
+        for name in logging.root.manager.loggerDict:
+            log = logging.getLogger(name)
+            if log.level != logging.NOTSET:
+                original_levels[name] = log.level
+                log.setLevel(logging.CRITICAL)
+
+        # Also set root logger
+        root_logger = logging.getLogger()
+        original_root_level = root_logger.level
+        root_logger.setLevel(logging.CRITICAL)
+
+        console = Console()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TextColumn("•"),
+            TextColumn("{task.completed}/{task.total}"),
+            TextColumn("•"),
+            TextColumn("[red]✗ {task.fields[errors]}[/red]"),
+            TextColumn("•"),
+            TimeElapsedColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task(f"Fetching fundamentals", total=len(assets), errors=0)
+
+            for asset_id, symbol in assets:
+                try:
+                    # Fetch fundamentals (bypasses cache to force fresh fetch during bootstrap)
+                    fundamentals = self._fetch_fundamentals_for_symbol(symbol, asset_id)
+                    if fundamentals:
+                        # Store to database
+                        if self.fundamentals_manager.set_entity_to_database(str(asset_id), fundamentals):
+                            stored_count += 1
+                    else:
+                        failed_count += 1
+                        errors.append(f"{symbol}: No data returned")
+                except Exception as e:
+                    failed_count += 1
+                    errors.append(f"{symbol}: {str(e)}")
+
+                progress.update(task, advance=1, errors=failed_count)
+
+        # Restore original log levels
+        root_logger.setLevel(original_root_level)
+        for name, level in original_levels.items():
+            logging.getLogger(name).setLevel(level)
+
+        # Display summary
+        console.print(f"\n✅ Successfully bootstrapped {stored_count}/{len(assets)} fundamentals")
+        if failed_count > 0:
+            console.print(f"⚠️  Failed: {failed_count} assets")
+            if errors and len(errors) <= 20:
+                console.print("\nFailed assets:")
+                for error in errors[:20]:
+                    console.print(f"  • {error}")
+            elif errors:
+                console.print(f"\n  (Showing first 20 of {len(errors)} errors)")
+                for error in errors[:20]:
+                    console.print(f"  • {error}")
 
         # Record the bootstrap operation timestamp
         self.fundamentals_manager._record_update()
 
-        logger.info(f"Bootstrapped {stored_count}/{len(assets)} fundamentals successfully")
+        logger.info(f"Bootstrapped {stored_count}/{len(assets)} fundamentals successfully ({failed_count} failed)")
         return stored_count
 
     # ============================================================================
@@ -486,6 +697,9 @@ class DataService:
                 "filtered_assets": int,
                 "memberships_added": int
             }
+
+        Raises:
+            RuntimeError: If prerequisites (assets) are not met
         """
         logger.info(f"Bootstrapping universe: {universe_name}")
 
@@ -493,6 +707,11 @@ class DataService:
         config = UNIVERSE_CONFIG.get(universe_name)
         if not config:
             raise ValueError(f"Unknown universe: {universe_name}. Available: {list(UNIVERSE_CONFIG.keys())}")
+
+        # Check prerequisites - need assets in database to filter
+        asset_stats = self.asset_manager.get_stats()
+        if asset_stats.get('total_active_assets', 0) == 0:
+            raise RuntimeError("Cannot bootstrap universes: No assets in database. Run 'bootstrap-tickers' first.")
 
         # Check TTL unless forced
         if not force_refresh and not self.universe_manager._is_data_stale():
@@ -557,55 +776,7 @@ class DataService:
             List of dicts with keys: id, symbol, name, asset_type, market_code,
                                      is_active, sector, market_cap, volume
         """
-        if not self.db_manager:
-            return []
-
-        try:
-            with self.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-
-                # Join assets + fundamentals + markets to get complete data for filtering
-                query = """
-                    SELECT
-                        a.id,
-                        a.symbol,
-                        a.name,
-                        a.asset_type,
-                        m.code as market_code,
-                        a.is_active,
-                        f.sector,
-                        f.market_cap,
-                        f.avg_volume_30d as volume
-                    FROM assets a
-                    LEFT JOIN markets m ON a.market_id = m.id
-                    LEFT JOIN asset_fundamentals f ON a.id = f.asset_id
-                    WHERE a.is_active = 1
-                    ORDER BY a.symbol
-                """
-
-                cursor.execute(query)
-                rows = cursor.fetchall()
-
-                # Convert to list of dicts
-                assets = []
-                for row in rows:
-                    assets.append({
-                        "id": row[0],
-                        "symbol": row[1],
-                        "name": row[2],
-                        "asset_type": row[3],
-                        "market_code": row[4],
-                        "is_active": bool(row[5]),
-                        "sector": row[6],
-                        "market_cap": row[7],
-                        "volume": row[8]
-                    })
-
-                return assets
-
-        except Exception as e:
-            logger.error(f"Error fetching assets with fundamentals: {e}")
-            return []
+        return self.universe_manager.get_assets_with_fundamentals()
 
     def _apply_universe_filters(
         self,
@@ -774,20 +945,6 @@ class DataService:
 
     # ============================================================================
 
-    def get_universe(self, universe_name: str):
-        """Get universe by name.
-
-        Note: Universes are internal-only entities with no external API.
-
-        Args:
-            universe_name: Name of universe (e.g., 'default_universe')
-
-        Returns:
-            Universe object or None if not found
-        """
-        logger.debug(f"Getting universe: {universe_name}")
-        return self.universe_manager.get_entity_from_database(universe_name)
-
     def get_all_universes(self):
         """Get all universes from database.
 
@@ -819,20 +976,6 @@ class DataService:
     # ============================================================================
     # PROVIDER OPERATIONS (INTERNAL CONFIG - NO API)
     # ============================================================================
-
-    def get_provider(self, provider_name: str):
-        """Get provider by name.
-
-        Note: Providers are internal configuration with no external API.
-
-        Args:
-            provider_name: Name of provider (e.g., 'polygon')
-
-        Returns:
-            Provider object or None if not found
-        """
-        logger.debug(f"Getting provider: {provider_name}")
-        return self.provider_manager.get_entity_from_database(provider_name)
 
     def get_all_providers(self):
         """Get all configured providers.
@@ -879,20 +1022,6 @@ class DataService:
     # MARKETS OPERATIONS (INTERNAL CONFIG - NO API)
     # ============================================================================
 
-    def get_market(self, market_code: str) -> Optional[Market]:
-        """Get market by code.
-
-        Note: Markets are internal configuration with no external API.
-
-        Args:
-            market_code: Market code (e.g., 'XNYS', 'XNAS')
-
-        Returns:
-            Market object or None if not found
-        """
-        logger.debug(f"Getting market: {market_code}")
-        return self.markets_manager.get_entity_from_database(market_code)
-
     def get_all_markets(self, active_only: bool = True) -> List[Market]:
         """Get all markets from database.
 
@@ -931,8 +1060,16 @@ class DataService:
 
         Returns:
             Number of markets stored successfully
+
+        Raises:
+            RuntimeError: If prerequisites (providers) are not met
         """
         logger.info(f"Bootstrapping markets from Polygon (asset_class={asset_class}, locale={locale})")
+
+        # Check prerequisites
+        providers = self.get_all_providers()
+        if not providers:
+            raise RuntimeError("Cannot bootstrap markets: No providers in database. Run 'bootstrap-providers' first.")
 
         # Fetch all markets from Polygon API
         markets = self.polygon_markets_provider.fetch_all_exchanges(
@@ -1018,65 +1155,6 @@ class DataService:
     # MARKET CONTEXT OPERATIONS
     # ============================================================================
 
-    def get_market_context(
-        self,
-        market_code: str,
-        force_refresh: bool = False
-    ) -> Optional[MarketContext]:
-        """Get market context (current market state/session) with automatic cache/refresh logic.
-
-        Market context combines market info with current status from Polygon's /v1/marketstatus/now.
-        Uses 5-minute TTL since market state changes throughout the day.
-
-        Args:
-            market_code: Market code (e.g., 'XNYS', 'XNAS')
-            force_refresh: If True, bypass cache and always fetch fresh data
-
-        Returns:
-            MarketContext object or None if error
-
-        Note: This requires the market to exist in the markets table.
-              Run bootstrap_markets() first if needed.
-        """
-        logger.debug(f"Getting market context for {market_code} (force_refresh={force_refresh})")
-
-        # Use get_or_fetch pattern
-        return self.market_context_manager.get_or_fetch(
-            key=market_code,
-            fetch_fn=lambda: self._fetch_market_context_for_market(market_code),
-            force_refresh=force_refresh
-        )
-
-    def _fetch_market_context_for_market(self, market_code: str) -> Optional[MarketContext]:
-        """Internal helper to fetch and construct MarketContext.
-
-        Args:
-            market_code: Market code (e.g., 'XNYS')
-
-        Returns:
-            MarketContext object or None if error
-        """
-        # Get market from database
-        market = self.markets_manager.get_entity_from_database(market_code)
-        if not market:
-            logger.error(f"Market {market_code} not found in database")
-            return None
-
-        # Fetch raw market status from Polygon API
-        status_data = self.polygon_market_status_provider.fetch_market_status()
-        if not status_data:
-            logger.error(f"Failed to fetch market status for {market_code}")
-            return None
-
-        # TODO: Construct MarketContext from status_data + market
-        # This requires parsing the Polygon market status API response
-        # and determining session, trading day, etc.
-        # For now, we'll need the MarketContextService to handle this
-        # See src/services/market_context_service.py
-
-        logger.warning("MarketContext construction not fully implemented yet - needs MarketContextService")
-        return None
-
     # ============================================================================
     # MARKET HOLIDAYS/CONTEXT STATISTICS
     # ============================================================================
@@ -1096,68 +1174,6 @@ class DataService:
             Dictionary with manager statistics
         """
         return self.market_context_manager.get_stats()
-
-    def bootstrap_sentiment_types(self) -> int:
-        """Bootstrap predefined sentiment types to database.
-
-        Creates hardcoded sentiment type definitions (news_positive, news_negative, etc.)
-        No API fetch needed - this is static configuration data.
-
-        Returns:
-            Number of sentiment types created
-        """
-        from datetime import datetime
-
-        logger.info("Bootstrapping predefined sentiment types")
-
-        # Define predefined sentiment types
-        # Phase 1: News sentiment only
-        predefined_types = [
-            SentimentType(
-                id=0,  # Will be auto-assigned by database
-                name="news_positive",
-                description="Positive news sentiment from articles",
-                category="news",
-                parameters={"min_confidence": 0.7, "sources": ["polygon"]},
-                is_active=True,
-                created_at=datetime.now()
-            ),
-            SentimentType(
-                id=0,
-                name="news_negative",
-                description="Negative news sentiment from articles",
-                category="news",
-                parameters={"min_confidence": 0.7, "sources": ["polygon"]},
-                is_active=True,
-                created_at=datetime.now()
-            ),
-            SentimentType(
-                id=0,
-                name="news_neutral",
-                description="Neutral/informational news",
-                category="news",
-                parameters={"min_confidence": 0.5, "sources": ["polygon"]},
-                is_active=True,
-                created_at=datetime.now()
-            )
-            # Phase 2 - Earnings (future):
-            # earnings_beat, earnings_miss, guidance_raised, guidance_lowered
-            # Phase 3 - Analyst ratings (future):
-            # analyst_upgrade, analyst_downgrade, price_target_increase
-        ]
-
-        # Store each type to database
-        stored_count = 0
-        for sentiment_type in predefined_types:
-            try:
-                if self.sentiment_types_manager.set_entity_to_database(sentiment_type.name, sentiment_type):
-                    stored_count += 1
-            except Exception as e:
-                logger.warning(f"Failed to store sentiment type {sentiment_type.name}: {e}")
-                continue
-
-        logger.info(f"Bootstrapped {stored_count}/{len(predefined_types)} sentiment types successfully")
-        return stored_count
 
     def get_sentiment_events(
         self,
@@ -1198,6 +1214,329 @@ class DataService:
         else:
             logger.warning("get_sentiment_events called with no filters")
             return []
+
+    # ============================================================================
+    # SNAPSHOT METADATA OPERATIONS
+    # ============================================================================
+
+    def get_market_snapshot_metadata(self) -> Optional[Dict[str, Any]]:
+        """Get metadata about the last market snapshot run.
+
+        Returns:
+            Dictionary with snapshot metadata or None if no runs found
+        """
+        try:
+            # Query data_update_metadata table for latest snapshot operation
+            if not self.db_manager:
+                return None
+
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT operation_type, last_update, metadata
+                    FROM data_update_metadata
+                    WHERE operation_type = 'market_snapshot'
+                    ORDER BY last_update DESC
+                    LIMIT 1
+                """)
+
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                return {
+                    "operation_type": row[0],
+                    "last_update": row[1],
+                    "metadata": row[2]
+                }
+
+        except Exception as e:
+            logger.error(f"Error getting market snapshot metadata: {e}")
+            return None
+
+    def start_market_snapshot_run(self, total_symbols: int) -> str:
+        """Start tracking a market snapshot operation.
+
+        Args:
+            total_symbols: Total number of symbols to process
+
+        Returns:
+            Operation ID for tracking
+        """
+        logger.debug(f"Starting market snapshot run for {total_symbols} symbols")
+        # Return a simple timestamp-based ID
+        return f"snapshot_{datetime.now().isoformat()}"
+
+    def complete_market_snapshot_run(
+        self,
+        operation_id: str,
+        successful: int,
+        failed: int,
+        api_calls: int = 1,
+        error: str = None
+    ) -> bool:
+        """Complete tracking a market snapshot operation.
+
+        Args:
+            operation_id: Operation ID from start_market_snapshot_run
+            successful: Number of successful updates
+            failed: Number of failed updates
+            api_calls: Number of API calls made
+            error: Optional error message
+
+        Returns:
+            True if successful, False otherwise
+        """
+        logger.debug(f"Completing market snapshot run {operation_id}: {successful} successful, {failed} failed")
+
+        # Record update in metadata
+        try:
+            if self.metadata_manager:
+                self.metadata_manager.record_operation_completion(
+                    operation_type="market_snapshot",
+                    metadata={
+                        "successful": successful,
+                        "failed": failed,
+                        "api_calls": api_calls,
+                        "error": error
+                    }
+                )
+            return True
+        except Exception as e:
+            logger.error(f"Error completing market snapshot run: {e}")
+            return False
+
+    # ============================================================================
+    # UNIVERSE OPERATIONS (ADDITIONAL METHODS)
+    # ============================================================================
+
+    def get_active_universe_symbols(self) -> List[str]:
+        """Get all symbols in the active universe.
+
+        Returns:
+            List of symbols
+        """
+        return self.universe_manager.get_active_universe_symbols()
+
+    def get_universe_stats(self, name: str) -> Optional['UniverseStats']:
+        """Get statistics for a universe.
+
+        Args:
+            name: Universe name
+
+        Returns:
+            UniverseStats object or None if not found
+        """
+        return self.universe_manager.get_universe_stats(name)
+
+    def create_universe(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        min_market_cap: Optional[int] = None,
+        min_volume: Optional[int] = None,
+        max_assets: Optional[int] = None
+    ) -> bool:
+        """Create a new universe.
+
+        Args:
+            name: Universe name
+            description: Optional description
+            min_market_cap: Optional minimum market cap filter
+            min_volume: Optional minimum volume filter
+            max_assets: Optional maximum asset count
+
+        Returns:
+            True if created successfully, False otherwise
+        """
+        # Create Universe model
+        universe = Universe(
+            id=0,
+            name=name,
+            description=description or "",
+            is_active=False,
+            min_market_cap=min_market_cap,
+            min_volume=min_volume,
+            max_assets=max_assets,
+            last_updated=datetime.now(),
+            created_at=datetime.now(),
+            updated_at=datetime.now()
+        )
+
+        # Delegate to manager
+        return self.universe_manager.set_entity_to_database(name, universe)
+
+    def delete_universe(self, name: str) -> Tuple[bool, int]:
+        """Delete a universe and all its memberships.
+
+        Args:
+            name: Universe name to delete
+
+        Returns:
+            Tuple of (success, member_count_deleted)
+        """
+        return self.universe_manager.delete_universe(name)
+
+    def get_universe_market_breakdown(self, universe_name: str) -> List[Tuple[str, str, int]]:
+        """Get market breakdown for a universe.
+
+        Args:
+            universe_name: Universe name to analyze
+
+        Returns:
+            List of tuples (market_code, market_name, asset_count)
+        """
+        return self.universe_manager.get_market_breakdown(universe_name)
+
+    # ============================================================================
+    # MARKET OPERATIONS (ADDITIONAL METHODS)
+    # ============================================================================
+
+    def get_market_by_code(self, code: str) -> Optional[Market]:
+        """Get market by exchange code.
+
+        Args:
+            code: Market code (e.g., 'XNYS', 'XNAS')
+
+        Returns:
+            Market object or None if not found
+        """
+        return self.markets_manager.get_entity_from_database(code)
+
+    def get_active_markets_by_codes(self, codes: List[str]) -> List[Tuple[str, str]]:
+        """Get multiple markets by codes, return (code, name) tuples.
+
+        Args:
+            codes: List of market codes to filter by
+
+        Returns:
+            List of tuples (market_code, market_name)
+        """
+        return self.markets_manager.get_markets_by_codes(codes)
+
+    def get_current_market_session(self) -> str:
+        """Get current market session name.
+
+        Returns:
+            Session name: 'premarket', 'regular', 'afterhours', or 'closed'
+        """
+        try:
+            # Fetch market status from Polygon API
+            status_data = self.polygon_market_status_provider.fetch_market_status()
+
+            # Parse Polygon market status response
+            market = status_data.get('market', '').lower()
+            early_hours = status_data.get('earlyHours', False)
+            after_hours = status_data.get('afterHours', False)
+
+            # Map Polygon market status to our session names
+            if market == 'open':
+                return "regular"
+            elif market == 'extended-hours':
+                if early_hours:
+                    return "premarket"
+                elif after_hours:
+                    return "afterhours"
+                else:
+                    return "premarket"  # Default to premarket for extended hours
+            elif market == 'closed':
+                return "closed"
+            else:
+                raise RuntimeError(f"Unknown market status from Polygon API: {market}")
+
+        except Exception as e:
+            logger.error(f"Error getting current market session: {e}")
+            raise RuntimeError("Failed to get market session from Polygon API")
+
+    # ============================================================================
+    # SCREENER OPERATIONS
+    # ============================================================================
+
+    def execute_screener_query(self, sql: str) -> List[Dict[str, Any]]:
+        """Execute raw SQL query for screeners.
+
+        Args:
+            sql: SQL query to execute
+
+        Returns:
+            List of dictionaries representing query results
+        """
+        if not self.db_manager:
+            logger.error("No database manager available")
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql)
+
+                # Get column names
+                columns = [description[0] for description in cursor.description]
+
+                # Fetch results
+                rows = cursor.fetchall()
+
+                # Convert to list of dictionaries
+                results = []
+                for row in rows:
+                    result = dict(zip(columns, row))
+                    results.append(result)
+
+                return results
+
+        except Exception as e:
+            logger.error(f"Error executing screener query: {e}")
+            return []
+
+    # ============================================================================
+    # DATABASE STATISTICS (Cross-cutting concern)
+    # ============================================================================
+
+    def get_database_stats(self) -> Optional['DatabaseStats']:
+        """Get database statistics and health information.
+
+        This is a cross-cutting concern that aggregates data from multiple managers.
+        """
+        if not self.db_manager:
+            return None
+
+        try:
+            from models.database_stats import DatabaseStats
+
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get table counts
+                table_counts = {}
+                tables = ['assets', 'markets', 'asset_prices', 'universes', 'universe_memberships',
+                         'fundamentals', 'data_update_metadata']
+
+                for table in tables:
+                    cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                    table_counts[table] = cursor.fetchone()[0]
+
+                # Get latest updates
+                cursor.execute("""
+                    SELECT operation_type, MAX(last_update) as latest
+                    FROM data_update_metadata
+                    GROUP BY operation_type
+                """)
+                latest_updates = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Get database file size
+                cursor.execute("SELECT page_count * page_size as size FROM pragma_page_count(), pragma_page_size()")
+                db_size_bytes = cursor.fetchone()[0]
+
+                return DatabaseStats(
+                    table_counts=table_counts,
+                    latest_updates=latest_updates,
+                    database_size_bytes=db_size_bytes,
+                    database_path=self.db_manager.db_path
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting database stats: {e}")
+            return None
 
     # ============================================================================
     # PROVIDER HEALTH & INFO
@@ -1255,14 +1594,6 @@ class DataService:
         """
         return self.asset_manager.get_stats()
 
-    def get_universe_stats(self) -> dict:
-        """Get statistics from universe manager.
-
-        Returns:
-            Dictionary with manager statistics
-        """
-        return self.universe_manager.get_stats()
-
     def get_provider_stats(self) -> dict:
         """Get statistics from provider manager.
 
@@ -1287,13 +1618,6 @@ class DataService:
         """
         return self.markets_manager.get_stats()
 
-    def get_universe_stats(self) -> dict:
-        """Get statistics from universe manager.
-
-        Returns:
-            Dictionary with manager statistics
-        """
-        return self.universe_manager.get_stats()
     def get_sentiment_types_stats(self) -> dict:
         """Get statistics from sentiment types manager.
 

@@ -25,8 +25,8 @@ def universe(config):
 def universe_list(config):
     """List all available universes."""
     try:
-        data_provider = config.get_data_provider()
-        universes_list = data_provider.get_all_universes()
+        data_service = config.get_data_service()
+        universes_list = data_service.get_all_universes()
 
         if not universes_list:
             console.print("[yellow]No universes found[/yellow]")
@@ -45,7 +45,7 @@ def universe_list(config):
 
         for universe in universes_list:
             # Get asset count for this universe
-            stats = data_provider.get_universe_stats(universe.name)
+            stats = data_service.get_universe_stats(universe.name)
             asset_count = stats.total_members if stats else 0
 
             # Mark the active universe
@@ -80,10 +80,10 @@ def universe_info(config, universe_name):
         universe_name = config.get_active_universe()
 
     try:
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
         # Get universe details
-        universes_list = data_provider.get_all_universes()
+        universes_list = data_service.get_all_universes()
         universe = next((u for u in universes_list if u.name == universe_name), None)
 
         if not universe:
@@ -91,7 +91,7 @@ def universe_info(config, universe_name):
             return
 
         # Get universe statistics
-        stats = data_provider.get_universe_stats(universe_name)
+        stats = data_service.get_universe_stats(universe_name)
         if not stats:
             console.print(f"[red]Unable to get stats for universe '{universe_name}'[/red]")
             return
@@ -168,8 +168,8 @@ def universe_activate(config, universe_name):
         console.print(f"[green]✅ Activated universe: {universe_name}[/green]")
 
         # Show brief info about the activated universe
-        data_provider = config.get_data_provider()
-        stats = data_provider.get_universe_stats(universe_name)
+        data_service = config.get_data_service()
+        stats = data_service.get_universe_stats(universe_name)
         count = stats.total_members if stats else 0
         console.print(f"[dim]This universe contains {count:,} assets[/dim]")
     else:
@@ -196,9 +196,9 @@ def universe_current(config):
 def universe_create(config, name, description, min_market_cap, min_volume, max_assets):
     """Create a new empty universe."""
     try:
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
-        if data_provider.create_universe(name, description, min_market_cap, min_volume, max_assets):
+        if data_service.create_universe(name, description, min_market_cap, min_volume, max_assets):
             console.print(f"[green]✅ Created universe: {name}[/green]")
 
             if description:
@@ -230,10 +230,10 @@ def universe_delete(config, name, force):
         sys.exit(1)
 
     try:
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
         # Get current member count for confirmation
-        stats = data_provider.get_universe_stats(name)
+        stats = data_service.get_universe_stats(name)
         if not stats:
             console.print(f"[red]Universe '{name}' not found[/red]")
             sys.exit(1)
@@ -248,7 +248,7 @@ def universe_delete(config, name, force):
                 return
 
         # Delete the universe
-        success, deleted_count = data_provider.delete_universe(name)
+        success, deleted_count = data_service.delete_universe(name)
         if success:
             console.print(f"[green]✅ Deleted universe '{name}' and {deleted_count:,} memberships[/green]")
         else:

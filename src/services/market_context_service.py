@@ -63,16 +63,7 @@ class MarketContextService:
 
     def _fetch_context(self, market_code: str) -> MarketContext:
         """Fetch fresh market context from APIs and database."""
-        operation_id = None
         try:
-            # Start tracking this operation
-            if hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
-                operation_id = self.data_provider.update_tracker.start_operation(
-                    operation_type="market_context",
-                    operation_subtype="fetch",
-                    operation_params={"market_code": market_code},
-                    total_items=1
-                )
             # 1. Get Market model from database
             market = self._get_market(market_code)
             if not market:
@@ -124,21 +115,9 @@ class MarketContextService:
             if hasattr(self.data_provider, 'store_market_context'):
                 self.data_provider.store_market_context(market_code, context)
 
-            # Mark operation as completed
-            if operation_id and hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
-                self.data_provider.update_tracker.complete_operation(
-                    operation_id,
-                    final_stats={"processed": 1},
-                    status="completed"
-                )
-
             return context
 
         except Exception as e:
-            # Mark operation as failed
-            if operation_id and hasattr(self.data_provider, 'update_tracker') and self.data_provider.update_tracker:
-                self.data_provider.update_tracker.fail_operation(operation_id, str(e))
-
             logger.error(f"Failed to fetch market context: {e}")
             # Re-raise the exception - no fallbacks
             raise

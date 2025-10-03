@@ -20,12 +20,11 @@ console = Console()
 def display_market_context(config):
     """Display market context at the top of asset commands."""
     try:
-        # Initialize data provider
+        # Initialize data service
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from provider.data_provider import PolygonDataProvider
         from config.universe_config import UNIVERSE_CONFIG
 
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
 
         # Get markets from universe config
         universe_config = UNIVERSE_CONFIG.get("default_universe", {})
@@ -35,9 +34,8 @@ def display_market_context(config):
             console.print(f"[dim]⚠️ No exchanges configured in universe config[/dim]")
             return
 
-        # Get only the configured markets using data provider
-        data_provider = config.get_data_provider()
-        market_codes = data_provider.get_active_markets_by_codes(configured_exchanges)
+        # Get only the configured markets using data service
+        market_codes = data_service.get_active_markets_by_codes(configured_exchanges)
 
         if not market_codes:
             console.print(f"[dim]⚠️ No configured markets found in database[/dim]")
@@ -95,19 +93,18 @@ def local(config, symbol: str):
 
     symbol = symbol.upper()
 
-    # Initialize data provider (but we won't call APIs)
+    # Initialize data service (but we won't call APIs)
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from provider.data_provider import PolygonDataProvider
 
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
+        console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
 
     # Get asset data from database only
     try:
-        asset_info = data_provider.get_asset_data(symbol)
+        asset_info = data_service.get_asset_with_market(symbol)
         if not asset_info:
             console.print(f"[red]❌ Asset {symbol} not found in database[/red]")
             console.print(f"[dim]Use 'tradescout asset info {symbol}' to fetch from API[/dim]")
@@ -131,7 +128,7 @@ def local(config, symbol: str):
         console.print(asset_table)
 
         # Get latest price data from database
-        latest_price = data_provider.get_latest_asset_price(asset.id)
+        latest_price = data_service.get_latest_asset_price(asset.id)
         if latest_price:
             console.print()
 
@@ -231,19 +228,18 @@ def info(config, symbol: str):
 
     symbol = symbol.upper()
 
-    # Initialize data provider
+    # Initialize data service
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from provider.data_provider import PolygonDataProvider
 
-        data_provider = config.get_data_provider()
+        data_service = config.get_data_service()
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
+        console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
 
     # Get asset info and price data (this fetches and stores fresh data)
     try:
-        asset_info = data_provider.get_asset_data(symbol)
+        asset_info = data_service.get_asset_with_market(symbol)
         if not asset_info:
             console.print(f"[red]❌ Asset {symbol} not found[/red]")
             return
@@ -266,7 +262,7 @@ def info(config, symbol: str):
         console.print(asset_table)
 
         # Get price data (this will fetch fresh data and store it)
-        price_data = data_provider.get_asset_price_data(asset.id)
+        price_data = data_service.get_latest_asset_price(asset.id)
         if price_data:
             console.print()
 

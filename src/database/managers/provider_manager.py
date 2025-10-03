@@ -117,12 +117,17 @@ class ProviderManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Use INSERT OR REPLACE to handle both new and existing providers
+                # Upsert provider - preserve ID if exists, update other fields
                 query = """
-                    INSERT OR REPLACE INTO providers (
+                    INSERT INTO providers (
                         name, display_name, base_url, api_key_required,
                         is_active, created_at
                     ) VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        base_url = excluded.base_url,
+                        api_key_required = excluded.api_key_required,
+                        is_active = excluded.is_active
                 """
 
                 values = (
@@ -151,65 +156,79 @@ class ProviderManager(BaseManager):
     def get_all_providers(self) -> List[Provider]:
         """Get all providers from database.
 
-        Currently returns hardcoded Polygon provider, but will query database
-        in the future when multiple providers are configured.
-
         Returns:
             List of Provider objects
         """
-        # For now, return hardcoded Polygon provider
-        return [POLYGON_PROVIDER]
+        if not self._check_dependencies():
+            return []
 
-        # Future implementation when database is populated:
-        # if not self._check_dependencies():
-        #     return []
-        #
-        # try:
-        #     with self.db_manager.get_connection() as conn:
-        #         cursor = conn.cursor()
-        #         cursor.execute("""
-        #             SELECT id, name, display_name, base_url, api_key_required,
-        #                    is_active, created_at
-        #             FROM providers
-        #             ORDER BY name
-        #         """)
-        #         return [Provider.from_db_row(row) for row in cursor.fetchall()]
-        #
-        # except Exception as e:
-        #     logger.error(f"Error getting all providers: {e}")
-        #     return []
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, name, display_name, base_url, api_key_required,
+                           is_active, created_at
+                    FROM providers
+                    ORDER BY name
+                """)
+                rows = cursor.fetchall()
+
+                providers = []
+                for row in rows:
+                    provider = Provider(
+                        id=row[0],
+                        name=row[1],
+                        display_name=row[2],
+                        base_url=row[3],
+                        api_key_required=bool(row[4]),
+                        is_active=bool(row[5]),
+                        created_at=datetime.fromisoformat(row[6])
+                    )
+                    providers.append(provider)
+
+                return providers
+
+        except Exception as e:
+            logger.error(f"Error getting all providers: {e}")
+            return []
 
     def get_active_provider(self) -> Optional[Provider]:
         """Get the currently active provider.
 
-        Currently returns Polygon (hardcoded as the only active provider).
-
         Returns:
             Active Provider object or None if no active provider
         """
-        # For now, Polygon is always the active provider
-        return POLYGON_PROVIDER
+        if not self._check_dependencies():
+            return None
 
-        # Future implementation when database supports multiple providers:
-        # if not self._check_dependencies():
-        #     return None
-        #
-        # try:
-        #     with self.db_manager.get_connection() as conn:
-        #         cursor = conn.cursor()
-        #         cursor.execute("""
-        #             SELECT id, name, display_name, base_url, api_key_required,
-        #                    is_active, created_at
-        #             FROM providers
-        #             WHERE is_active = 1
-        #             LIMIT 1
-        #         """)
-        #         row = cursor.fetchone()
-        #         return Provider.from_db_row(row) if row else None
-        #
-        # except Exception as e:
-        #     logger.error(f"Error getting active provider: {e}")
-        #     return None
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id, name, display_name, base_url, api_key_required,
+                           is_active, created_at
+                    FROM providers
+                    WHERE is_active = 1
+                    LIMIT 1
+                """)
+                row = cursor.fetchone()
+
+                if not row:
+                    return None
+
+                return Provider(
+                    id=row[0],
+                    name=row[1],
+                    display_name=row[2],
+                    base_url=row[3],
+                    api_key_required=bool(row[4]),
+                    is_active=bool(row[5]),
+                    created_at=datetime.fromisoformat(row[6])
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting active provider: {e}")
+            return None
 
     def get_provider_by_id(self, provider_id: int) -> Optional[Provider]:
         """Get provider by ID.

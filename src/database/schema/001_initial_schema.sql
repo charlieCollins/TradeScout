@@ -50,8 +50,8 @@ CREATE TABLE IF NOT EXISTS assets (
     market_id INTEGER NOT NULL,
 
     -- Asset classification
-    asset_type TEXT CHECK(asset_type IN ('stock', 'etf', 'crypto', 'option', 'forex')) DEFAULT 'stock',
-    asset_class TEXT CHECK(asset_class IN ('equity', 'commodity', 'currency', 'crypto', 'derivative')) DEFAULT 'equity',
+    asset_type TEXT CHECK(asset_type IN ('stock', 'etf', 'reit', 'fund', 'warrant', 'right', 'unit', 'bond', 'adr', 'other')) DEFAULT 'stock',
+    asset_class TEXT CHECK(asset_class IN ('equity', 'fixed_income', 'commodity')) DEFAULT 'equity',
 
     -- Trading details
     currency TEXT DEFAULT 'USD',

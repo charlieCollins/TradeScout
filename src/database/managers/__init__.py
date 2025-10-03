@@ -12,6 +12,7 @@ from .base_manager import BaseManager
 from .ticker_snapshot_manager import TickerSnapshotManager
 from .market_snapshot_manager import MarketSnapshotManager
 from .asset_manager import AssetManager
+from .asset_price_manager import AssetPriceManager
 from .universe_manager import UniverseManager
 from .provider_manager import ProviderManager
 from .fundamentals_manager import FundamentalsManager
@@ -27,6 +28,7 @@ __all__ = [
     "TickerSnapshotManager",
     "MarketSnapshotManager",
     "AssetManager",
+    "AssetPriceManager",
     "UniverseManager",
     "ProviderManager",
     "FundamentalsManager",

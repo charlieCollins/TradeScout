@@ -160,7 +160,7 @@ class MarketSnapshotManager(BaseManager):
 
         try:
             # Update metadata to track when bulk snapshot was fetched
-            # The update_tracker will create/update the metadata entry
+            # The metadata_manager will create/update the metadata entry
             # This enables TTL-based refresh decisions on next access
 
             logger.debug(

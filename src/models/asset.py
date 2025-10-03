@@ -12,6 +12,13 @@ class AssetType(Enum):
     STOCK = "stock"
     ETF = "etf"
     REIT = "reit"
+    FUND = "fund"
+    WARRANT = "warrant"
+    RIGHT = "right"
+    UNIT = "unit"
+    BOND = "bond"
+    ADR = "adr"
+    OTHER = "other"
 
 
 class AssetClass(Enum):

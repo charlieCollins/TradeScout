@@ -42,7 +42,7 @@ class SentimentEventsManager(BaseManager):
     def _check_dependencies(self) -> bool:
         """Check if required dependencies are available.
 
-        Sentiment managers only need db_manager, not update_tracker or metadata_manager.
+        Sentiment managers only need db_manager, not metadata_manager (no TTL tracking needed).
         """
         if not self.db_manager:
             logger.warning("Database manager not available")

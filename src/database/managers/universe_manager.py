@@ -99,12 +99,20 @@ class UniverseManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Use INSERT OR REPLACE to handle both new and existing universes
+                # Upsert universe - preserve ID if exists, update other fields
                 query = """
-                    INSERT OR REPLACE INTO universes (
+                    INSERT INTO universes (
                         name, description, is_active, min_market_cap, min_volume,
                         max_assets, last_updated, created_at, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(name) DO UPDATE SET
+                        description = excluded.description,
+                        is_active = excluded.is_active,
+                        min_market_cap = excluded.min_market_cap,
+                        min_volume = excluded.min_volume,
+                        max_assets = excluded.max_assets,
+                        last_updated = excluded.last_updated,
+                        updated_at = excluded.updated_at
                 """
 
                 values = (
@@ -414,6 +422,48 @@ class UniverseManager(BaseManager):
     # STATISTICS
     # ============================================================================
 
+    def get_market_breakdown(self, universe_name: str) -> List[Tuple[str, str, int]]:
+        """Get market breakdown for a universe.
+
+        Args:
+            universe_name: Name of universe to analyze
+
+        Returns:
+            List of tuples (market_code, market_name, asset_count) sorted by count descending
+        """
+        if not self._check_dependencies():
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get universe ID
+                cursor.execute("SELECT id FROM universes WHERE name = ?", (universe_name,))
+                universe_result = cursor.fetchone()
+                if not universe_result:
+                    logger.warning(f"Universe not found: {universe_name}")
+                    return []
+
+                universe_id = universe_result[0]
+
+                # Get breakdown by market
+                cursor.execute("""
+                    SELECT m.code, m.name, COUNT(um.asset_id) as count
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    JOIN markets m ON a.market_id = m.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY m.id
+                    ORDER BY count DESC
+                """, (universe_id,))
+
+                return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"Error getting market breakdown for {universe_name}: {e}")
+            return []
+
     def get_stats(self) -> Dict[str, Any]:
         """Get universe manager statistics."""
         if not self._check_dependencies():
@@ -448,3 +498,163 @@ class UniverseManager(BaseManager):
         except Exception as e:
             logger.error(f"Error getting universe manager stats: {e}")
             return {"error": str(e)}
+
+    def get_universe_stats(self, universe_name: str) -> Optional[UniverseStats]:
+        """Get statistics for a specific universe.
+
+        Args:
+            universe_name: Name of the universe
+
+        Returns:
+            UniverseStats object or None if universe not found
+        """
+        if not self._check_dependencies():
+            return None
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get universe
+                cursor.execute("SELECT id, last_updated FROM universes WHERE name = ?", (universe_name,))
+                result = cursor.fetchone()
+                if not result:
+                    return None
+
+                universe_id, last_updated = result
+
+                # Get active members count
+                cursor.execute("""
+                    SELECT COUNT(*) FROM universe_memberships
+                    WHERE universe_id = ? AND is_active = 1
+                """, (universe_id,))
+                active_members = cursor.fetchone()[0]
+
+                # Get inactive members count
+                cursor.execute("""
+                    SELECT COUNT(*) FROM universe_memberships
+                    WHERE universe_id = ? AND is_active = 0
+                """, (universe_id,))
+                inactive_members = cursor.fetchone()[0]
+
+                total_members = active_members + inactive_members
+
+                # Get by asset type (using market info as proxy for asset type)
+                cursor.execute("""
+                    SELECT a.asset_type, COUNT(*) as count
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY a.asset_type
+                """, (universe_id,))
+                by_asset_type = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Get by market
+                cursor.execute("""
+                    SELECT m.code, COUNT(*) as count
+                    FROM universe_memberships um
+                    JOIN assets a ON um.asset_id = a.id
+                    JOIN markets m ON a.market_id = m.id
+                    WHERE um.universe_id = ? AND um.is_active = 1
+                    GROUP BY m.code
+                    ORDER BY count DESC
+                """, (universe_id,))
+                by_market = {row[0]: row[1] for row in cursor.fetchall()}
+
+                return UniverseStats(
+                    universe_name=universe_name,
+                    total_members=total_members,
+                    active_members=active_members,
+                    inactive_members=inactive_members,
+                    by_asset_type=by_asset_type,
+                    by_market=by_market,
+                    last_updated=last_updated
+                )
+
+        except Exception as e:
+            logger.error(f"Error getting stats for universe '{universe_name}': {e}")
+            return None
+
+    def get_active_universe_symbols(self) -> List[str]:
+        """Get list of symbols in the active universe.
+
+        Returns:
+            List of symbol strings, sorted alphabetically
+        """
+        if not self._check_dependencies():
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT a.symbol
+                    FROM assets a
+                    JOIN universe_memberships um ON a.id = um.asset_id
+                    JOIN universes u ON um.universe_id = u.id
+                    WHERE um.is_active = 1
+                    AND a.is_active = 1
+                    AND u.is_active = 1
+                    ORDER BY a.symbol
+                """)
+                return [row[0] for row in cursor.fetchall()]
+
+        except Exception as e:
+            logger.error(f"Error getting active universe symbols: {e}")
+            return []
+
+    def get_assets_with_fundamentals(self) -> List[Dict[str, Any]]:
+        """Get all active assets with their fundamentals and market data for filtering.
+
+        Returns:
+            List of dictionaries containing asset data with fundamentals and market info
+        """
+        if not self._check_dependencies():
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Join assets + fundamentals + markets to get complete data for filtering
+                query = """
+                    SELECT
+                        a.id,
+                        a.symbol,
+                        a.name,
+                        a.asset_type,
+                        m.code as market_code,
+                        a.is_active,
+                        f.sector,
+                        f.market_cap,
+                        f.avg_volume_30d as volume
+                    FROM assets a
+                    LEFT JOIN markets m ON a.market_id = m.id
+                    LEFT JOIN asset_fundamentals f ON a.id = f.asset_id
+                    WHERE a.is_active = 1
+                    ORDER BY a.symbol
+                """
+
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                # Convert to list of dicts
+                assets = []
+                for row in rows:
+                    assets.append({
+                        "id": row[0],
+                        "symbol": row[1],
+                        "name": row[2],
+                        "asset_type": row[3],
+                        "market_code": row[4],
+                        "is_active": row[5],
+                        "sector": row[6],
+                        "market_cap": row[7],
+                        "volume": row[8]
+                    })
+
+                return assets
+
+        except Exception as e:
+            logger.error(f"Error getting assets with fundamentals: {e}")
+            return []
