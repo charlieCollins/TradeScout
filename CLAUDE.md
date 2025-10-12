@@ -127,6 +127,37 @@ When you're stuck or confused:
 
 **PERIOD. That's it.**
 
+### Two-Layer Filtering: Universes vs Screeners
+
+TradeScout uses a two-layer filtering architecture with distinct purposes:
+
+**Layer 1: Universe Filters** (config/universes/*.py)
+- **Purpose**: Define the general trackable asset pool
+- **Criteria**: Broad quality filters (market cap, avg volume, exchanges)
+- **Stability**: Relatively static - doesn't change often
+- **Question**: "What assets do we care about tracking at all?"
+- **Example**: min_market_cap, min_volume, included exchanges
+
+**Layer 2: Screener Filters** (configs/screeners/*.yaml)
+- **Purpose**: Find specific trading opportunities within the universe
+- **Criteria**: Strategy-specific (price movements, sessions, technical patterns)
+- **Stability**: Dynamic - changes based on what you're looking for
+- **Question**: "What opportunities exist RIGHT NOW in our universe?"
+- **Example**: afterhours gain >= 2%, price >= $1, volume spikes
+
+**Why Two Layers?**
+
+This allows different filtering goals:
+- **Universe**: "Track WORX - it meets our general liquidity criteria"
+- **Screener**: "Don't show WORX in afterhours gainers - it's under $1 and we want higher-priced opportunities"
+
+You can have penny stocks in your universe for tracking, but exclude them from specific screeners where low price = high spreads/low liquidity concerns.
+
+**The Flow:**
+1. Universe bootstrap filters → Builds trackable asset pool
+2. Screener filters → Finds opportunities within that pool
+3. Asset can be IN universe but NOT in screener results
+
 ### Development vs Production Separation
 - **Production** (`src/tradescout/`): Clean code, standard cache
 - **Exploration** (`data/examples/`): Simple file saving for API results

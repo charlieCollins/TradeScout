@@ -17,7 +17,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from datetime import datetime
 from models.universe import Universe, UniverseMembership, UniverseStats
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import UNIVERSES_TTL_HOURS
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,9 @@ class UniverseManager(BaseManager):
         Universe memberships change as market caps shift (e.g., a stock moves
         from small-cap to mid-cap). Use 24-hour TTL for membership refresh checks.
         """
-        return UNIVERSES_TTL_HOURS * 3600  # 24 hours = 1 day
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['universes_ttl_hours'] * 3600  # 24 hours = 1 day
 
     def get_entity_from_database(self, key: str) -> Optional[Universe]:
         """Get Universe from database by name.
@@ -596,6 +598,37 @@ class UniverseManager(BaseManager):
         except Exception as e:
             logger.error(f"Error getting active universe symbols: {e}")
             return []
+
+    def is_symbol_in_universe(self, symbol: str, universe_name: str) -> bool:
+        """Check if a symbol is in a specific universe.
+
+        Args:
+            symbol: Asset symbol to check
+            universe_name: Name of universe to check
+
+        Returns:
+            True if symbol is in the universe, False otherwise
+        """
+        if not self._check_dependencies():
+            return False
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*)
+                    FROM assets a
+                    JOIN universe_memberships um ON a.id = um.asset_id
+                    JOIN universes u ON um.universe_id = u.id
+                    WHERE a.symbol = ?
+                    AND u.name = ?
+                """, (symbol, universe_name))
+                count = cursor.fetchone()[0]
+                return count > 0
+
+        except Exception as e:
+            logger.error(f"Error checking if symbol {symbol} is in universe {universe_name}: {e}")
+            return False
 
     def get_assets_with_fundamentals(self) -> List[Dict[str, Any]]:
         """Get all active assets with their fundamentals and market data for filtering.

@@ -1,0 +1,241 @@
+"""CLI commands for validation and testing of data assumptions."""
+
+import logging
+import random
+from datetime import date, datetime
+from typing import Optional
+
+import click
+from rich.console import Console
+from rich.table import Table
+
+from .main import pass_config
+
+logger = logging.getLogger(__name__)
+console = Console()
+
+
+@click.group()
+def validate():
+    """Validation commands for testing data assumptions and rules."""
+    pass
+
+
+@validate.command()
+@click.option(
+    "--count",
+    "-n",
+    type=int,
+    default=10,
+    help="Number of random assets to test (default: 10)",
+)
+@click.option(
+    "--symbols",
+    "-s",
+    type=str,
+    help="Specific symbols to test (comma-separated, e.g., 'AAPL,NVDA,TSLA')",
+)
+@pass_config
+def volume(config, count: int, symbols: Optional[str]):
+    """Validate volume calculation rules against Aggregates API.
+
+    Tests our simple volume rules used by screeners:
+    - Premarket: min.av (accumulated premarket volume)
+    - Regular: day.v (regular session volume)
+    - After-hours: min.av (accumulated), min.av - day.v (just after-hours)
+
+    For extended hours sessions, compares snapshot values against
+    Aggregates API to verify accuracy.
+
+    Examples:
+        tradescout validate volume
+        tradescout validate volume --count 5
+        tradescout validate volume --symbols AAPL,NVDA,TSLA
+    """
+    try:
+        # Initialize services
+        data_service = config.get_data_service()
+        market_service = config.get_market_context_service()
+        price_manager = data_service.asset_price_manager
+
+        # Get current market context (default to XNYS)
+        market_context = market_service.get_context("XNYS")
+        if not market_context:
+            console.print("[red]❌ Could not determine market context[/red]")
+            return
+
+        session = market_context.current_session.value
+        trading_date = (
+            market_context.current_date
+            if market_context.is_trading_day
+            else market_context.prev_trading_date
+        )
+
+        # Display session info
+        console.print(f"\n[bold]📊 Volume Validation - {session.upper()} Session[/bold]")
+        console.print(f"Trading Date: {trading_date}")
+        console.print(f"Extended Hours: {session in ['premarket', 'afterhours']}\n")
+
+        # Get test symbols
+        if symbols:
+            # Use specified symbols
+            symbol_list = [s.strip().upper() for s in symbols.split(",")]
+            test_asset_ids = price_manager.get_latest_price_ids_for_symbols(symbol_list)
+
+            if not test_asset_ids:
+                console.print(f"[red]❌ No price data found for symbols: {symbols}[/red]")
+                return
+        else:
+            # Get random assets with recent activity (fetch more to filter out DELAYED)
+            # For extended hours, get 100 and filter to first 10 with data
+            fetch_limit = 100 if session in ["premarket", "afterhours"] else count
+            candidate_asset_ids = price_manager.get_random_assets_with_prices(limit=fetch_limit)
+
+            if not candidate_asset_ids:
+                console.print("[red]❌ No assets with price data found[/red]")
+                return
+
+            test_asset_ids = candidate_asset_ids
+
+        # Build results table
+        table = Table(show_header=True, header_style="bold cyan")
+        table.add_column("Symbol", style="bold")
+        table.add_column("Snap Vol", justify="right")
+
+        if session in ["premarket", "afterhours"]:
+            table.add_column("Snap Time", justify="right")
+            table.add_column("Agg Vol", justify="right")
+            table.add_column("Agg Time", justify="right")
+            table.add_column("Diff %", justify="right")
+            table.add_column("Status")
+
+        # Track successful tests for extended hours
+        successful_tests = 0
+        target_tests = count if not symbols else len(test_asset_ids)
+
+        # Test each asset
+        for symbol, asset_id, price_id in test_asset_ids:
+            # Stop if we have enough successful tests for extended hours
+            if session in ["premarket", "afterhours"] and not symbols:
+                if successful_tests >= target_tests:
+                    break
+            # Fetch the full AssetPrice object using asset_id
+            # Note: get_entity_from_database returns the LATEST price for this asset
+            asset_price = price_manager.get_entity_from_database(str(asset_id))
+            if not asset_price:
+                continue
+
+            # Determine snapshot volume based on session
+            if session == "premarket":
+                snapshot_vol = asset_price.min_accumulated_volume or 0
+            elif session == "regular":
+                snapshot_vol = asset_price.day_volume or 0
+            elif session == "afterhours":
+                # Snapshot does NOT work for after-hours (min.av frozen at day.v)
+                snapshot_vol = None  # Will display as "N/A"
+            else:  # closed
+                snapshot_vol = asset_price.prevday_volume or 0
+
+            # For regular/closed, just show snapshot (no aggregates needed)
+            if session in ["regular", "closed"]:
+                table.add_row(
+                    symbol,
+                    f"{snapshot_vol:,}",
+                )
+                successful_tests += 1
+                continue
+
+            # For extended hours, compare with Aggregates API
+            try:
+                # Get snapshot timestamp
+                snapshot_time = datetime.fromtimestamp(asset_price.provider_updated_at / 1_000_000_000)
+
+                # Get aggregates data
+                agg_result = data_service.fetch_minute_bars(
+                    symbol=symbol,
+                    from_datetime=datetime.combine(trading_date, datetime.min.time()).replace(
+                        hour=4 if session == "premarket" else 16, minute=0
+                    ),
+                    to_datetime=datetime.combine(trading_date, datetime.min.time()).replace(
+                        hour=9 if session == "premarket" else 20,
+                        minute=30 if session == "premarket" else 0
+                    )
+                )
+
+                if not agg_result:
+                    # Skip symbols with no aggregates data (DELAYED or no trading)
+                    continue
+
+                # Calculate volume and get bar time range
+                agg_volume = sum(bar.get("v", 0) for bar in agg_result)
+                first_bar_time = datetime.fromtimestamp(agg_result[0]['t'] / 1000)
+                last_bar_time = datetime.fromtimestamp(agg_result[-1]['t'] / 1000)
+
+                logger.info(
+                    f"{symbol}: {len(agg_result)} bars from {first_bar_time.strftime('%Y-%m-%d %H:%M:%S')} "
+                    f"to {last_bar_time.strftime('%Y-%m-%d %H:%M:%S')}, volume={agg_volume:,}"
+                )
+
+                # Calculate difference (skip if snapshot_vol is None for after-hours)
+                if snapshot_vol is None:
+                    # After-hours: no snapshot volume available
+                    diff_pct_display = "N/A"
+                    status = "[yellow]⚠️ Snap N/A[/yellow]"
+                    snap_vol_display = "N/A"
+                elif agg_volume > 0:
+                    diff_pct = ((snapshot_vol - agg_volume) / agg_volume) * 100
+                    diff_pct_display = f"{diff_pct:+.1f}%"
+                    snap_vol_display = f"{snapshot_vol:,}"
+
+                    # Determine status (within 25% = good, considering our AAPL test)
+                    if abs(diff_pct) <= 25:
+                        status = "[green]✅ Good[/green]"
+                    elif abs(diff_pct) <= 50:
+                        status = "[yellow]⚠️ OK[/yellow]"
+                    else:
+                        status = "[red]❌ High[/red]"
+                else:
+                    diff_pct_display = "0.0%"
+                    snap_vol_display = f"{snapshot_vol:,}"
+                    status = "[yellow]⚠️ OK[/yellow]"
+
+                table.add_row(
+                    symbol,
+                    snap_vol_display,
+                    snapshot_time.strftime("%H:%M:%S"),
+                    f"{agg_volume:,}",
+                    last_bar_time.strftime("%H:%M:%S"),
+                    diff_pct_display,
+                    status,
+                )
+                successful_tests += 1
+
+            except Exception as e:
+                logger.error(f"Error validating {symbol}: {e}")
+                # Skip symbols with errors
+                continue
+
+        console.print(table)
+
+        # Summary
+        console.print("\n[bold]Legend:[/bold]")
+        console.print("  [green]✅ Good[/green]  - Within ±25% (acceptable for screening)")
+        console.print("  [yellow]⚠️ OK[/yellow]    - Within ±50% (monitor)")
+        console.print("  [red]❌ High[/red]  - Over ±50% (investigate)")
+
+        if session == "premarket":
+            console.print(
+                f"\n[dim]Note: Premarket uses snapshot (min.av) for screening, "
+                "Aggregates API for final validation.[/dim]"
+            )
+        elif session == "afterhours":
+            console.print(
+                f"\n[yellow]⚠️  Note: Snapshot volume NOT available for after-hours (min.av frozen at 4 PM).[/yellow]"
+            )
+            console.print(
+                f"[dim]   After-hours MUST use Aggregates API for volume (no snapshot alternative).[/dim]"
+            )
+
+    except Exception as e:
+        logger.error(f"Volume validation failed: {e}", exc_info=True)
+        console.print(f"[red]❌ Validation failed: {e}[/red]")

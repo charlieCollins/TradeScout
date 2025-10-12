@@ -1,0 +1,43 @@
+# Default Universe Configuration
+# Primary universe for gap analysis - US stocks, ETFs, and REITs
+# Based on docs/SUPPORTED_UNIVERSE.md filtering criteria
+
+name: default_universe
+description: Primary universe for gap analysis - US stocks, ETFs, and REITs
+
+# Included criteria
+included:
+  ticker_types:
+    - CS      # Common Stock
+    - ETF     # Exchange Traded Funds
+    - REIT    # Real Estate Investment Trusts
+
+  markets:
+    - stocks  # Stock market only
+
+  exchanges:
+    - XNYS    # New York Stock Exchange
+    - XNAS    # NASDAQ
+
+  symbol_pattern: "^[A-Z]{1,5}$"  # 1-5 alphabetic characters only
+  active_only: true
+
+# Excluded criteria
+excluded:
+  non_us_securities: true
+  preferred_stocks: true  # Symbols ending in -P, -PR, -A, etc.
+
+  investment_vehicles:
+    etns: true
+    mutual_funds: true
+    closed_end_funds: true
+
+  minor_exchanges:
+    otc_markets: true
+    regional_exchanges: true
+
+  invalid_symbols:
+    test_symbols: true
+    inactive_delisted: true
+    special_characters: true
+    duplicate_classes: true

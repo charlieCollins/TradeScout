@@ -1,0 +1,37 @@
+# Small Cap Universe Configuration
+# Small cap stocks under $2B market cap
+
+name: small_cap
+description: Small cap stocks under $2B market cap
+
+# Included criteria
+included:
+  ticker_types:
+    - CS  # Common Stock only
+
+  exchanges:
+    - XNYS  # New York Stock Exchange
+    - XNAS  # NASDAQ
+
+  symbol_pattern: "^[A-Z]{1,5}$"  # 1-5 alphabetic characters only
+  active_only: true
+
+  min_market_cap: 300000000   # $300M minimum
+  max_market_cap: 2000000000  # $2B maximum (small cap definition)
+  # NOTE: min_volume removed - fundamentals don't include volume data
+
+# Excluded criteria
+excluded:
+  non_us_securities: true
+  preferred_stocks: true
+
+  investment_vehicles:
+    etns: true
+    mutual_funds: true
+    closed_end_funds: true
+
+  invalid_symbols:
+    test_symbols: true
+    inactive_delisted: true
+    special_characters: true
+    duplicate_classes: true

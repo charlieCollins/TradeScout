@@ -1,49 +1,179 @@
 name: losers
-description: "Top losing stocks by percentage"
+description: "Top losing stocks"
 enabled: true
 
-# Session validation - when this screener should run
+# Valid in all sessions - adapts behavior based on current session
 valid_sessions:
+  - "premarket"
   - "regular"
+  - "afterhours"
+  - "closed"
 
 # Data source configuration
 data_source:
   universe: "default_universe"
   require_recent_trading: true
 
-# Filter criteria
+# Field mappings - what each concept means per session
+field_mapping:
+  reference_price:
+    # What price to compare against for loss calculation
+    premarket: "ap.prevday_close"      # Compare to previous day's close (gap)
+    regular: "ap.day_open"              # Compare to today's open (intraday movement)
+    afterhours: "ap.day_close"          # Compare to today's 4PM close
+    closed: "ap.prevday_close"          # Compare to previous day's close
+
+  current_price:
+    # What price represents "now"
+    premarket: "ap.min_close"           # Premarket current price
+    regular: "ap.min_close"             # Regular hours current price
+    afterhours: "ap.min_close"          # After-hours current price
+    closed: "ap.day_close"              # Last regular session close
+
+  volume_field:
+    # Which volume to display
+    premarket: "ap.min_accumulated_volume"   # Accumulated volume (min.av works in PM)
+    regular: "ap.day_volume"                 # Regular session volume (day.v - accurate)
+    afterhours: null                         # PROBLEM: min.av unreliable in AH (can be < day.v)
+    closed: "ap.prevday_volume"              # Previous day's volume (prevDay.v)
+
+# Thresholds - can be session-specific
+thresholds:
+  max_loss_percent:
+    # Negative threshold (e.g., -2.0 means down 2% or more)
+    premarket: -2.0
+    regular: -2.0
+    afterhours: -2.0
+    closed: -2.0
+
+  min_price:
+    premarket: 1.0
+    regular: 1.0
+    afterhours: 1.0
+    closed: 1.0
+
+# Filters - use template variables that get resolved per session
 filters:
-  - field: "change_percent"
+  # Reference price must exist
+  - field: "{{reference_price}}"
+    operator: "IS NOT NULL"
+    value: null
+
+  # Loss percentage filter (negative change)
+  - field: "(({{current_price}} - {{reference_price}}) / {{reference_price}} * 100)"
     operator: "<="
-    value: -2.0
-  - field: "min_close"
+    value: "{{thresholds.max_loss_percent}}"
+
+  # Minimum price filter
+  - field: "{{current_price}}"
     operator: ">="
-    value: 1.0
+    value: "{{thresholds.min_price}}"
 
-# Sorting configuration
+# Sorting - biggest losers first (most negative)
 sort:
-  - field: "change_percent"
-    direction: "asc"  # Most negative first
+  - field: "(({{current_price}} - {{reference_price}}) / {{reference_price}} * 100)"
+    direction: "asc"
 
-# Display configuration
+# Display configuration - context-specific columns
 display:
   limit: 50
   columns:
-    - name: "Symbol"
-      field: "symbol"
-      width: 10
-    - name: "Name"
-      field: "name"
-      width: 30
-    - name: "Last"
-      field: "min_close"
-      format: "price"
-    - name: "Change"
-      field: "change_dollar"
-      format: "price_change"
-    - name: "Change %"
-      field: "change_percent"
-      format: "percent"
-    - name: "Volume"
-      field: "min_volume"
-      format: "volume"
+    base:
+      # Always shown
+      - name: "Symbol"
+        field: "symbol"
+        width: 8
+
+    context_specific:
+      premarket:
+        - name: "Prev Close"
+          field: "prevday_close"
+          format: "price"
+          width: 10
+        - name: "PM Price"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "PM Change"
+          field: "min_close - prevday_close"
+          format: "price_change"
+          width: 12
+        - name: "PM Gap %"
+          field: "((min_close - prevday_close) / prevday_close * 100)"
+          format: "percent"
+          width: 12
+        - name: "PM Volume"
+          field: "min_accumulated_volume"
+          format: "volume"
+          width: 10
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      regular:
+        - name: "Day Open"
+          field: "day_open"
+          format: "price"
+          width: 10
+        - name: "Current"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "Change"
+          field: "min_close - day_open"
+          format: "price_change"
+          width: 12
+        - name: "Change %"
+          field: "((min_close - day_open) / day_open * 100)"
+          format: "percent"
+          width: 12
+        - name: "Volume"
+          field: "day_volume"
+          format: "volume"
+          width: 10
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      afterhours:
+        - name: "4PM Close"
+          field: "day_close"
+          format: "price"
+          width: 10
+        - name: "AH Price"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "AH Change"
+          field: "min_close - day_close"
+          format: "price_change"
+          width: 12
+        - name: "AH Change %"
+          field: "((min_close - day_close) / day_close * 100)"
+          format: "percent"
+          width: 12
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      closed:
+        - name: "Prev Close"
+          field: "prevday_close"
+          format: "price"
+          width: 10
+        - name: "Last Close"
+          field: "day_close"
+          format: "price"
+          width: 10
+        - name: "Change"
+          field: "day_close - prevday_close"
+          format: "price_change"
+          width: 12
+        - name: "Change %"
+          field: "((day_close - prevday_close) / prevday_close * 100)"
+          format: "percent"
+          width: 12
+        - name: "Volume"
+          field: "prevday_volume"
+          format: "volume"
+          width: 10

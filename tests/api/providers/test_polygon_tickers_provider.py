@@ -17,6 +17,14 @@ class TestPolygonTickersProvider:
         return PolygonTickersProvider(api_key="test_api_key_12345")
 
     @pytest.fixture
+    def market_mapping(self):
+        """Sample market code to ID mapping."""
+        return {
+            "XNAS": 1,  # Nasdaq
+            "XNYS": 2,  # NYSE
+        }
+
+    @pytest.fixture
     def sample_ticker_response(self):
         """Sample Polygon API response for ticker details."""
         return {
@@ -25,6 +33,7 @@ class TestPolygonTickersProvider:
                 "ticker": "AAPL",
                 "name": "Apple Inc.",
                 "type": "CS",
+                "primary_exchange": "XNAS",
                 "currency_name": "USD",
                 "active": True,
                 "delisted_utc": None
@@ -41,6 +50,7 @@ class TestPolygonTickersProvider:
                     "ticker": "AAPL",
                     "name": "Apple Inc.",
                     "type": "CS",
+                    "primary_exchange": "XNAS",
                     "currency_name": "USD",
                     "active": True
                 },
@@ -48,6 +58,7 @@ class TestPolygonTickersProvider:
                     "ticker": "MSFT",
                     "name": "Microsoft Corporation",
                     "type": "CS",
+                    "primary_exchange": "XNAS",
                     "currency_name": "USD",
                     "active": True
                 }
@@ -128,11 +139,11 @@ class TestPolygonTickersProvider:
         assert result is None
 
     @patch.object(PolygonTickersProvider, "fetch_ticker_details_raw")
-    def test_fetch_ticker_details_success(self, mock_raw, provider, sample_ticker_response):
+    def test_fetch_ticker_details_success(self, mock_raw, provider, sample_ticker_response, market_mapping):
         """Test fetching parsed ticker details successfully."""
         mock_raw.return_value = sample_ticker_response["results"]
 
-        result = provider.fetch_ticker_details("AAPL")
+        result = provider.fetch_ticker_details("AAPL", market_mapping)
 
         assert result is not None
         assert isinstance(result, Asset)
@@ -140,6 +151,7 @@ class TestPolygonTickersProvider:
         assert result.name == "Apple Inc."
         assert result.asset_type == AssetType.STOCK
         assert result.asset_class == AssetClass.EQUITY
+        assert result.market_id == 1  # XNAS mapped to ID 1
 
     @patch.object(PolygonTickersProvider, "fetch_ticker_details_raw")
     def test_fetch_ticker_details_no_data(self, mock_raw, provider):
@@ -155,19 +167,21 @@ class TestPolygonTickersProvider:
     # ============================================================================
 
     @patch.object(PolygonTickersProvider, "_make_request")
-    def test_fetch_all_tickers_success(self, mock_request, provider, sample_all_tickers_response):
+    def test_fetch_all_tickers_success(self, mock_request, provider, sample_all_tickers_response, market_mapping):
         """Test fetching all tickers successfully."""
         mock_request.return_value = sample_all_tickers_response
 
-        result = provider.fetch_all_tickers()
+        result = provider.fetch_all_tickers(market_code_to_id=market_mapping)
 
         assert len(result) == 2
         assert all(isinstance(asset, Asset) for asset in result)
         assert result[0].symbol == "AAPL"
         assert result[1].symbol == "MSFT"
+        assert result[0].market_id == 1  # XNAS
+        assert result[1].market_id == 1  # XNAS
 
     @patch.object(PolygonTickersProvider, "_make_request")
-    def test_fetch_all_tickers_with_pagination(self, mock_request, provider, sample_all_tickers_response):
+    def test_fetch_all_tickers_with_pagination(self, mock_request, provider, sample_all_tickers_response, market_mapping):
         """Test fetching all tickers with pagination."""
         # First page has next_url
         first_response = {
@@ -182,6 +196,7 @@ class TestPolygonTickersProvider:
                     "ticker": "GOOGL",
                     "name": "Alphabet Inc.",
                     "type": "CS",
+                    "primary_exchange": "XNAS",
                     "currency_name": "USD",
                     "active": True
                 }
@@ -191,12 +206,13 @@ class TestPolygonTickersProvider:
         mock_request.return_value = first_response
         # Mock _make_request_with_url for pagination
         with patch.object(provider, "_make_request_with_url", return_value=second_response):
-            result = provider.fetch_all_tickers()
+            result = provider.fetch_all_tickers(market_code_to_id=market_mapping)
 
         assert len(result) == 3
         assert result[0].symbol == "AAPL"
         assert result[1].symbol == "MSFT"
         assert result[2].symbol == "GOOGL"
+        assert all(asset.market_id == 1 for asset in result)  # All XNAS
 
     @patch.object(PolygonTickersProvider, "_make_request")
     def test_fetch_all_tickers_empty_response(self, mock_request, provider):

@@ -110,4 +110,4 @@ email_config.json
 # Cloud deployment credentials
 gcp-credentials.json
 aws-credentials.json
-deployment/secrets/
+deployment/secrets/etrade_tokens.env

@@ -1,16 +1,16 @@
 # TradeScout Database Architecture
 
-**Last Updated**: 2025-10-01
+**Last Updated**: 2025-10-11
 **Database**: SQLite
-**Location**: `tradescout.db` (root directory)
-**Schema Version**: 001
+**Location**: `data/tradescout.db`
+**Schema Version**: 004
 **Architecture**: Manager/Provider Pattern
 
 ---
 
 ## Overview
 
-TradeScout uses **SQLite with 13 tables** for market data management, sentiment tracking, and operation metadata. The system follows a clean **Manager/Provider architecture** where:
+TradeScout uses **SQLite with 16 tables** for market data management, sentiment tracking, gap analysis, and operation metadata. The system follows a clean **Manager/Provider architecture** where:
 
 - **Managers** handle database CRUD operations
 - **Providers** handle external API calls
@@ -37,6 +37,11 @@ All data types use **immutable model objects** (dataclasses) - no raw dicts or t
 | **Sentiment** |||||
 | `sentiment_types` | Event type definitions | ✅ SentimentTypesManager | - | ✅ Active |
 | `sentiment_events` | Detected events | ✅ SentimentEventsManager | ✅ PolygonNewsProvider | ✅ Active |
+| **Gap Analysis** |||||
+| `gap_results` | Gap candidate results | ✅ GapResultsManager | - | ✅ Active |
+| `gap_performance_tracking` | Gap performance metrics | ✅ GapPerformanceManager | ✅ PolygonAggregatesProvider | ✅ Active |
+| **Economic Data** |||||
+| `fed_data` | Federal Reserve data | ✅ FedDataManager | ✅ PolygonFedProvider | ✅ Active |
 | **Market Status** |||||
 | `market_holidays` | Holiday calendar | ✅ MarketHolidaysManager | ✅ PolygonMarketStatusProvider | ✅ Active |
 | `market_context_cache` | Market status/session | ✅ MarketContextManager | ✅ PolygonMarketStatusProvider | ✅ Active |
@@ -505,7 +510,184 @@ CREATE TABLE market_context_cache (
 
 ---
 
-### 13. schema_versions
+### 13. gap_results
+
+**Purpose**: Store gap analysis results for historical review and strategy validation
+**Manager**: `GapResultsManager` (no metadata tracking - discrete analysis runs)
+**Data Source**: Internal gap analyzer
+
+```sql
+CREATE TABLE gap_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    asset_id INTEGER NOT NULL,
+    analysis_timestamp TIMESTAMP NOT NULL,
+    session_type TEXT NOT NULL,            -- 'premarket' or 'afterhours'
+    trading_date DATE NOT NULL,
+
+    -- Gap characteristics
+    gap_percentage REAL NOT NULL,
+    gap_direction TEXT NOT NULL,           -- 'up' or 'down'
+    gap_type TEXT,                         -- 'full', 'partial', NULL
+
+    -- Price snapshot at analysis time
+    reference_price REAL NOT NULL,         -- prevday.c or day.c
+    current_price REAL NOT NULL,           -- min.c at analysis time
+    day_open REAL,
+    day_high REAL,
+    day_low REAL,
+    day_close REAL,
+    prevday_close REAL NOT NULL,
+    prevday_high REAL,
+    prevday_low REAL,
+
+    -- Volume analysis
+    extended_hours_volume INTEGER,
+    previous_day_volume INTEGER,
+    volume_ratio REAL,
+
+    -- Market context
+    market_cap REAL,
+    sector TEXT,
+
+    -- Quality assessment
+    quality_score REAL,
+    quality_tier TEXT,                     -- 'excellent', 'good', 'fair', 'poor'
+    catalyst_score REAL,
+    volume_score REAL,
+    gap_size_score REAL,
+    sector_alignment_score REAL,
+    market_alignment_score REAL,
+
+    -- Filter results
+    passed_gap_filter BOOLEAN NOT NULL,
+    passed_volume_filter BOOLEAN NOT NULL,
+    passed_market_cap_filter BOOLEAN NOT NULL,
+    passed_exhaustion_filter BOOLEAN NOT NULL,
+    is_friday_gap BOOLEAN NOT NULL,
+
+    -- Rejection details
+    status TEXT NOT NULL,                  -- 'passed', 'rejected', 'warning'
+    rejection_reason TEXT,
+
+    -- News & sentiment
+    news_count INTEGER,
+    sentiment_score REAL,
+    has_tier1_catalyst BOOLEAN,
+    catalyst_description TEXT,
+
+    -- Metadata
+    min_timestamp BIGINT,
+    data_freshness_hours REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (asset_id) REFERENCES assets(id)
+);
+```
+
+**Typical Data**: Grows continuously with each `gap analyze` run (optional save)
+**Query**: `./tradescout gap results --num-days=7 --status=passed`
+**Index**: `idx_gap_results_analysis_timestamp`, `idx_gap_results_trading_date`, `idx_gap_results_session`, `idx_gap_results_status`, `idx_gap_results_quality`, `idx_gap_results_asset_id`
+
+**Use Cases**:
+- Historical gap review: "What gaps were found last week?"
+- Strategy validation: "Do volume filters prevent bad setups?"
+- Pattern analysis: "How often do Friday gaps get flagged?"
+
+See [GAP_RESULTS.md](GAP_RESULTS.md) for query examples and use cases.
+
+---
+
+### 14. gap_performance_tracking
+
+**Purpose**: Track actual intraday performance for gap candidates
+**Manager**: `GapPerformanceManager` (no metadata tracking - historical snapshots)
+**Provider**: `PolygonAggregatesProvider` → `/v2/aggs/ticker/{symbol}/range`
+
+```sql
+CREATE TABLE gap_performance_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gap_result_id INTEGER NOT NULL UNIQUE,
+
+    -- Intraday performance (9:30 AM - 4:00 PM ET)
+    entry_price REAL,                      -- Open at 9:30 AM
+    entry_timestamp TIMESTAMP,
+    exit_price REAL,                       -- Close at 4:00 PM
+    exit_timestamp TIMESTAMP,
+    max_intraday_price REAL,               -- Day's high
+    min_intraday_price REAL,               -- Day's low
+
+    -- Performance metrics
+    realized_return_pct REAL,              -- (exit - entry) / entry * 100
+    max_drawdown_pct REAL,                 -- (min - entry) / entry * 100
+    max_upside_pct REAL,                   -- (max - entry) / entry * 100
+    gap_filled BOOLEAN,                    -- Price touched reference price?
+    gap_fill_timestamp TIMESTAMP,
+
+    -- Outcome classification
+    outcome TEXT,                          -- 'winner', 'loser', 'breakeven'
+    trade_taken BOOLEAN DEFAULT FALSE,
+
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
+);
+```
+
+**Typical Data**: One record per gap result (after trading day completes)
+**Update**: `./tradescout gap performance --date=2025-10-09` (on-demand)
+**Index**: `idx_gap_performance_tracking_gap_result_id`, `idx_gap_performance_tracking_outcome`
+
+**Session-Aware Date Logic**:
+- **Premarket gap** (8:30 AM Oct 9) → Track Oct 9 regular hours (9:30-4:00 PM)
+- **Afterhours gap** (5:00 PM Oct 9) → Track Oct 10 regular hours (9:30-4:00 PM)
+
+**Outcome Classification**:
+- **Winner**: realized_return_pct ≥ 2.0%
+- **Loser**: realized_return_pct ≤ -1.0%
+- **Breakeven**: Between -1.0% and 2.0%
+
+See [GAP_PERFORMANCE.md](GAP_PERFORMANCE.md) for detailed design and examples.
+
+---
+
+### 15. fed_data
+
+**Purpose**: Federal Reserve economic indicators for market context
+**Manager**: `FedDataManager` (with metadata tracking, TTL: varies by data type)
+**Provider**: `PolygonFedProvider` → `/v1/indicators/sma/{ticker}`
+
+```sql
+CREATE TABLE fed_data (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    data_type TEXT NOT NULL,               -- 'inflation', 'inflation_expectations', 'treasury_yields'
+    observation_date TEXT NOT NULL,        -- YYYY-MM-DD format
+    value REAL NOT NULL,                   -- Rate, yield, index, etc.
+    details TEXT NOT NULL,                 -- JSON metadata
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    UNIQUE(data_type, observation_date)
+);
+```
+
+**Typical Data**: Economic indicators updated periodically
+**Update**: `./tradescout fed update --type=inflation`
+**Index**: `idx_fed_data_type`, `idx_fed_data_date`, `idx_fed_data_type_date`
+
+**Data Types**:
+- **inflation**: CPI, PCE data
+- **inflation_expectations**: Market-based expectations
+- **treasury_yields**: 2Y, 10Y Treasury yields
+
+**Use Cases**:
+- Macro context for gap trading decisions
+- Rate environment awareness
+- Market regime classification
+
+---
+
+### 16. schema_versions
 
 **Purpose**: Database migration tracking
 **Managed by**: `database_initializer.py`
@@ -703,9 +885,10 @@ class DataService:
 **Architecture**: Clean Manager/Provider separation
 **Data Types**: Immutable model objects throughout
 **Metadata Tracking**: Only for bulk/bootstrap operations
-**Current Status**: 13 tables, 12 active managers, 6 API providers
+**Current Status**: 16 tables, 15 active managers, 7 API providers
 **Market Status**: Market holidays and context fully integrated with Manager/Provider pattern
 **Sentiment**: Phase 1 complete - infrastructure, managers, and PolygonNewsProvider all active
+**Gap Analysis**: Complete gap results tracking and performance validation system
 
 **Directory Structure**:
 - **Managers**: `src/database/managers/` - Database CRUD operations

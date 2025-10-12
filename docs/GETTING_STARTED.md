@@ -1,82 +1,58 @@
 # Getting Started with TradeScout
 
-**Welcome to TradeScout** - A personal market research assistant for real-time stock screening and analysis.
-
-This guide will walk you through installation, configuration, and your first screening operations.
+**TradeScout** - A personal market research assistant for real-time stock screening and gap trading analysis.
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have:
-
 - **Python 3.8+** installed
-- **Polygon.io Premium API subscription** ($50/month - provides extended hours data)
+- **Polygon.io Premium subscription** ($50/month - provides extended hours data)
 - **Linux/Ubuntu/WSL2** environment (primary development platform)
-- **SQLite** (included with Python)
 
 ### Why Polygon.io Premium?
 
-TradeScout uses Polygon.io's Premium tier specifically for:
-- Extended hours data (premarket 4-9:30 AM, afterhours 4-8 PM ET)
-- Real-time snapshot data (15-minute delayed)
-- Bulk market snapshots (all tickers in one API call)
-- Market status and holiday calendar data
+TradeScout requires Polygon.io Premium for:
+- Extended hours data (premarket 4-9:30 AM, after-hours 4-8 PM ET)
+- Real-time snapshot data (all tickers in one API call)
+- Market status and holiday calendar
+- Minute-level aggregates for volume analysis
 
-**Note**: The free tier does NOT provide extended hours data or bulk snapshots required for TradeScout's features.
+**Note**: The free tier does NOT provide these features.
 
 ---
 
 ## Installation
 
-### 1. Clone the Repository
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/charlieCollins/TradeScout.git
 cd TradeScout
-```
 
-### 2. Install Dependencies
-
-```bash
 # Create virtual environment (recommended)
 python3 -m venv venv
 source venv/bin/activate
 
-# Install required packages
+# Install dependencies
 pip install -r requirements.txt
 ```
 
-**Required packages** (from `requirements.txt`):
-- `click` - CLI framework
-- `rich` - Beautiful terminal output
-- `requests` - HTTP client for API calls
-- `python-dotenv` - Environment variable management
-- `pyyaml` - YAML configuration parsing
+### 2. Configure API Key
 
-### 3. Configure API Keys
-
-Create a `.env` file in the project root:
+Create a `.env` file with your Polygon.io API key:
 
 ```bash
 cp .env.example .env
+nano .env  # Add: POLYGON_API_KEY=your_polygon_api_key_here
 ```
 
-Edit `.env` and add your Polygon.io API key:
-
-```bash
-# .env file
-POLYGON_API_KEY=your_polygon_api_key_here
-```
-
-**Get your API key**:
+Get your API key:
 1. Sign up at [https://polygon.io/](https://polygon.io/)
-2. Subscribe to the Stocks Starter plan ($50/month)
-3. Copy your API key from the dashboard
+2. Subscribe to Stocks Starter plan ($50/month)
+3. Copy API key from dashboard
 
-### 4. Verify Installation
-
-Test that the CLI works:
+### 3. Verify Installation
 
 ```bash
 ./tradescout --help
@@ -90,385 +66,287 @@ You should see the TradeScout command menu.
 
 ### 1. Initialize Database
 
-Create the SQLite database schema:
-
 ```bash
 ./tradescout database init
 ```
 
-**What this does**:
-- Creates `data/tradescout.db` SQLite database
-- Initializes 13 tables (assets, markets, prices, universes, etc.)
-- Creates all indexes for query performance
-- Inserts schema version record
-
-**Expected output**:
-```
-✓ Database initialized successfully
-✓ Schema version: 001
-✓ Tables created: 13
-```
+Creates `data/tradescout.db` with all required tables.
 
 ### 2. Bootstrap Reference Data
-
-Populate the database with initial market data:
 
 ```bash
 ./tradescout database bootstrap-all
 ```
 
-**This runs multiple operations in sequence**:
+**This populates** (takes 10-30 minutes):
+1. Providers (1 record) - Polygon.io configuration
+2. Markets (~10 records) - US stock exchanges
+3. Assets (~10,000 records) - All active stocks
+4. Fundamentals (~10,000 records) - Market cap, sector, etc.
+5. Universes (1 record) - Default trading universe
 
-1. **Providers** (1 record) - Polygon.io configuration
-2. **Markets** (~10 records) - US stock exchanges (XNYS, XNAS, etc.)
-3. **Assets** (~10,000 records) - All active stocks from Polygon
-4. **Fundamentals** (~10,000 records) - Company data (market cap, sector, etc.)
-5. **Universes** (1 record) - Filtered trading universe
-
-**Note**: This can take 10-30 minutes depending on API rate limits.
-
-**Alternative**: Bootstrap steps individually:
+**Alternative** - Bootstrap individually:
 
 ```bash
-# Step by step (recommended for first setup)
 ./tradescout database bootstrap-providers
 ./tradescout database bootstrap-markets
 ./tradescout database bootstrap-assets
-
-# Bootstrap fundamentals for subset (faster for testing)
-./tradescout database bootstrap-fundamentals --limit 100
-
-# Or bootstrap all fundamentals (takes time)
-./tradescout database bootstrap-fundamentals
-
-# Create default universe
+./tradescout database bootstrap-fundamentals --limit 100  # Faster for testing
 ./tradescout database bootstrap-universes
 ```
 
-### 3. Update Market Data
-
-Fetch current market prices:
+### 3. Update Market Prices
 
 ```bash
 ./tradescout market update
 ```
 
-**What this does**:
-- Fetches bulk market snapshot from Polygon (all tickers)
-- Updates `asset_prices` table with current prices
-- Respects 15-minute TTL (won't re-fetch if recently updated)
-
-**Expected output**:
-```
-Fetching market data for all universe assets...
-✓ Updated 7,513 ticker prices
-✓ Data age: Fresh (2m ago)
-```
+Fetches current prices for all assets. Has 15-minute TTL (won't re-fetch if recent).
 
 ---
 
 ## Your First Screening
 
-Now that setup is complete, let's run some screeners!
-
 ### 1. Check Market Status
-
-Before screening, check current market context:
 
 ```bash
 ./tradescout market context
 ```
 
-**Example output**:
-```
-Market Context: XNAS (Nasdaq)
-Trading Day: Yes
-Session: REGULAR (9:30 AM - 4:00 PM ET)
-Market Open: 9:30 AM
-Market Close: 4:00 PM
-```
+Shows current session (premarket/regular/after-hours/closed) and market status.
 
-### 2. List Available Screeners
-
-See what screeners are available:
+### 2. Run a Screener
 
 ```bash
+# List available screeners
 ./tradescout screener --list
+
+# Run gainers screener (context-aware - works in any session)
+./tradescout screener gainers_combined
+
+# Run losers screener
+./tradescout screener losers_combined
 ```
 
-**You'll see**:
-- `gainers` - Top gaining stocks (regular session)
-- `losers` - Top losing stocks (regular session)
-- `gainerspremarket` - Premarket gap-ups
-- `gainersafterhours` - Afterhours gainers
-- `gaps` - Significant gap ups/downs
-- `volume` - Unusual volume activity
-- `momentum` - Strong momentum indicators
-- And more...
-
-### 3. Run Your First Screener
-
-Find top gaining stocks during regular market hours:
-
-```bash
-./tradescout screener gainers
+**Example output:**
 ```
+Top Gainers (Premarket vs Previous Close)
 
-**Example output**:
-```
-Regular Session Gainers (vs day open)
-
-Symbol  Name                Current    Change     Change %   Volume
-------  ------------------  ---------  ---------  ---------  -------
-NVDA    NVIDIA Corporation  $523.45    +$12.34    +2.41%     45.2M
-AAPL    Apple Inc.          $178.92    +$3.45     +1.97%     52.1M
-TSLA    Tesla Inc.          $245.67    +$4.23     +1.75%     38.5M
+Symbol  Name                Current    Prev Close  Change %   Volume
+------  ------------------  ---------  ----------  ---------  -------
+NVDA    NVIDIA Corporation  $523.45    $511.11     +2.41%     1.2M
+AAPL    Apple Inc.          $178.92    $175.47     +1.97%     850K
 ...
 
 📊 Showing 50 results from 7,513 symbols
-⚠️ Market data is 5m old - results are current
 ```
 
-### 4. Extended Hours Screening
+Screeners are **context-aware**: They automatically adjust calculations based on current session (premarket/regular/after-hours).
 
-During premarket (4-9:30 AM ET):
-
-```bash
-./tradescout screener gainerspremarket
-```
-
-**Example output**:
-```
-Premarket Gainers (vs previous close)
-
-Symbol  Name                Current    Prev Close  Gap %      Time
-------  ------------------  ---------  ----------  ---------  --------
-AAPL    Apple Inc.          $181.50    $175.47     +3.44%     08:45 AM
-TSLA    Tesla Inc.          $248.30    $241.44     +2.84%     08:50 AM
-...
-
-📈 Premarket session - limited trading volume
-⚠️ Market data is 15m old - results may be stale
-```
-
-During after-hours (4-8 PM ET):
-
-```bash
-./tradescout screener gainersafterhours
-```
-
-### 5. Check Individual Stock
-
-Get detailed information for a specific symbol:
+### 3. Check Individual Stock
 
 ```bash
 ./tradescout asset info AAPL
 ```
 
-**Example output**:
+Shows price, fundamentals, market cap, sector, etc.
+
+---
+
+## Gap Trading Analysis
+
+TradeScout includes a sophisticated gap trading analysis system.
+
+### Analyze Gap Candidates
+
+**During premarket (4-9:30 AM) or after-hours (4-8 PM):**
+
+```bash
+./tradescout gap analyze
 ```
-Apple Inc. (AAPL)
 
-Price Information:
-  Current Price:    $178.92
-  Previous Close:   $175.47
-  Day Open:         $176.20
-  Day High:         $179.45
-  Day Low:          $175.80
-  Change:           +$3.45 (+1.97%)
+**What it does:**
+1. Identifies stocks with gaps ≥2% (configurable)
+2. Validates volume ratio (≥1.5x normal)
+3. Checks market cap (≥$1B default)
+4. Filters exhaustion gaps (≥5% gap + ≥3x volume)
+5. Fetches news and calculates catalyst scores
+6. Calculates quality scores (0-100)
+7. Generates comprehensive report
 
-Company Information:
-  Sector:           Technology
-  Industry:         Consumer Electronics
-  Market Cap:       $2.85T
-  Shares Out:       15.9B
-  Avg Volume (30d): 52.3M
-
-Market:             XNAS (Nasdaq)
-Status:             Active
-Last Updated:       2025-10-02 14:30:00 ET
+**Example output:**
 ```
+Gap Trading Analysis - Premarket
+Trading Date: 2025-10-10
+
+✅ PASSED CANDIDATES (3)
+1. NVDA - Quality: 72.5 (Good)
+   Gap: +3.2% | Volume: 2.1x | Catalyst: Earnings beat (Score: 85)
+
+2. AAPL - Quality: 68.3 (Good)
+   Gap: +2.8% | Volume: 1.8x | Catalyst: Product launch (Score: 70)
+
+❌ REJECTED CANDIDATES (28)
+- 22 failed volume test (<1.5x)
+- 6 failed exhaustion gap filter
+
+Report saved: tradescout_gap_20251010_083045.txt
+```
+
+**Configuration** (optional):
+
+```bash
+./tradescout gap analyze --min-gap 3.0 --min-volume-ratio 2.0 --min-market-cap 5000000000
+```
+
+See `docs/GAP_TRADING_STRATEGY.md` for detailed strategy documentation.
 
 ---
 
 ## Common Workflows
 
-### Daily Market Screening Routine
+### Daily Screening Routine
 
 ```bash
 # 1. Check market status
 ./tradescout market context
 
-# 2. Update prices (if stale)
+# 2. Update prices if stale
 ./tradescout market update
 
-# 3. Run appropriate screeners for current session
-# Premarket (4-9:30 AM)
-./tradescout screener gainerspremarket
-
-# Regular hours (9:30 AM-4 PM)
-./tradescout screener gainers
-./tradescout screener gaps
-./tradescout screener volume
-
-# After-hours (4-8 PM)
-./tradescout screener gainersafterhours
+# 3. Run screener for current conditions
+./tradescout screener gainers_combined
+./tradescout screener losers_combined
 ```
 
-### Gap Trading Analysis
+### Premarket/After-Hours Gap Analysis
 
 ```bash
-# 1. Find gap candidates
-./tradescout screener gaps
+# During premarket (4-9:30 AM) or after-hours (4-8 PM)
+./tradescout gap analyze
 
-# 2. Analyze specific symbols
-./tradescout gap analyze AAPL TSLA NVDA
-
-# 3. Get gap up candidates
-./tradescout screener gapupcandidates
-
-# 4. Get gap down candidates
-./tradescout screener gapdowncandidates
+# Review generated report
+cat tradescout_gap_*.txt
 ```
 
 ### Universe Management
 
 ```bash
-# List available universes
-./tradescout universe list
+# List universes
+./tradescout universes list
 
 # Show current universe info
-./tradescout universe current
+./tradescout universes current
 
-# Get detailed universe stats
-./tradescout universe info default_universe
+# Switch universe
+./tradescout universes activate large_cap
+```
 
-# Create custom universe (future feature)
-./tradescout universe create my_universe
+---
 
-# Switch to different universe
-./tradescout universe activate my_universe
+## Configuration
+
+### Screener Configuration
+
+Screeners are defined in `configs/screeners/*.yaml`:
+
+```yaml
+# Example: configs/screeners/gainers_combined.yaml
+name: gainers_combined
+description: "Top gainers (context-aware across all sessions)"
+enabled: true
+
+# Context-aware: Works in any session
+valid_sessions:
+  - "premarket"
+  - "regular"
+  - "afterhours"
+  - "closed_post"
+
+# Dynamic filters based on session
+filters:
+  - field: "change_pct"  # Calculated by template engine
+    operator: ">="
+    value: 2.0
+
+sort:
+  - field: "change_pct"
+    direction: "desc"
+
+display:
+  limit: 50
+```
+
+### Universe Configuration
+
+Universes are defined in `configs/universes/*.yaml`:
+
+```yaml
+# Example: configs/universes/default_universe.yaml
+name: default_universe
+description: "Default trading universe - liquid US stocks"
+
+filters:
+  exchanges:
+    - XNYS
+    - XNAS
+
+  min_market_cap: 5000000000  # $50M in cents
+  min_avg_volume_30d: 100000
+
+  symbol:
+    min_length: 1
+    max_length: 5
+    alphabetic_only: true
+
+  exclude:
+    - preferred_stocks
+    - warrants
+```
+
+### Gap Trading Configuration
+
+Edit `configs/gap_trading.yaml` to customize:
+
+```yaml
+gap_detection:
+  min_gap_percentage: 2.0
+  min_volume_ratio: 1.5
+  min_market_cap: 1000000000
+
+exhaustion_filter:
+  min_gap_percentage: 5.0
+  min_volume_ratio: 3.0
+  # trend_age_days: 20  # Future: requires historical data
+
+quality_scoring:
+  weights:
+    gap_size: 0.40
+    volume: 0.25
+    catalyst: 0.20
+    sector_alignment: 0.10
+    market_alignment: 0.05
 ```
 
 ---
 
 ## Understanding Sessions
 
-TradeScout is session-aware and automatically validates screener availability:
+TradeScout is session-aware and automatically adjusts calculations:
 
-### Trading Sessions
+| Session | Time (ET) | Price Comparison |
+|---------|-----------|------------------|
+| **Premarket** | 4:00-9:30 AM | Current vs Yesterday Close |
+| **Regular** | 9:30 AM-4:00 PM | Current vs Today Open |
+| **After-hours** | 4:00-8:00 PM | Current vs Today 4PM Close |
+| **Closed** | 8:00 PM-4:00 AM | Last available vs Previous |
 
-| Session | Time (ET) | Description |
-|---------|-----------|-------------|
-| **Premarket** | 4:00-9:30 AM | Low volume, gap detection |
-| **Regular** | 9:30 AM-4:00 PM | High volume, primary trading |
-| **Afterhours** | 4:00-8:00 PM | Moderate volume, earnings reactions |
-| **Closed** | 8:00 PM-4:00 AM | No trading, historical data only |
+### Data Freshness
 
-### Session Validation
-
-If you try to run a screener during the wrong session:
-
-```bash
-# Try running regular-hours screener during premarket
-./tradescout screener gainers
-
-# Output:
-❌ Error: Screener 'gainers' is only valid during sessions: ['regular']
-   Current session: PREMARKET
-   Try: ./tradescout screener gainerspremarket
-```
-
-### Data Freshness Warnings
-
-TradeScout warns you when data might be stale:
-
+TradeScout warns when data is stale:
 - **Fresh (< 15min)**: ✓ No warning
-- **Moderate (15-30min)**: ⚠️ "Market data is 20m old"
-- **Stale (> 30min)**: ⚠️ "Market data is stale - consider running market update"
-- **Closed Market**: 🌙 "Markets are closed - showing data from last session"
-
----
-
-## Configuration
-
-### Universe Configuration
-
-Edit `src/config/universe_config.py` to customize filtering criteria:
-
-```python
-UNIVERSE_CONFIG = {
-    "default_universe": {
-        "name": "default_universe",
-        "description": "Default trading universe - liquid US stocks",
-        "filters": {
-            # Exchange filtering
-            "exchanges": ["XNYS", "XNAS"],  # NYSE and Nasdaq only
-
-            # Symbol filtering
-            "min_symbol_length": 1,
-            "max_symbol_length": 5,
-            "alphabetic_only": True,  # No numbers in symbol
-
-            # Market cap filtering (in cents)
-            "min_market_cap": 50_000_000_00,  # $50M minimum
-
-            # Volume filtering
-            "min_avg_volume_30d": 100_000,  # 100k shares/day minimum
-
-            # Asset type filtering
-            "asset_types": ["stock"],  # Stocks only, no ETFs/REITs
-
-            # Exclusions
-            "exclude_preferred": True,  # No preferred stocks (symbols with -)
-            "exclude_warrants": True,   # No warrants (symbols with W)
-        }
-    }
-}
-```
-
-### Screener Configuration
-
-Screeners are defined in `configs/screeners/*.yaml`. Example:
-
-```yaml
-# configs/screeners/custom_gainers.yaml
-name: custom_gainers
-description: "Custom gainers with higher threshold"
-enabled: true
-
-valid_sessions:
-  - "regular"
-
-data_source:
-  universe: "default_universe"
-  require_recent_trading: true
-
-filters:
-  - field: "change_percent"
-    operator: ">="
-    value: 3.0  # 3% minimum gain (vs default 2%)
-
-  - field: "day_volume"
-    operator: ">="
-    value: 500000  # 500k volume minimum
-
-sort:
-  - field: "change_percent"
-    direction: "desc"
-
-display:
-  limit: 50
-  columns:
-    - name: "Symbol"
-      field: "symbol"
-      width: 8
-    - name: "Current"
-      field: "min_close"
-      format: "price"
-      width: 10
-    # ... more columns
-```
+- **Moderate (15-30min)**: ⚠️ "Data is 20m old"
+- **Stale (> 30min)**: ⚠️ "Data stale - run market update"
 
 ---
 
@@ -476,12 +354,7 @@ display:
 
 ### Update Reference Data
 
-Reference data has TTL-based auto-refresh, but you can force update:
-
 ```bash
-# Update markets (TTL: 1 year)
-./tradescout database bootstrap-markets
-
 # Update asset list (TTL: 3 days)
 ./tradescout database bootstrap-assets
 
@@ -506,119 +379,79 @@ Reference data has TTL-based auto-refresh, but you can force update:
 ./tradescout database bootstrap-all
 ```
 
-### Check Data Freshness
-
-```bash
-# Show market data age
-./tradescout market info
-
-# Force refresh market data
-./tradescout market update
-```
-
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### "POLYGON_API_KEY not found"
 
-#### 1. "POLYGON_API_KEY not found"
-
-**Problem**: API key not configured
-
-**Solution**:
 ```bash
-# Create .env file
 cp .env.example .env
-
-# Edit .env and add your key
-nano .env
-# Add: POLYGON_API_KEY=your_key_here
-
-# Verify
-cat .env | grep POLYGON
+nano .env  # Add: POLYGON_API_KEY=your_key_here
 ```
 
-#### 2. "Database not found"
+### "Database not found"
 
-**Problem**: Database not initialized
-
-**Solution**:
 ```bash
 ./tradescout database init
 ./tradescout database bootstrap-all
 ```
 
-#### 3. "No results from screener"
+### "No results from screener"
 
-**Problem**: Market data not fetched
-
-**Solution**:
 ```bash
-# Update market prices
-./tradescout market update
-
-# Verify data exists
-./tradescout database info
+./tradescout market update  # Update prices
+./tradescout database info  # Verify data exists
 ```
 
-#### 4. "Rate limit exceeded"
+### "Gap analyze only works during premarket/after-hours"
 
-**Problem**: Too many API calls
-
-**Solution**:
-- TradeScout automatically handles rate limits
-- Wait 60 seconds and retry
-- Check you're using Premium tier (not free tier)
-
-#### 5. "Screener not valid for current session"
-
-**Problem**: Wrong screener for current market session
-
-**Solution**:
-```bash
-# Check current session
-./tradescout market context
-
-# Use appropriate screener:
-# Premarket: gainerspremarket, loserspremarket
-# Regular: gainers, losers, gaps, volume, momentum
-# Afterhours: gainersafterhours, losersafterhours
-```
+The `gap analyze` command only runs during extended hours sessions when gaps can be detected. During regular hours or closed sessions, there are no gaps to analyze.
 
 ---
 
 ## Next Steps
 
-Now that you're set up, explore advanced features:
+### Documentation
 
-1. **Architecture Documentation** - Learn how TradeScout is built
-   - `docs/ARCHITECTURE_MANAGERS.md` - Database layer patterns
-   - `docs/ARCHITECTURE_API_PROVIDERS.md` - API integration patterns
-   - `docs/DATABASE.md` - Complete schema reference
+**Core Features:**
+- `docs/ARCHITECTURE.md` - System architecture and design
+- `docs/DATABASE.md` - Complete database schema
+- `docs/SCREENERS.md` - Screener system guide
+- `docs/BOOTSTRAPPING.md` - Bootstrap operations
 
-2. **API Reference** - Developer documentation
-   - `docs/API_REFERENCE_BASE_CLASSES.md` - BaseManager and BaseProvider
-   - `docs/API_REFERENCE_DATA_SERVICE.md` - DataService public API
-   - `docs/API_REFERENCE_MANAGERS.md` - All database managers
-   - `docs/API_REFERENCE_PROVIDERS.md` - All API providers
+**Gap Trading:**
+- `docs/GAP_TRADING_STRATEGY.md` - Gap trading strategy overview
+- `docs/GAP_TRADING_STRATEGY_RULES.md` - Detailed trading rules
+- `docs/GAP_IMPLEMENTATION_COVERAGE.md` - Implementation status
 
-3. **Feature Guides** - Detailed feature documentation
-   - `docs/SCREENERS.md` - Screener system guide
-   - `docs/GAP_TRADING_STRATEGY.md` - Gap trading analysis
-   - `docs/SENTIMENT.md` - Sentiment detection (future feature)
-   - `docs/BOOTSTRAPPING.md` - Bootstrap operations reference
+**Data Sources:**
+- `docs/POLYGON.md` - Polygon.io API overview
+- `docs/POLYGON_IMPLEMENTATION.md` - Implementation details
+- `docs/POLYGON_VOLUME_INFO.md` - Volume field reference
 
-4. **Data Sources** - Provider-specific documentation
-   - `docs/DATA_SOURCE_POLYGON.md` - Polygon.io integration
-   - `docs/DATA_SOURCE_POLYGON_SNAPSHOT_INFO.md` - Snapshot API details
+**Other Features:**
+- `docs/SENTIMENT.md` - News sentiment analysis
+- `docs/SECTOR_CLASSIFICATION.md` - Sector mapping
+
+### Advanced Features
+
+**Federal Reserve Data** (if you have access):
+```bash
+./tradescout fed update  # Update Fed economic data
+```
+
+**Validation Tools:**
+```bash
+./tradescout validate --help  # Data validation commands
+```
 
 ---
 
 ## Getting Help
 
-- **Documentation**: Check `docs/` directory for detailed guides
-- **Issues**: Review `CLAUDE_LESSONS_LEARNED.md` for common pitfalls
-- **Logs**: Check terminal output for error messages with context
+- **Documentation**: Check `docs/` directory
+- **Lessons Learned**: See `CLAUDE_LESSONS_LEARNED.md` for common pitfalls
+- **Logs**: Terminal output includes detailed error messages
 
 **Happy Screening!**

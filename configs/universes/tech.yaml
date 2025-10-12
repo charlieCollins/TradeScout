@@ -1,0 +1,39 @@
+# Technology Universe Configuration
+# Technology sector stocks for high-growth trading
+
+name: tech
+description: Technology sector stocks for high-growth trading
+
+# Included criteria
+included:
+  ticker_types:
+    - CS  # Common Stock only
+
+  exchanges:
+    - XNYS  # New York Stock Exchange
+    - XNAS  # NASDAQ
+
+  symbol_pattern: "^[A-Z]{1,5}$"  # 1-5 alphabetic characters only
+  active_only: true
+
+  sectors:
+    - Technology
+    - Communication Services
+
+  min_market_cap: 500000000  # $500M minimum for liquidity
+
+# Excluded criteria
+excluded:
+  non_us_securities: true
+  preferred_stocks: true
+
+  investment_vehicles:
+    etns: true
+    mutual_funds: true
+    closed_end_funds: true
+
+  invalid_symbols:
+    test_symbols: true
+    inactive_delisted: true
+    special_characters: true
+    duplicate_classes: true

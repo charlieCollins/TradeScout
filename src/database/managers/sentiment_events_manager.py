@@ -68,7 +68,7 @@ class SentimentEventsManager(BaseManager):
 
                 query = """
                     SELECT id, asset_id, sentiment_type_id, event_date, event_time,
-                           session, value, magnitude, details, created_at
+                           session, value, magnitude, details, external_id, created_at
                     FROM sentiment_events
                     WHERE id = ?
                 """
@@ -103,12 +103,15 @@ class SentimentEventsManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
-                # Use INSERT OR REPLACE to handle both new and existing events
+                # Extract external_id from details (article_id for news articles)
+                external_id = entity.details.get("article_id") if entity.details else None
+
+                # Use INSERT OR IGNORE to prevent duplicates (unique constraint on external_id)
                 query = """
-                    INSERT OR REPLACE INTO sentiment_events (
+                    INSERT OR IGNORE INTO sentiment_events (
                         asset_id, sentiment_type_id, event_date, event_time,
-                        session, value, magnitude, details, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        session, value, magnitude, details, external_id, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """
 
                 values = (
@@ -120,14 +123,20 @@ class SentimentEventsManager(BaseManager):
                     float(entity.value),  # Convert Decimal to float for SQLite
                     entity.magnitude,
                     json.dumps(entity.details),  # Serialize dict to JSON
+                    external_id,
                     entity.created_at.isoformat()
                 )
 
                 cursor.execute(query, values)
+                rows_affected = cursor.rowcount
                 conn.commit()
 
-                logger.debug(f"Successfully stored sentiment event {entity.id}")
-                return True
+                if rows_affected > 0:
+                    logger.debug(f"Successfully stored sentiment event {entity.id}")
+                else:
+                    logger.debug(f"Sentiment event {entity.id} already exists (duplicate external_id)")
+
+                return rows_affected > 0
 
         except Exception as e:
             logger.error(f"Error storing sentiment event to database: {e}")
@@ -162,7 +171,7 @@ class SentimentEventsManager(BaseManager):
 
                 query = """
                     SELECT id, asset_id, sentiment_type_id, event_date, event_time,
-                           session, value, magnitude, details, created_at
+                           session, value, magnitude, details, external_id, created_at
                     FROM sentiment_events
                     WHERE asset_id = ?
                 """
@@ -224,7 +233,7 @@ class SentimentEventsManager(BaseManager):
 
                 query = """
                     SELECT id, asset_id, sentiment_type_id, event_date, event_time,
-                           session, value, magnitude, details, created_at
+                           session, value, magnitude, details, external_id, created_at
                     FROM sentiment_events
                     WHERE sentiment_type_id = ?
                 """
@@ -284,7 +293,7 @@ class SentimentEventsManager(BaseManager):
 
                 query = """
                     SELECT id, asset_id, sentiment_type_id, event_date, event_time,
-                           session, value, magnitude, details, created_at
+                           session, value, magnitude, details, external_id, created_at
                     FROM sentiment_events
                     WHERE event_date >= ? AND event_date <= ?
                     ORDER BY event_date DESC, event_time DESC
@@ -318,7 +327,7 @@ class SentimentEventsManager(BaseManager):
         """Parse database row into SentimentEvent object.
 
         Args:
-            row: Database row tuple
+            row: Database row tuple (includes external_id which we don't use in model)
 
         Returns:
             SentimentEvent object or None if parsing fails
@@ -345,7 +354,8 @@ class SentimentEventsManager(BaseManager):
                 value=Decimal(str(row[6])),  # Convert float to Decimal
                 magnitude=row[7],
                 details=json.loads(row[8]) if row[8] else {},  # Parse JSON to dict
-                created_at=datetime.fromisoformat(row[9])
+                # row[9] is external_id - not used in model (already in details)
+                created_at=datetime.fromisoformat(row[10])
             )
 
         except Exception as e:
@@ -355,6 +365,55 @@ class SentimentEventsManager(BaseManager):
     # ============================================================================
     # STATISTICS
     # ============================================================================
+
+    def get_most_recent_news_timestamp(self, asset_id: int) -> Optional[datetime]:
+        """Get timestamp of most recently created news event for an asset.
+
+        Args:
+            asset_id: Asset database ID
+
+        Returns:
+            Datetime of most recent news event creation, or None if no news found
+        """
+        if not self._check_dependencies():
+            return None
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get news sentiment type IDs (any type starting with "news_")
+                cursor.execute("""
+                    SELECT id FROM sentiment_types
+                    WHERE name LIKE 'news_%'
+                """)
+                news_type_ids = [row[0] for row in cursor.fetchall()]
+
+                if not news_type_ids:
+                    logger.debug("No news sentiment types found in database")
+                    return None
+
+                # Get most recent created_at timestamp for this asset's news events
+                placeholders = ",".join("?" * len(news_type_ids))
+                query = f"""
+                    SELECT MAX(created_at)
+                    FROM sentiment_events
+                    WHERE asset_id = ?
+                    AND sentiment_type_id IN ({placeholders})
+                """
+
+                params = [asset_id] + news_type_ids
+                cursor.execute(query, params)
+                result = cursor.fetchone()
+
+                if result and result[0]:
+                    return datetime.fromisoformat(result[0])
+
+                return None
+
+        except Exception as e:
+            logger.error(f"Error getting most recent news timestamp for asset {asset_id}: {e}")
+            return None
 
     def get_stats(self) -> Dict[str, Any]:
         """Get sentiment events manager statistics."""

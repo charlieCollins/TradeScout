@@ -24,6 +24,15 @@ class Config:
         self._market_context = None
         self._market_context_service = None
         self._active_universe = None
+        self._polygon_api_key = None
+
+    @property
+    def polygon_api_key(self):
+        """Get Polygon API key."""
+        if self._polygon_api_key is None:
+            from api.config.api_keys import POLYGON_API_KEY
+            self._polygon_api_key = POLYGON_API_KEY
+        return self._polygon_api_key
 
     @property
     def market_context(self):
@@ -165,6 +174,8 @@ from .database_commands import database
 from .market_commands import market
 from .gap_commands import gap
 from .universe_commands import universes
+from .validate_commands import validate
+from .fed_commands import fed
 
 
 main.add_command(screener)
@@ -173,6 +184,8 @@ main.add_command(database)
 main.add_command(market)
 main.add_command(gap)
 main.add_command(universes)
+main.add_command(validate)
+main.add_command(fed)
 
 
 if __name__ == "__main__":

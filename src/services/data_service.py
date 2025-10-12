@@ -6,21 +6,24 @@ Provides clean interface for business logic to access data.
 
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, date, time
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from api.providers import (
+    PolygonAggregatesProvider,
     PolygonMarketsProvider,
     PolygonMarketStatusProvider,
     PolygonNewsProvider,
     PolygonSnapshotProvider,
     PolygonTickersProvider,
 )
-from config.universe_config import UNIVERSE_CONFIG
+from utils.config_loader import get_config_loader
 from database.managers import (
     AssetManager,
     AssetPriceManager,
     DataUpdateMetadataManager,
+    FedDataManager,
     FundamentalsManager,
     MarketHolidaysManager,
     MarketsManager,
@@ -36,10 +39,13 @@ from models.fundamentals import AssetFundamentals
 from models.market import Market
 from models.market_context import MarketContext
 from models.market_holiday import MarketHoliday
+from models.results import BootstrapResult, FetchResult, UpdateResult, NewsResult
 from models.sentiment_event import SentimentEvent
 from models.sentiment_type import SentimentType
 from models.snapshot import MarketSnapshot, TickerSnapshot
 from models.universe import Universe
+from protocols.progress import ProgressReporter
+from services.market_context_service import MarketContextService
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +104,9 @@ class DataService:
             db_manager, None  # No metadata tracking for continuous events
         )
 
+        # Initialize Fed data manager (economic data from Federal Reserve)
+        self.fed_data_manager = FedDataManager(db_manager, self.metadata_manager)
+
         # Initialize API providers
         self.polygon_snapshot_provider = PolygonSnapshotProvider(polygon_api_key)
         self.polygon_tickers_provider = PolygonTickersProvider(polygon_api_key)
@@ -106,6 +115,10 @@ class DataService:
             polygon_api_key
         )
         self.polygon_news_provider = PolygonNewsProvider(polygon_api_key)
+        self.polygon_aggregates_provider = PolygonAggregatesProvider(polygon_api_key)
+
+        # Initialize market context service
+        self.market_context_service = MarketContextService(self)
 
         logger.debug("DataService initialized with managers and providers")
 
@@ -257,14 +270,14 @@ class DataService:
 
     def batch_save_asset_prices(
         self, asset_prices: list["AssetPrice"]
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int, int]:
         """Batch save asset price data to database.
 
         Args:
             asset_prices: List of AssetPrice objects to save
 
         Returns:
-            Tuple of (successful_count, failed_count)
+            Tuple of (new_records, duplicate_records, successful_count, failed_count)
         """
         logger.debug(f"Batch saving {len(asset_prices)} asset prices")
         return self.asset_price_manager.batch_set_entities_to_database(asset_prices)
@@ -427,14 +440,25 @@ class DataService:
         """
         logger.debug(f"Getting asset for {symbol} (force_refresh={force_refresh})")
 
+        # Get market mapping for the provider to use
+        markets = self.get_all_markets(active_only=False)
+        market_code_to_id = {m.code: m.id for m in markets} if markets else None
+
         # Use get_or_fetch pattern with PolygonTickersProvider
         return self.asset_manager.get_or_fetch(
             key=symbol,
-            fetch_fn=lambda: self.polygon_tickers_provider.fetch_ticker_details(symbol),
+            fetch_fn=lambda: self.polygon_tickers_provider.fetch_ticker_details(
+                symbol, market_code_to_id
+            ),
             force_refresh=force_refresh,
         )
 
-    def bootstrap_assets(self, market: str = "stocks", active: bool = True) -> int:
+    def bootstrap_assets(
+        self,
+        market: str = "stocks",
+        active: bool = True,
+        progress: Optional[ProgressReporter] = None,
+    ) -> BootstrapResult:
         """Bootstrap all assets from Polygon tickers API.
 
         Fetches all tickers from Polygon and stores them as assets in database.
@@ -443,13 +467,17 @@ class DataService:
         Args:
             market: Market type (default: "stocks")
             active: Only fetch active tickers (default: True)
+            progress: Optional progress reporter for operation tracking
 
         Returns:
-            Number of assets stored
+            BootstrapResult with operation statistics and error details
 
         Raises:
             RuntimeError: If prerequisites (providers, markets) are not met
         """
+        import time
+
+        start_time = time.time()
         logger.info(
             f"Bootstrapping assets from Polygon (market={market}, active={active})"
         )
@@ -493,77 +521,63 @@ class DataService:
 
         if not assets:
             logger.warning("No assets fetched from Polygon")
-            return 0
+            return BootstrapResult(
+                operation="assets",
+                total_items=0,
+                successful=0,
+                failed=0,
+                duration_seconds=time.time() - start_time,
+                timestamp=datetime.now(),
+            )
 
-        # Bulk insert assets to database in batches with progress bar
-        import logging
-
-        from rich.console import Console
-        from rich.progress import (
-            BarColumn,
-            Progress,
-            SpinnerColumn,
-            TextColumn,
-            TimeElapsedColumn,
-        )
-
+        # Bulk insert assets to database in batches
         batch_size = 1000
         stored_count = 0
         failed_count = 0
         total = len(assets)
+        insert_errors = []
 
-        # Temporarily suppress all logging during progress bar
-        original_levels = {}
-        for name in logging.root.manager.loggerDict:
-            log = logging.getLogger(name)
-            if log.level != logging.NOTSET:
-                original_levels[name] = log.level
-                log.setLevel(logging.CRITICAL)
+        if progress:
+            progress.start_operation("Storing assets", total)
 
-        root_logger = logging.getLogger()
-        original_root_level = root_logger.level
-        root_logger.setLevel(logging.CRITICAL)
+        for i in range(0, total, batch_size):
+            batch = assets[i : i + batch_size]
+            batch_stored = self.asset_manager.bulk_insert_assets(batch)
+            stored_count += batch_stored
+            batch_failed = len(batch) - batch_stored
+            failed_count += batch_failed
 
-        console = Console()
+            # Track errors for failed inserts
+            if batch_failed > 0:
+                insert_errors.append(
+                    f"Batch {i//batch_size + 1}: {batch_failed} assets failed to insert"
+                )
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("•"),
-            TextColumn("{task.completed}/{task.total}"),
-            TextColumn("•"),
-            TextColumn("[green]✓ {task.fields[stored]}[/green]"),
-            TextColumn("•"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            task = progress.add_task(f"Storing assets", total=total, stored=0)
+            if progress:
+                progress.update_progress(i + len(batch), f"Stored {stored_count} assets")
 
-            for i in range(0, total, batch_size):
-                batch = assets[i : i + batch_size]
-                batch_stored = self.asset_manager.bulk_insert_assets(batch)
-                stored_count += batch_stored
-                failed_count += len(batch) - batch_stored
-
-                progress.update(task, advance=len(batch), stored=stored_count)
-
-        # Restore original log levels
-        root_logger.setLevel(original_root_level)
-        for name, level in original_levels.items():
-            logging.getLogger(name).setLevel(level)
-
-        # Display summary
-        console.print(f"\n✅ Successfully stored {stored_count}/{total} assets")
-        if failed_count > 0:
-            console.print(f"⚠️  Failed: {failed_count} assets")
+        if progress:
+            progress.complete_operation(
+                success=True, message=f"Stored {stored_count}/{total} assets"
+            )
 
         # Record the bootstrap operation timestamp
         self.asset_manager._record_update()
 
-        logger.info(f"Bootstrapped {stored_count}/{len(assets)} assets successfully")
-        return stored_count
+        duration = time.time() - start_time
+
+        result = BootstrapResult(
+            operation="assets",
+            total_items=total,
+            successful=stored_count,
+            failed=failed_count,
+            insert_errors=insert_errors,
+            duration_seconds=duration,
+            timestamp=datetime.now(),
+        )
+
+        logger.info(f"Bootstrapped {stored_count}/{total} assets successfully")
+        return result
 
     # ============================================================================
     # FUNDAMENTALS OPERATIONS
@@ -601,7 +615,9 @@ class DataService:
             logger.error(f"Error parsing fundamentals for {symbol}: {e}")
             return None
 
-    def bootstrap_fundamentals(self, limit: Optional[int] = None) -> int:
+    def bootstrap_fundamentals(
+        self, limit: Optional[int] = None, progress: Optional[ProgressReporter] = None
+    ) -> BootstrapResult:
         """Bootstrap fundamentals for all assets in database.
 
         This is a bulk operation that:
@@ -613,13 +629,17 @@ class DataService:
 
         Args:
             limit: Optional limit on number of assets to process
+            progress: Optional progress reporter for operation tracking
 
         Returns:
-            Number of fundamentals stored successfully
+            BootstrapResult with operation statistics and error details
 
         Raises:
             RuntimeError: If prerequisites (assets) are not met
         """
+        import time
+
+        start_time = time.time()
         logger.info(f"Bootstrapping fundamentals (limit={limit})")
 
         # Get all assets from database via AssetManager
@@ -630,148 +650,86 @@ class DataService:
                 "Cannot bootstrap fundamentals: No assets in database. Run 'bootstrap-tickers' first."
             )
 
-        logger.info(f"Fetching fundamentals for {len(assets)} assets")
-
-        # Setup progress display
-        import logging
-
-        from rich.console import Console
-        from rich.live import Live
-        from rich.progress import (
-            BarColumn,
-            Progress,
-            SpinnerColumn,
-            TextColumn,
-            TimeElapsedColumn,
-        )
-        from rich.table import Table
-
-        # Temporarily suppress all logging during progress bar
-        original_levels = {}
-        for name in logging.root.manager.loggerDict:
-            log = logging.getLogger(name)
-            if log.level != logging.NOTSET:
-                original_levels[name] = log.level
-                log.setLevel(logging.CRITICAL)
-
-        root_logger = logging.getLogger()
-        original_root_level = root_logger.level
-        root_logger.setLevel(logging.CRITICAL)
-
-        console = Console()
+        total_assets = len(assets)
+        logger.info(f"Fetching fundamentals for {total_assets} assets")
 
         # Phase 1: Fetch ALL fundamentals from API (network calls only)
         fundamentals_data = {}  # {asset_id: AssetFundamentals object}
         fetch_errors = []
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("•"),
-            TextColumn("{task.completed}/{task.total}"),
-            TextColumn("•"),
-            TextColumn("[red]✗ {task.fields[errors]}[/red]"),
-            TextColumn("•"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            fetch_task = progress.add_task(
-                "[cyan]Fetching from API", total=len(assets), errors=0
+        if progress:
+            progress.start_operation("Fetching from API", total_assets)
+
+        for i, (asset_id, symbol) in enumerate(assets, start=1):
+            try:
+                fundamentals = self._fetch_fundamentals_for_symbol(symbol, asset_id)
+                if fundamentals:
+                    fundamentals_data[asset_id] = fundamentals
+                else:
+                    fetch_errors.append(f"{symbol}: No data returned")
+            except Exception as e:
+                fetch_errors.append(f"{symbol}: {str(e)}")
+
+            if progress:
+                progress.update_progress(i, f"Fetched {symbol}")
+
+        if progress:
+            progress.complete_operation(
+                success=True,
+                message=f"Fetched {len(fundamentals_data)}/{total_assets} fundamentals from API",
             )
-
-            for asset_id, symbol in assets:
-                try:
-                    fundamentals = self._fetch_fundamentals_for_symbol(symbol, asset_id)
-                    if fundamentals:
-                        fundamentals_data[asset_id] = fundamentals
-                    else:
-                        fetch_errors.append(f"{symbol}: No data returned")
-                except Exception as e:
-                    fetch_errors.append(f"{symbol}: {str(e)}")
-
-                progress.update(fetch_task, advance=1, errors=len(fetch_errors))
-
-        console.print(
-            f"✓ Fetched {len(fundamentals_data)}/{len(assets)} fundamentals from API"
-        )
 
         # Phase 2: Batch insert to database
         stored_count = 0
         insert_errors = []
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
-            TextColumn("•"),
-            TextColumn("{task.completed}/{task.total}"),
-            TextColumn("•"),
-            TextColumn("[red]✗ {task.fields[errors]}[/red]"),
-            TextColumn("•"),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
-            insert_task = progress.add_task(
-                "[green]Writing to database", total=len(fundamentals_data), errors=0
+        if progress:
+            progress.start_operation("Writing to database", len(fundamentals_data))
+
+        for i, (asset_id, fundamentals) in enumerate(fundamentals_data.items(), start=1):
+            try:
+                if self.fundamentals_manager.set_entity_to_database(
+                    str(asset_id), fundamentals
+                ):
+                    stored_count += 1
+                else:
+                    insert_errors.append(
+                        f"Asset ID {asset_id}: Database insert failed"
+                    )
+            except Exception as e:
+                insert_errors.append(f"Asset ID {asset_id}: {str(e)}")
+
+            if progress:
+                progress.update_progress(i, f"Stored asset {asset_id}")
+
+        if progress:
+            progress.complete_operation(
+                success=True,
+                message=f"Stored {stored_count}/{len(fundamentals_data)} fundamentals to database",
             )
-
-            for asset_id, fundamentals in fundamentals_data.items():
-                try:
-                    if self.fundamentals_manager.set_entity_to_database(
-                        str(asset_id), fundamentals
-                    ):
-                        stored_count += 1
-                    else:
-                        insert_errors.append(
-                            f"Asset ID {asset_id}: Database insert failed"
-                        )
-                except Exception as e:
-                    insert_errors.append(f"Asset ID {asset_id}: {str(e)}")
-
-                progress.update(insert_task, advance=1, errors=len(insert_errors))
-
-        # Restore original log levels
-        root_logger.setLevel(original_root_level)
-        for name, level in original_levels.items():
-            logging.getLogger(name).setLevel(level)
-
-        # Display final summary
-        total_errors = len(fetch_errors) + len(insert_errors)
-        console.print(f"\n[bold green]✅ Bootstrap Complete[/]")
-        console.print(
-            f"  • API Fetches: {len(fundamentals_data)}/{len(assets)} succeeded"
-        )
-        console.print(
-            f"  • Database Inserts: {stored_count}/{len(fundamentals_data)} succeeded"
-        )
-        console.print(f"  • Total Errors: {total_errors}")
-
-        if fetch_errors:
-            console.print(f"\n[yellow]⚠️  API Fetch Errors ({len(fetch_errors)}):[/]")
-            for error in fetch_errors[:10]:
-                console.print(f"  • {error}")
-            if len(fetch_errors) > 10:
-                console.print(f"  • ... and {len(fetch_errors) - 10} more")
-
-        if insert_errors:
-            console.print(
-                f"\n[yellow]⚠️  Database Insert Errors ({len(insert_errors)}):[/]"
-            )
-            for error in insert_errors[:10]:
-                console.print(f"  • {error}")
-            if len(insert_errors) > 10:
-                console.print(f"  • ... and {len(insert_errors) - 10} more")
 
         # Record the bootstrap operation timestamp
         self.fundamentals_manager._record_update()
 
-        logger.info(
-            f"Bootstrapped {stored_count}/{len(assets)} fundamentals successfully ({total_errors} errors total)"
+        duration = time.time() - start_time
+        failed_count = total_assets - stored_count
+
+        result = BootstrapResult(
+            operation="fundamentals",
+            total_items=total_assets,
+            successful=stored_count,
+            failed=failed_count,
+            fetch_errors=fetch_errors,
+            insert_errors=insert_errors,
+            duration_seconds=duration,
+            timestamp=datetime.now(),
         )
-        return stored_count
+
+        logger.info(
+            f"Bootstrapped {stored_count}/{total_assets} fundamentals successfully ({result.total_errors} errors total)"
+        )
+
+        return result
 
     # ============================================================================
     # UNIVERSE OPERATIONS (INTERNAL ONLY - NO API)
@@ -807,10 +765,12 @@ class DataService:
         logger.info(f"Bootstrapping universe: {universe_name}")
 
         # Get universe configuration
-        config = UNIVERSE_CONFIG.get(universe_name)
+        config_loader = get_config_loader()
+        all_universes = config_loader.load_all_universes()
+        config = all_universes.get(universe_name)
         if not config:
             raise ValueError(
-                f"Unknown universe: {universe_name}. Available: {list(UNIVERSE_CONFIG.keys())}"
+                f"Unknown universe: {universe_name}. Available: {list(all_universes.keys())}"
             )
 
         # Check prerequisites - need assets in database to filter
@@ -820,19 +780,19 @@ class DataService:
                 "Cannot bootstrap universes: No assets in database. Run 'bootstrap-tickers' first."
             )
 
-        # Check TTL unless forced
-        if not force_refresh and not self.universe_manager._is_data_stale():
-            logger.info(
-                f"Universe data is fresh, skipping bootstrap. Use force_refresh=True to override."
-            )
-            # Return stats from existing universe
-            memberships = self.universe_manager.get_universe_memberships(universe_name)
-            return {
-                "total_assets": 0,
-                "filtered_assets": len(memberships),
-                "memberships_added": 0,
-                "skipped": True,
-            }
+        # Check if this specific universe exists and is fresh
+        if not force_refresh:
+            universe_stats = self.universe_manager.get_universe_stats(universe_name)
+            if universe_stats and not self.universe_manager._is_data_stale():
+                logger.info(
+                    f"Universe '{universe_name}' data is fresh, skipping bootstrap. Use force_refresh=True to override."
+                )
+                return {
+                    "total_assets": 0,
+                    "filtered_assets": universe_stats.total_members,
+                    "memberships_added": 0,
+                    "skipped": True,
+                }
 
         # Fetch all assets with fundamentals and market data
         all_assets = self._fetch_assets_with_fundamentals()
@@ -1269,6 +1229,20 @@ class DataService:
             logger.error(f"Error fetching market status: {e}")
             return None
 
+    def get_market_context(
+        self, market_code: str = "XNYS", force_refresh: bool = False
+    ) -> MarketContext:
+        """Get current market context (session, trading day info, etc.).
+
+        Args:
+            market_code: Market code (default: XNYS)
+            force_refresh: If True, bypass cache
+
+        Returns:
+            MarketContext object with session and trading day info
+        """
+        return self.market_context_service.get_context(market_code, force_refresh)
+
     # ============================================================================
     # MARKET HOLIDAYS/CONTEXT STATISTICS
     # ============================================================================
@@ -1316,6 +1290,27 @@ class DataService:
             logger.warning("get_sentiment_events called with no filters")
             return []
 
+    def is_news_stale(self, asset_id: int, ttl_minutes: int = 30) -> bool:
+        """Check if news data for an asset is stale (older than TTL).
+
+        Args:
+            asset_id: Asset database ID
+            ttl_minutes: Time-to-live in minutes (default: 30 from config)
+
+        Returns:
+            True if news should be refreshed, False if recent news exists
+        """
+        last_news_time = self.sentiment_events_manager.get_most_recent_news_timestamp(asset_id)
+
+        if not last_news_time:
+            # No news events found - definitely stale
+            return True
+
+        # Check if last news is older than TTL
+        from datetime import timedelta
+        age = datetime.now() - last_news_time
+        return age > timedelta(minutes=ttl_minutes)
+
 
     # ============================================================================
     # UNIVERSE OPERATIONS (ADDITIONAL METHODS)
@@ -1328,6 +1323,18 @@ class DataService:
             List of symbols
         """
         return self.universe_manager.get_active_universe_symbols()
+
+    def is_symbol_in_universe(self, symbol: str, universe_name: str) -> bool:
+        """Check if a symbol is in a specific universe.
+
+        Args:
+            symbol: Asset symbol to check
+            universe_name: Name of universe to check
+
+        Returns:
+            True if symbol is in the universe, False otherwise
+        """
+        return self.universe_manager.is_symbol_in_universe(symbol, universe_name)
 
     def get_universe_stats(self, name: str) -> Optional["UniverseStats"]:
         """Get statistics for a universe.
@@ -1500,6 +1507,352 @@ class DataService:
         except Exception as e:
             logger.error(f"Error executing screener query: {e}")
             return []
+
+    # ============================================================================
+    # VOLUME VALIDATION OPERATIONS
+    # ============================================================================
+
+    def fetch_minute_bars(
+        self,
+        symbol: str,
+        from_datetime: datetime,
+        to_datetime: datetime,
+        adjusted: bool = True
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Fetch minute-level bars for a symbol within a time range.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+            from_datetime: Start datetime (inclusive)
+            to_datetime: End datetime (inclusive)
+            adjusted: Whether to return adjusted prices (default: True)
+
+        Returns:
+            List of bar dictionaries with fields: o, h, l, c, v, vw, t, n
+            Or None if error
+        """
+        return self.polygon_aggregates_provider.fetch_minute_bars(
+            symbol=symbol,
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+            adjusted=adjusted
+        )
+
+    def calculate_extended_hours_volume(
+        self,
+        symbol: str,
+        trading_date: date,
+        session: str = "afterhours"
+    ) -> Optional[int]:
+        """Calculate total volume for an extended hours session using Aggregates API.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+            trading_date: Trading date (not datetime - just the date)
+            session: Session type - "premarket" or "afterhours"
+
+        Returns:
+            Total volume for the session, or None if error
+
+        Session Times (Eastern Time):
+            - premarket: 4:00 AM - 9:30 AM
+            - afterhours: 4:00 PM - 8:00 PM
+        """
+        return self.polygon_aggregates_provider.calculate_extended_hours_volume(
+            symbol=symbol,
+            trading_date=trading_date,
+            session=session
+        )
+
+    # ============================================================================
+    # NEWS AND SENTIMENT OPERATIONS
+    # ============================================================================
+
+    def fetch_news_and_sentiment(
+        self, symbol: str, limit: int = 10
+    ) -> NewsResult:
+        """Fetch news articles and create sentiment events for a symbol.
+
+        This operation:
+        1. Gets asset from database
+        2. Fetches news from Polygon API
+        3. Creates SentimentEvent objects (with article details in JSON field)
+        4. Stores SentimentEvent records
+        5. Returns NewsResult with sentiment events and stats
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Maximum number of articles to fetch
+
+        Returns:
+            NewsResult object with sentiment events and stats
+        """
+        symbol = symbol.upper()
+        start_time = datetime.now()
+
+        # Initialize result tracking
+        sentiment_events: List[SentimentEvent] = []
+        sentiment_events_created = 0
+        sentiment_events_stored = 0
+        sentiment_events_duplicates = 0
+        errors = []
+
+        try:
+            # 1. Get asset from database
+            asset = self.asset_manager.get_entity_from_database(symbol)
+            if not asset:
+                errors.append(f"Asset {symbol} not found in database")
+                return NewsResult(
+                    symbol=symbol,
+                    source="api",
+                    articles_found=0,
+                    sentiment_events_created=0,
+                    sentiment_events_stored=0,
+                    sentiment_events_duplicates=0,
+                    sentiment_events=[],
+                    errors=errors,
+                )
+
+            # 2. Fetch news from Polygon
+            logger.info(f"Fetching news for {symbol} (limit={limit})")
+            raw_articles = self.polygon_news_provider.fetch_news_for_ticker(
+                symbol, limit=limit
+            )
+
+            if raw_articles is None:
+                errors.append("Failed to fetch news from Polygon API")
+                return NewsResult(
+                    symbol=symbol,
+                    source="api",
+                    articles_found=0,
+                    sentiment_events_created=0,
+                    sentiment_events_stored=0,
+                    sentiment_events_duplicates=0,
+                    sentiment_events=[],
+                    errors=errors,
+                )
+
+            # 3. Transform raw articles into NewsArticle objects and create sentiment events
+            for raw_article in raw_articles:
+                try:
+                    # Debug: Log raw insights to see what Polygon returns
+                    if raw_article.get("insights"):
+                        logger.debug(f"Raw insights for article: {raw_article.get('insights')}")
+
+                    # Extract sentiment data for this ticker
+                    sentiment_data = self.polygon_news_provider.extract_sentiment_from_article(
+                        raw_article, symbol
+                    )
+
+                    if sentiment_data:
+                        logger.debug(f"Extracted sentiment data: {sentiment_data}")
+
+                    # Parse published timestamp
+                    published_utc = raw_article.get("published_utc", "")
+                    try:
+                        published_dt = datetime.fromisoformat(
+                            published_utc.replace("Z", "+00:00")
+                        )
+                    except (ValueError, AttributeError):
+                        logger.warning(f"Could not parse published date: {published_utc}")
+                        continue
+
+                    # Determine sentiment type based on sentiment value
+                    sentiment_value = sentiment_data.get("sentiment", "neutral") if sentiment_data else "neutral"
+                    if sentiment_value == "positive":
+                        sentiment_type_name = "news_positive"
+                    elif sentiment_value == "negative":
+                        sentiment_type_name = "news_negative"
+                    elif sentiment_value == "mixed":
+                        sentiment_type_name = "news_mixed"
+                    else:
+                        sentiment_type_name = "news_neutral"
+
+                    # Get or create sentiment type
+                    sentiment_type = self._get_or_create_sentiment_type(
+                        sentiment_type_name, "news"
+                    )
+                    if not sentiment_type:
+                        errors.append(f"Could not get sentiment type: {sentiment_type_name}")
+                        continue
+
+                    # Determine magnitude based on sentiment reasoning (since no numeric score)
+                    # Default to medium unless we have indicators otherwise
+                    magnitude = "medium"
+
+                    # Create SentimentEvent object with article details in JSON
+                    sentiment_event = SentimentEvent(
+                        id=0,  # Will be assigned by database
+                        asset_id=asset.id,
+                        sentiment_type_id=sentiment_type.id,
+                        event_date=published_dt.date(),
+                        event_time=published_dt.time(),
+                        session=None,  # News doesn't map to trading session
+                        value=Decimal("0.0"),  # No numeric score from Polygon
+                        magnitude=magnitude,
+                        details={
+                            "article_id": raw_article.get("id", ""),
+                            "title": raw_article.get("title", "No title"),
+                            "author": raw_article.get("author"),
+                            "article_url": raw_article.get("article_url", ""),
+                            "publisher_name": raw_article.get("publisher", {}).get("name", "Unknown"),
+                            "publisher_homepage_url": raw_article.get("publisher", {}).get("homepage_url"),
+                            "description": raw_article.get("description"),
+                            "ticker": symbol,
+                            "sentiment": sentiment_value,
+                            "sentiment_reasoning": sentiment_data.get("reasoning", "") if sentiment_data else "",
+                        },
+                        created_at=datetime.now(),
+                    )
+
+                    sentiment_events_created += 1
+                    sentiment_events.append(sentiment_event)
+
+                    # Store sentiment event
+                    success = self.sentiment_events_manager.set_entity_to_database(
+                        str(sentiment_event.id), sentiment_event
+                    )
+                    if success:
+                        sentiment_events_stored += 1
+                    else:
+                        # Not stored - likely a duplicate (unique constraint)
+                        sentiment_events_duplicates += 1
+                        logger.debug(f"Sentiment event duplicate skipped: {sentiment_event.get_detail('title', 'unknown')}")
+
+                except Exception as e:
+                    logger.error(f"Error processing article sentiment: {e}")
+                    errors.append(f"Error processing article: {str(e)}")
+                    continue
+
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(
+                f"News fetch complete: {len(sentiment_events)} articles, "
+                f"{sentiment_events_created} sentiment events created, "
+                f"{sentiment_events_stored} stored ({duration:.2f}s)"
+            )
+
+            return NewsResult(
+                symbol=symbol,
+                source="api",
+                articles_found=len(sentiment_events),
+                sentiment_events_created=sentiment_events_created,
+                sentiment_events_stored=sentiment_events_stored,
+                sentiment_events_duplicates=sentiment_events_duplicates,
+                sentiment_events=sentiment_events,
+                errors=errors,
+            )
+
+        except Exception as e:
+            logger.error(f"Error in fetch_news_and_sentiment: {e}")
+            errors.append(f"Unexpected error: {str(e)}")
+            return NewsResult(
+                symbol=symbol,
+                source="api",
+                articles_found=len(sentiment_events),
+                sentiment_events_created=sentiment_events_created,
+                sentiment_events_stored=sentiment_events_stored,
+                sentiment_events_duplicates=sentiment_events_duplicates,
+                sentiment_events=sentiment_events,
+                errors=errors,
+            )
+
+    def calculate_asset_sentiment(self, symbol: str, limit: int, time_window_days: int):
+        """Calculate overall sentiment score for an asset from recent news events.
+
+        Args:
+            symbol: Stock ticker symbol
+            limit: Maximum number of recent events to analyze
+            time_window_days: Only analyze events within this many days
+
+        Returns:
+            SentimentScore object or None if no events found
+        """
+        from analysis.sentiment_analyzer import SentimentAnalyzer
+        from datetime import date, timedelta
+
+        symbol = symbol.upper()
+
+        # Get asset from database
+        asset = self.asset_manager.get_entity_from_database(symbol)
+        if not asset:
+            logger.warning(f"Asset {symbol} not found in database")
+            return None
+
+        # Get recent sentiment events from database
+        start_date = date.today() - timedelta(days=time_window_days)
+        all_events = self.sentiment_events_manager.get_events_by_asset(
+            asset.id, start_date=start_date
+        )
+
+        # Limit to most recent events
+        recent_events = all_events[:limit] if all_events else []
+
+        if not recent_events:
+            logger.debug(f"No sentiment events found for {symbol} in last {time_window_days} days")
+            return None
+
+        # Calculate sentiment score
+        analyzer = SentimentAnalyzer(time_window_days=time_window_days)
+        score = analyzer.calculate_sentiment_score(symbol, recent_events)
+
+        return score
+
+    def _get_or_create_sentiment_type(
+        self, name: str, category: str
+    ) -> Optional[SentimentType]:
+        """Get existing sentiment type or create if doesn't exist.
+
+        Args:
+            name: Sentiment type name (e.g., "news_positive")
+            category: Category (e.g., "news")
+
+        Returns:
+            SentimentType object or None
+        """
+        # Try to get existing type
+        with self.db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT id, name, description, category, parameters, created_at, is_active "
+                "FROM sentiment_types WHERE name = ?",
+                (name,),
+            )
+            row = cursor.fetchone()
+
+            if row:
+                # Parse existing type
+                import json
+
+                return SentimentType(
+                    id=row[0],
+                    name=row[1],
+                    description=row[2],
+                    category=row[3],
+                    parameters=json.loads(row[4]) if row[4] else {},
+                    created_at=datetime.fromisoformat(row[5]),
+                    is_active=bool(row[6]),
+                )
+
+            # Create new type
+            description = f"{category.title()} {name.split('_')[-1]} sentiment"
+            cursor.execute(
+                """INSERT INTO sentiment_types (name, description, category, parameters, is_active)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (name, description, category, "{}", True),
+            )
+            conn.commit()
+
+            # Get the created type
+            type_id = cursor.lastrowid
+            return SentimentType(
+                id=type_id,
+                name=name,
+                description=description,
+                category=category,
+                parameters={},
+                created_at=datetime.now(),
+                is_active=True,
+            )
 
     # ============================================================================
     # DATABASE STATISTICS (Cross-cutting concern)

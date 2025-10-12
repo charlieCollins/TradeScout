@@ -16,12 +16,15 @@ from .asset_price_manager import AssetPriceManager
 from .universe_manager import UniverseManager
 from .provider_manager import ProviderManager
 from .fundamentals_manager import FundamentalsManager
+from .gap_results_manager import GapResultsManager
+from .gap_performance_manager import GapPerformanceManager
 from .markets_manager import MarketsManager
 from .market_holidays_manager import MarketHolidaysManager
 from .market_context_manager import MarketContextManager
 from .data_update_metadata_manager import DataUpdateMetadataManager
 from .sentiment_types_manager import SentimentTypesManager
 from .sentiment_events_manager import SentimentEventsManager
+from .fed_data_manager import FedDataManager
 
 __all__ = [
     "BaseManager",
@@ -32,10 +35,13 @@ __all__ = [
     "UniverseManager",
     "ProviderManager",
     "FundamentalsManager",
+    "GapResultsManager",
+    "GapPerformanceManager",
     "MarketsManager",
     "MarketHolidaysManager",
     "MarketContextManager",
     "DataUpdateMetadataManager",
     "SentimentTypesManager",
     "SentimentEventsManager",
+    "FedDataManager",
 ]

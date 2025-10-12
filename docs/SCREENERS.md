@@ -1,6 +1,6 @@
 # TradeScout Screener System
 
-**Last Updated:** 2025-09-23
+**Last Updated:** 2025-10-05
 **Status:** Implemented and Operational
 
 ## Overview
@@ -10,25 +10,18 @@ TradeScout uses a YAML-based dynamic screener system for real-time market analys
 ## Available Screeners
 
 ### Regular Session Screeners
-- **gainers** - Top gaining stocks (day close vs day open), regular session only
-- **losers** - Top losing stocks (day close vs day open), regular session only
-- **gaps** - Significant gap ups/downs from previous close
-- **volume** - Unusual volume activity during regular session
-- **momentum** - Strong momentum indicators during regular session
+- **gainers_regular** - Top gaining stocks (current price vs day open)
+- **losers_regular** - Top losing stocks (current price vs day open)
 
 ### Extended Hours Screeners
-- **gainerspremarket** - Premarket gap-ups from previous day's close (4-9:30 AM)
-- **loserspremarket** - Premarket gap-downs from previous day's close (4-9:30 AM)
-- **gainersafterhours** - Afterhours gainers vs 4PM close (4-8 PM + closed)
-- **losersafterhours** - Afterhours losers vs 4PM close (4-8 PM + closed)
+- **gainers_premarket** - Premarket gap-ups from previous day's close (4-9:30 AM)
+- **losers_premarket** - Premarket gap-downs from previous day's close (4-9:30 AM)
+- **gainers_after_hours** - Afterhours gainers vs 4PM close (4-8 PM + closed)
+- **losers_after_hours** - Afterhours losers vs 4PM close (4-8 PM + closed)
 
 ### Closed Session Screeners
-- **gainersclosed** - Closed session gainers analysis
-- **losersclosed** - Closed session losers analysis
-
-### Gap Analysis Screeners
-- **gapupcandidates** - Gap up candidates for next session
-- **gapdowncandidates** - Gap down candidates for next session
+- **gainers_closed_scope_regular** - Regular session gainers (day open to close)
+- **losers_closed_scope_regular** - Regular session losers (day open to close)
 
 ## Usage
 
@@ -38,7 +31,7 @@ TradeScout uses a YAML-based dynamic screener system for real-time market analys
 ./tradescout screener --list
 
 # Run a specific screener
-./tradescout screener gainersafterhours
+./tradescout screener gainers_after_hours
 
 # Show market status
 ./tradescout market info
@@ -66,7 +59,7 @@ All screeners display contextual warnings:
 Screeners are defined in `/configs/screeners/*.yaml` with this structure:
 
 ```yaml
-name: gainersafterhours
+name: gainers_after_hours
 description: "Afterhours gainers (vs regular session close)"
 enabled: true
 
@@ -82,16 +75,16 @@ data_source:
 
 # Filters (converted to SQL WHERE clauses)
 filters:
-  - field: "day_close"
+  - field: "ap.day_close"
     operator: "IS NOT NULL"
     value: null
-  - field: "((min_close - day_close) / day_close * 100)"
+  - field: "((ap.min_close - ap.day_close) / ap.day_close * 100)"
     operator: ">="
     value: 2.0
 
 # Sorting
 sort:
-  - field: "((min_close - day_close) / day_close * 100)"
+  - field: "((ap.min_close - ap.day_close) / ap.day_close * 100)"
     direction: "desc"
 
 # Display
@@ -107,16 +100,36 @@ display:
       width: 10
 ```
 
+### Table Alias Prefix (`ap.`)
+
+The `ap.` prefix is a SQL table alias for the `asset_prices` table.
+
+**Why it's needed:**
+- Screener queries join multiple tables (assets, asset_prices, universe_memberships)
+- SQL requires disambiguation when column names could exist in multiple tables
+- The `ap.` prefix explicitly specifies the column comes from `asset_prices`
+
+**Usage in YAML:**
+- `ap.day_open` → `asset_prices.day_open`
+- `ap.min_close` → `asset_prices.min_close`
+- `symbol` (no prefix) → comes from `assets` table
+- `change_percent` (no prefix) → computed field, not a table column
+
+**All asset_prices columns require the `ap.` prefix:**
+- Price data: `ap.day_open`, `ap.day_close`, `ap.min_close`, `ap.prevday_close`
+- Volume data: `ap.day_volume`, `ap.min_volume`
+- Timestamps: `ap.min_timestamp`, `ap.provider_updated_at`
+
 ### Field Mappings
 YAML fields map to SQL expressions:
 
 | YAML Field | SQL Expression | Description |
 |------------|----------------|-------------|
 | `change_percent` | `((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)` | Regular gap % |
-| `((min_close - day_close) / day_close * 100)` | `((ap.min_close - ap.day_close) / ap.day_close * 100)` | After-hours % |
-| `min_close` | `ap.min_close` | Current/last price |
-| `day_close` | `ap.day_close` | 4PM close price |
-| `prevday_close` | `ap.prevday_close` | Previous day close |
+| `((ap.min_close - ap.day_close) / ap.day_close * 100)` | `((ap.min_close - ap.day_close) / ap.day_close * 100)` | After-hours % |
+| `ap.min_close` | `ap.min_close` | Current/last price |
+| `ap.day_close` | `ap.day_close` | 4PM close price |
+| `ap.prevday_close` | `ap.prevday_close` | Previous day close |
 
 ## Data Sources
 
@@ -205,152 +218,19 @@ Multiple warnings display on separate lines:
 - **Display time**: <100ms for Rich table rendering
 - **Memory usage**: <50MB for largest result sets
 
-## Market Context Integration (Planning)
+## Future Enhancements
 
-### What is Market Context?
+### Context-Aware Screeners (Planned)
 
-Market context provides comprehensive understanding of the current market state, combining:
-1. **Trading Day Status** - Is today a regular trading day, holiday, or weekend?
-2. **Market Session** - Which of 5 sessions: CLOSED_PRE, PREMARKET, REGULAR, AFTERHOURS, or CLOSED_POST?
-3. **Reference Prices** - What's the appropriate reference price for calculations based on context?
-4. **Data Availability** - Which fields are populated vs NULL based on session timing?
+Current screeners use fixed field names and thresholds. Future enhancement will add dynamic field selection and adaptive thresholds based on market context (session, trading day status, data availability).
 
-The `MarketContext` model (in `src/models/market_context.py`) provides:
-- Current session state (e.g., PREMARKET, REGULAR)
-- Previous trading day information
-- Appropriate reference prices for gap calculations
-- Data freshness requirements
-
-### Current Limitations
-
-Our current screeners are session-aware but not context-intelligent:
-- They use fixed field names regardless of session (e.g., always `day_close`)
-- Same thresholds apply across all sessions (e.g., 2% gap)
-- No dynamic field selection based on data availability
-- Cannot handle complex scenarios like holidays or early closes
-
-### Planned Market Context Enhancements
-
-#### 1. Dynamic Field Selection
-Instead of hardcoding field names, screeners will select appropriate fields based on context:
-
-```yaml
-# Current (static) approach:
-filters:
-  - field: "day_close"  # Always uses day_close
-    operator: "IS NOT NULL"
-
-# Future (context-aware) approach:
-field_mapping:
-  reference_price:
-    premarket: "prevDay.c"     # Previous close for gaps
-    regular: "day.o"            # Today's open for intraday
-    afterhours: "day.c"         # Today's close for AH moves
-    closed: "prevDay.c"         # Last known close
-```
-
-#### 2. Adaptive Thresholds
-Different sessions require different sensitivity:
-
-```yaml
-# Context-aware thresholds
-thresholds:
-  gap_percent:
-    premarket: 2.0      # Higher threshold for pre-market noise
-    regular: 1.0        # Lower for intraday moves
-    afterhours: 1.5     # Medium for after-hours
-
-  min_volume:
-    premarket: 100000   # Lower volume expected
-    regular: 500000     # Normal liquidity required
-    afterhours: 50000   # Very low volume acceptable
-```
-
-#### 3. Intelligent Gap Detection
-Gap calculations that understand market structure:
-
-- **Pre-market gaps**: Current price vs yesterday's close (true overnight gap)
-- **Opening gaps**: Open vs yesterday's close (market open gap)
-- **Intraday gaps**: Current vs today's open (session momentum)
-- **After-hours gaps**: Current vs today's 4PM close (news reactions)
-
-#### 4. Data Freshness Intelligence
-Requirements vary by session:
-
-```yaml
-data_freshness:
-  premarket: 60      # 1 hour old OK (low activity)
-  regular: 5         # Must be very fresh
-  afterhours: 30     # 30 minutes acceptable
-  closed: 1440       # 24 hours old OK when closed
-```
-
-#### 5. Session-Specific Logic
-Different analysis for different times:
-
-```yaml
-advanced_rules:
-  premarket:
-    # Focus on stocks with earnings/news
-    require_catalyst: true
-    sector_filter: ["Technology"]  # Tech moves more pre-market
-
-  regular:
-    # Focus on liquid names
-    min_market_cap: 1000000000
-    min_average_volume: 1000000
-
-  afterhours:
-    # Look for earnings surprises
-    include_earnings_today: true
-    min_move_percent: 2.0
-```
-
-### Implementation Roadmap
-
-#### Phase 1: Market Context Service Enhancement
-- [ ] Enhance `MarketContextService` to provide field recommendations
-- [ ] Add market calendar integration for holidays/early closes
-- [ ] Implement previous trading day detection logic
-- [ ] Add data availability predictor (which fields have data when)
-
-#### Phase 2: Screener Engine Updates
-- [ ] Update `ScreenerEngine` to accept context objects
-- [ ] Implement field mapping resolver
-- [ ] Add threshold interpolation based on context
-- [ ] Create context-aware SQL generation
-
-#### Phase 3: Configuration Schema Evolution
-- [ ] Extend YAML schema to support field mappings
-- [ ] Add context-specific threshold definitions
-- [ ] Implement session-specific display configurations
-- [ ] Support advanced context rules
-
-#### Phase 4: Smart Screeners
-- [ ] Create "adaptive gap" screener that changes behavior by session
-- [ ] Build "momentum tracker" that uses different signals by time
-- [ ] Implement "earnings reactor" for after-hours earnings plays
-- [ ] Add "pre-market predictor" using overnight gaps
-
-### Benefits of Market Context Awareness
-
-1. **Accuracy** - Use the right reference prices for the right situation
-2. **Relevance** - Show appropriate data for current market state
-3. **Intelligence** - Adapt to market conditions automatically
-4. **Usability** - Users don't need to remember which screener for which session
-5. **Reliability** - Handle edge cases like holidays and early closes
-
-### Example: Context-Aware Gap Screener
-
-See `/configs/screeners/context_aware_gaps.yaml.example` for a full example of how a context-aware screener would be configured.
-
-Key features demonstrated:
-- Dynamic field selection based on session
+**Benefits:**
+- Automatic field selection based on session
 - Adaptive thresholds for different market states
-- Session-specific sorting strategies
-- Context-aware display columns
-- Advanced filtering rules per session
+- Intelligent handling of holidays and early closes
+
+See `docs/SCREENERS_CONTEXT_AWARE_PLANNING.md` for detailed implementation roadmap.
 
 ---
 
-*The screener system is fully operational and handles all trading sessions with proper validation and user feedback. Market context integration is planned to make screeners more intelligent and adaptive.*
+*The screener system is fully operational and handles all trading sessions with proper validation and user feedback.*

@@ -6,7 +6,7 @@ from models.asset import Asset
 from datetime import datetime
 from models.asset import Asset, AssetType, AssetClass
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import ASSETS_TTL_HOURS
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,9 @@ class AssetManager(BaseManager):
         Assets are reference data that changes infrequently (new listings,
         delistings, name changes). Use 3-day TTL.
         """
-        return ASSETS_TTL_HOURS * 3600  # 72 hours = 3 days
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['assets_ttl_hours'] * 3600  # 72 hours = 3 days
 
     def get_entity_from_database(self, key: str) -> Optional[Asset]:
         """Get Asset from database by symbol.

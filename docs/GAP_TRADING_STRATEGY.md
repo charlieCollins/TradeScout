@@ -239,6 +239,9 @@ Catalyst Scoring System (Quantitative):
 - Trend age: ≥20 trading days with recent acceleration
 - Context: End of extended trends, sentiment extremes
 
+**Current Implementation Status:**
+> **Note:** We currently check gap size (≥5%) and volume (≥3x) only. The trend age check (≥20 days) is **not yet implemented** because it requires 20+ days of historical price data. This will be added in the future when we build our historical data pipeline. For now, we accept the risk of occasionally flagging large gaps as exhaustion gaps without trend confirmation.
+
 **Why These Fail:**
 - Mark the END of trends, not continuation
 - Extreme volume indicates selling climax

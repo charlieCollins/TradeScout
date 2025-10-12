@@ -9,7 +9,7 @@ from typing import Optional, List
 from datetime import date, datetime
 from models.market_holiday import MarketHoliday, HolidayStatus
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import MARKET_HOLIDAYS_TTL_DAYS
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -32,7 +32,9 @@ class MarketHolidaysManager(BaseManager):
         Market holidays are published annually and change rarely.
         Use 30-day TTL.
         """
-        return MARKET_HOLIDAYS_TTL_DAYS * 24 * 3600
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['market_holidays_ttl_days'] * 24 * 3600
 
     def get_entity_from_database(self, key: str) -> Optional[MarketHoliday]:
         """Get MarketHoliday from database by date.

@@ -5,7 +5,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from models.fundamentals import AssetFundamentals
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import FUNDAMENTALS_TTL_HOURS
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,9 @@ class FundamentalsManager(BaseManager):
         Fundamentals data (market cap, sector, shares outstanding) changes
         infrequently. Use 1-week TTL.
         """
-        return FUNDAMENTALS_TTL_HOURS * 3600  # 168 hours = 1 week
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['fundamentals_ttl_hours'] * 3600  # 168 hours = 1 week
 
     def get_entity_from_database(self, key: str) -> Optional[AssetFundamentals]:
         """Get AssetFundamentals from database by asset_id.

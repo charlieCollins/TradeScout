@@ -6,7 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from models.snapshot import TickerSnapshot, MinuteBar
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import TICKER_SNAPSHOT_TTL_MINUTES
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,9 @@ class TickerSnapshotManager(BaseManager):
 
     def get_ttl_seconds(self) -> int:
         """Get TTL in seconds for this cache type."""
-        return TICKER_SNAPSHOT_TTL_MINUTES * 60
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['ticker_snapshot_ttl_minutes'] * 60
 
     def get_entity_from_database(self, key: str) -> Optional[TickerSnapshot]:
         """Get TickerSnapshot from asset_prices table.
@@ -76,16 +78,24 @@ class TickerSnapshotManager(BaseManager):
                 # Construct TickerSnapshot directly from database data
                 return TickerSnapshot(
                     symbol=symbol,
+                    # Previous day data
+                    prev_open=Decimal(str(row[2])) if row[2] else None,
+                    prev_high=Decimal(str(row[3])) if row[3] else None,
+                    prev_low=Decimal(str(row[4])) if row[4] else None,
                     prev_close=Decimal(str(row[5])) if row[5] else None,
                     prev_volume=int(row[6]) if row[6] else None,
+                    prev_vwap=Decimal(str(row[7])) if row[7] else None,
+                    # Current day data
                     open_price=Decimal(str(row[8])) if row[8] else None,
                     high_price=Decimal(str(row[9])) if row[9] else None,
                     low_price=Decimal(str(row[10])) if row[10] else None,
                     close_price=Decimal(str(row[11])) if row[11] else None,
                     volume=int(row[12]) if row[12] else None,
                     vwap=Decimal(str(row[13])) if row[13] else None,
+                    # Last trade data
                     last_price=Decimal(str(row[18])) if row[18] else None,  # Use min.close as last_price
                     last_timestamp=datetime.fromtimestamp(row[14] / 1000) if row[14] else None,
+                    # Minute bar and metadata
                     min_bar=min_bar,
                     updated_ns=None,  # Could be derived from updated_at if needed
                     market_status=None  # Not stored in asset_prices table
@@ -137,7 +147,7 @@ class TickerSnapshotManager(BaseManager):
                 cursor = conn.cursor()
 
                 query = """
-                    INSERT OR REPLACE INTO asset_prices (
+                    INSERT OR IGNORE INTO asset_prices (
                         asset_id, symbol, provider_id, provider_updated_at, trade_date,
                         prevday_open, prevday_high, prevday_low, prevday_close, prevday_volume, prevday_vwap,
                         day_open, day_high, day_low, day_close, day_volume, day_vwap,
@@ -245,9 +255,12 @@ class TickerSnapshotManager(BaseManager):
                 cursor.execute("SELECT MAX(updated_at) FROM asset_prices")
                 last_update = cursor.fetchone()[0]
 
+                config_loader = get_config_loader()
+                ttl_config = config_loader.load_database_ttl_config()
+
                 return {
                     "metadata_type": self.get_data_update_metadata_type().value,
-                    "ttl_minutes": TICKER_SNAPSHOT_TTL_MINUTES,
+                    "ttl_minutes": ttl_config['ticker_snapshot_ttl_minutes'],
                     "total_records": total_records,
                     "unique_symbols": unique_symbols,
                     "last_update": last_update,

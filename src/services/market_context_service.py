@@ -9,7 +9,6 @@ from models.market import Market
 from models.market_context import (
     MarketContext, MarketSession, TradingDayType
 )
-from database.config.ttl_config import MARKET_CONTEXT_TTL_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +122,10 @@ class MarketContextService:
         today_str = today.strftime('%Y-%m-%d')
 
         for holiday in holidays:
-            if holiday.get('date') == today_str:
-                if holiday.get('status') == 'early-close':
+            if holiday.date == today_str:
+                if holiday.status == 'early-close':
                     return TradingDayType.EARLY_CLOSE
-                elif holiday.get('status') == 'closed':
+                elif holiday.status == 'closed':
                     return TradingDayType.CLOSED_HOLIDAY
 
         # If not a weekend or holiday, it's a regular trading day
@@ -135,7 +134,7 @@ class MarketContextService:
     def _find_previous_trading_day(self, today: date, market_status: dict) -> date:
         """Find the most recent trading day before today using Polygon holiday API."""
         holidays = self.data_provider.get_market_holidays()
-        holiday_dates = {h.get('date') for h in holidays if h.get('status') == 'closed'}
+        holiday_dates = {h.date for h in holidays if h.status == 'closed'}
 
         check_date = today - timedelta(days=1)
         max_days_back = 30  # Safety limit (handle long holiday periods)
@@ -191,7 +190,7 @@ class MarketContextService:
     def _find_next_trading_day(self, today: date, market_status: dict) -> Optional[date]:
         """Find the next trading day after today using Polygon holiday API."""
         holidays = self.data_provider.get_market_holidays()
-        holiday_dates = {h.get('date') for h in holidays if h.get('status') == 'closed'}
+        holiday_dates = {h.date for h in holidays if h.status == 'closed'}
 
         check_date = today + timedelta(days=1)
         max_days_forward = 30  # Safety limit (handle long holiday periods)

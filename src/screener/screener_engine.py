@@ -1,10 +1,23 @@
-"""Screener engine that executes screener queries based on YAML definitions."""
+"""Screener engine that executes screener queries based on YAML definitions.
+
+IMPORTANT: This is a GENERIC engine designed to derive rules from config YAML files.
+DO NOT PUT BUSINESS RULES OR HARDCODED LOGIC IN THIS FILE.
+
+All field definitions, calculations, and business logic should be defined in the
+YAML configuration files (configs/screeners/*.yaml), NOT hardcoded in this engine.
+
+Note: Specialized screeners (such as gaps) may use analyzers along with screeners
+to combine forces for output.
+"""
 
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import pytz
+
+from screener.template_resolver import TemplateResolver
+from models.market_context import MarketContext
 
 
 logger = logging.getLogger(__name__)
@@ -23,20 +36,40 @@ class ScreenerEngine:
         self.data_provider = data_provider
         self.config = config
 
-    def execute_screener(self, screener_def: Dict) -> List[Dict[str, Any]]:
+    def execute_screener(
+        self,
+        screener_def: Dict,
+        market_context: MarketContext
+    ) -> List[Dict[str, Any]]:
         """Execute a screener based on its YAML definition.
 
         Args:
             screener_def: Screener configuration dictionary from YAML
+            market_context: Market context (REQUIRED - all screeners must be context-aware)
 
         Returns:
             List of matching stocks as dictionaries
 
         Raises:
-            ValueError: If screener is not valid for current session
+            ValueError: If screener is not valid for current session or missing field_mapping
         """
         # Check if screener is valid for current session
         self._validate_session(screener_def)
+
+        # All screeners must be context-aware
+        if 'field_mapping' not in screener_def:
+            raise ValueError(
+                f"Screener '{screener_def.get('name', 'unknown')}' must have 'field_mapping' section"
+            )
+
+        # Resolve templates
+        session = market_context.session_name
+        resolver = TemplateResolver(screener_def, session)
+
+        # Resolve templates in filters and sort
+        screener_def = screener_def.copy()  # Don't modify original
+        screener_def['filters'] = resolver.resolve_filters()
+        screener_def['sort'] = resolver.resolve_sort()
 
         # Build the SQL query from screener definition
         query = self._build_query(screener_def)
@@ -49,6 +82,15 @@ class ScreenerEngine:
         for result in results:
             enhanced_result = self._add_computed_fields(result)
             enhanced_results.append(enhanced_result)
+
+        # Stage 2: Volume validation using Aggregates API (if enabled)
+        if screener_def.get('volume_validation', {}).get('enabled', False):
+            validated_results = self._validate_volume(
+                results=enhanced_results,
+                volume_config=screener_def['volume_validation'],
+                market_context=market_context
+            )
+            return validated_results
 
         return enhanced_results
 
@@ -116,16 +158,14 @@ class ScreenerEngine:
             "a.symbol",
             "a.name",
             "ap.prevday_close",
+            "ap.prevday_volume",
             "ap.day_open",
             "ap.day_close",
             "ap.day_volume",
             "ap.min_close",
             "ap.min_volume",
+            "ap.min_accumulated_volume",
             "ap.min_timestamp",
-            "(ap.min_close - ap.prevday_close) as change_dollar",
-            "CASE WHEN ap.prevday_close > 0 THEN ((ap.min_close - ap.prevday_close) / ap.prevday_close * 100) ELSE 0 END as change_percent",
-            "(ap.min_close - ap.day_close) as ah_change_dollar",
-            "CASE WHEN ap.day_close > 0 THEN ((ap.min_close - ap.day_close) / ap.day_close * 100) ELSE 0 END as ah_change_percent"
         ]
 
         # Start building query
@@ -134,11 +174,13 @@ class ScreenerEngine:
             SELECT
                 asset_id,
                 prevday_close,
+                prevday_volume,
                 day_open,
                 day_close,
                 day_volume,
                 min_close,
                 min_volume,
+                min_accumulated_volume,
                 min_timestamp,
                 provider_updated_at,
                 ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
@@ -163,28 +205,8 @@ class ScreenerEngine:
             operator = filter_def["operator"]
             value = filter_def["value"]
 
-            # Handle special fields - map YAML field names to SQL
-            if field == "change_percent":
-                field = "((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
-            elif field == "ABS(change_percent)":
-                field = "ABS((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
-            elif field == "change_dollar":
-                field = "(ap.min_close - ap.prevday_close)"
-            elif field == "((min_close - day_close) / day_close * 100)":
-                # After-hours change percent vs regular session close
-                field = "((ap.min_close - ap.day_close) / ap.day_close * 100)"
-            elif field == "min_close":
-                field = "ap.min_close"
-            elif field == "min_volume":
-                field = "ap.min_volume"
-            elif field == "day_open":
-                field = "ap.day_open"
-            elif field == "day_close":
-                field = "ap.day_close"
-            elif field == "day_volume":
-                field = "ap.day_volume"
-            elif field == "prevday_close":
-                field = "ap.prevday_close"
+            # YAML must contain actual SQL expressions (e.g., "ap.min_close", not "min_close")
+            # No field mapping - engine is generic
 
             # Add WHERE clause
             if isinstance(value, list):
@@ -203,16 +225,8 @@ class ScreenerEngine:
                 field = sort_def["field"]
                 direction = sort_def.get("direction", "desc").upper()
 
-                # Handle special fields
-                if field == "change_percent":
-                    field = "((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
-                elif field == "ABS(change_percent)":
-                    field = "ABS((ap.min_close - ap.prevday_close) / ap.prevday_close * 100)"
-                elif field == "((min_close - day_close) / day_close * 100)":
-                    # After-hours change percent vs regular session close
-                    field = "((ap.min_close - ap.day_close) / ap.day_close * 100)"
-                elif field == "min_volume":
-                    field = "ap.min_volume"
+                # YAML must contain actual SQL expressions
+                # No field mapping - engine is generic
 
                 order_by_parts.append(f"{field} {direction}")
 
@@ -252,3 +266,87 @@ class ScreenerEngine:
             result["min_timestamp_formatted"] = "N/A"
 
         return result
+
+    def _validate_volume(
+        self,
+        results: List[Dict[str, Any]],
+        volume_config: Dict[str, Any],
+        market_context: MarketContext
+    ) -> List[Dict[str, Any]]:
+        """Validate volume using Aggregates API (Stage 2 filtering).
+
+        Args:
+            results: Price-qualified candidates from Stage 1
+            volume_config: Volume validation configuration from YAML
+            market_context: Market context for session/date info
+
+        Returns:
+            List of volume-validated candidates with aggregates data added
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        min_ratio = volume_config.get('min_volume_ratio', 1.5)
+        session = volume_config.get('session', market_context.session_name)
+        trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
+
+        logger.info(
+            f"Volume validation: {len(results)} candidates, "
+            f"min_ratio={min_ratio}, session={session}, date={trading_date}"
+        )
+
+        validated = []
+        skipped_no_agg = 0
+        skipped_no_prevday = 0
+        skipped_low_volume = 0
+
+        for result in results:
+            symbol = result.get('symbol')
+            prevday_volume = result.get('prevday_volume')
+
+            # Skip if no previous day volume (can't calculate ratio)
+            if not prevday_volume or prevday_volume == 0:
+                skipped_no_prevday += 1
+                continue
+
+            # Query Aggregates API for trade-eligible volume
+            try:
+                agg_volume = self.data_provider.calculate_extended_hours_volume(
+                    symbol=symbol,
+                    trading_date=trading_date,
+                    session=session
+                )
+
+                if agg_volume is None:
+                    skipped_no_agg += 1
+                    continue
+
+                # Calculate volume ratio vs previous day average
+                # Session hours: premarket=5.5h (4:00-9:30), afterhours=4h (4:00-8:00)
+                session_hours = 5.5 if session == "premarket" else 4.0
+                prev_day_hourly_avg = prevday_volume / 6.5  # Regular session is 6.5 hours
+                expected_volume = prev_day_hourly_avg * session_hours
+                volume_ratio = agg_volume / expected_volume if expected_volume > 0 else 0
+
+                # Filter by volume ratio threshold
+                if volume_ratio >= min_ratio:
+                    # Add aggregates data to result
+                    result['agg_volume'] = agg_volume
+                    result['volume_ratio'] = volume_ratio
+                    result['snapshot_volume'] = result.get('min_accumulated_volume', 0)  # For comparison
+                    validated.append(result)
+                else:
+                    skipped_low_volume += 1
+
+            except Exception as e:
+                logger.error(f"Error validating volume for {symbol}: {e}")
+                skipped_no_agg += 1
+                continue
+
+        logger.info(
+            f"Volume validation complete: {len(validated)} passed, "
+            f"{skipped_low_volume} below threshold, {skipped_no_agg} no aggregates, "
+            f"{skipped_no_prevday} no prev volume"
+        )
+
+        return validated

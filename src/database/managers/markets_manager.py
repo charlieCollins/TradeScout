@@ -11,7 +11,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, time
 from models.market import Market
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import MARKETS_TTL_HOURS
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,9 @@ class MarketsManager(BaseManager):
         Markets reference data (exchange codes, names, hours) is essentially
         static. Use 1-year TTL.
         """
-        return MARKETS_TTL_HOURS * 3600  # 8760 hours = 1 year
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['markets_ttl_hours'] * 3600  # 8760 hours = 1 year
 
     def get_entity_from_database(self, key: str) -> Optional[Market]:
         """Get Market from database by market code.

@@ -62,13 +62,16 @@ class PolygonTickersProvider(BaseAPIProvider):
     # TICKER REFERENCE API CALLS
     # ============================================================================
 
-    def fetch_ticker_details(self, symbol: str) -> Optional[Asset]:
+    def fetch_ticker_details(
+        self, symbol: str, market_code_to_id: Optional[Dict[str, int]] = None
+    ) -> Optional[Asset]:
         """Fetch details for a single ticker from Polygon API.
 
         Endpoint: GET /v3/reference/tickers/{symbol}
 
         Args:
             symbol: Stock symbol (e.g., 'AAPL')
+            market_code_to_id: Mapping of market codes (XNAS, XNYS) to database IDs
 
         Returns:
             Asset object or None if error
@@ -77,7 +80,7 @@ class PolygonTickersProvider(BaseAPIProvider):
         if not ticker_data:
             return None
 
-        return self._parse_ticker_to_asset(ticker_data)
+        return self._parse_ticker_to_asset(ticker_data, market_code_to_id)
 
     def fetch_ticker_details_raw(self, symbol: str) -> Optional[Dict[str, Any]]:
         """Fetch raw ticker details from Polygon API.

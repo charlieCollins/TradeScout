@@ -8,6 +8,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from screener.template_resolver import TemplateResolver
+
 
 class ScreenerDisplay:
     """Format and display screener results."""
@@ -16,12 +18,22 @@ class ScreenerDisplay:
         """Initialize display formatter."""
         self.console = Console()
 
-    def display_results(self, results: List[Dict[str, Any]], screener_def: Dict, snapshot_time: Optional[str] = None, sessions_text: Optional[str] = None, warnings: Optional[List[str]] = None, snapshot_warning: Optional[str] = None):
+    def display_results(
+        self,
+        results: List[Dict[str, Any]],
+        screener_def: Dict,
+        session: str,
+        snapshot_time: Optional[str] = None,
+        sessions_text: Optional[str] = None,
+        warnings: Optional[List[str]] = None,
+        snapshot_warning: Optional[str] = None
+    ):
         """Display screener results in a formatted table.
 
         Args:
             results: List of stock results
             screener_def: Screener configuration with display settings
+            session: Current market session for context-aware columns
             snapshot_time: Optional snapshot time string to display
             sessions_text: Optional sessions info to display
             warnings: Optional list of warning messages to display
@@ -44,9 +56,9 @@ class ScreenerDisplay:
             self.console.print("[yellow]No stocks match the screener criteria.[/yellow]")
             return
 
-        # Get display configuration
-        display_config = screener_def.get("display", {})
-        columns_config = display_config.get("columns", [])
+        # Get display columns using template resolver for context-aware screeners
+        resolver = TemplateResolver(screener_def, session)
+        columns_config = resolver.resolve_display_columns()
 
         # Create table
         title = f"{screener_def.get('name', 'Screener')} - {screener_def.get('description', '')}"
@@ -101,15 +113,34 @@ class ScreenerDisplay:
         if field in result:
             return result[field]
 
-        # Handle complex expressions for afterhours calculations
-        if field == "((min_close - day_close) / day_close * 100)":
-            # This is afterhours change percent - should already be calculated as ah_change_percent
-            return result.get("ah_change_percent", 0)
-        elif field == "min_close - day_close":
-            # Afterhours change dollar amount
-            return result.get("ah_change_dollar", 0)
+        # Handle expressions - basic evaluation
+        # For complex expressions like "((min_close - day_close) / day_close * 100)"
+        # Try to evaluate safely by substituting field values
+        try:
+            # Replace field names with their values in the expression
+            # Only allow fields that exist in result
+            expr = field
+            for key, value in result.items():
+                if key in expr and value is not None:
+                    # Replace field name with its numeric value
+                    expr = expr.replace(key, str(float(value)))
 
-        # Handle simple subtraction like "min_close - prevday_close"
+            # Replace SQL functions with Python equivalents
+            expr = expr.replace("ABS(", "abs(")
+            expr = expr.replace("MIN(", "min(")
+            expr = expr.replace("MAX(", "max(")
+
+            # If expression still contains letters (unknown fields), skip evaluation
+            # Allow lowercase function names (abs, min, max) to pass through
+            temp_expr = expr.replace("abs", "").replace("min", "").replace("max", "")
+            if not any(c.isalpha() for c in temp_expr.replace("e", "").replace("E", "")):
+                # Evaluate the expression (now only contains numbers and operators)
+                # Note: eval is normally dangerous, but we've sanitized to only numbers/operators
+                return eval(expr)
+        except:
+            pass
+
+        # Fallback: Handle simple subtraction like "min_close - prevday_close"
         if " - " in field:
             parts = field.split(" - ")
             if len(parts) == 2:
@@ -120,7 +151,7 @@ class ScreenerDisplay:
                 if val1 is not None and val2 is not None:
                     return val1 - val2
 
-        # Handle expressions (very basic for now)
+        # Handle simple multiplication (legacy)
         if "*" in field:
             # Simple multiplication like "min_volume * min_close"
             parts = field.split("*")
@@ -134,8 +165,10 @@ class ScreenerDisplay:
 
         # Handle CASE expressions (return placeholder for now)
         if field.startswith("CASE"):
-            change = result.get("change_percent", 0)
-            return "↑" if change > 0 else "↓" if change < 0 else "="
+            # TODO: change_percent doesn't exist - need context-aware calculation
+            # change = result.get("change_percent", 0)
+            # return "↑" if change > 0 else "↓" if change < 0 else "="
+            return "FIX_ME"
 
         return ""
 

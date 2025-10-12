@@ -1,0 +1,86 @@
+# SIC Code to Sector Mapping
+# Maps SIC (Standard Industrial Classification) major groups (first 2 digits)
+# to broad investment sectors for fundamentals classification
+#
+# See docs/SECTOR_CLASSIFICATION.md for detailed explanation
+
+# Technology & Software
+"35": Technology  # Industrial machinery & computer equipment
+"36": Technology  # Electronic equipment
+"38": Technology  # Instruments & related products
+"73": Technology  # Business services (software, consulting)
+
+# Financials
+"60": Financials  # Banking
+"61": Financials  # Credit agencies
+"62": Financials  # Security brokers
+"63": Financials  # Insurance carriers
+"64": Financials  # Insurance agents
+"67": Financials  # Holding companies
+
+# Real Estate (separate from Financials for REIT classification)
+"65": Real Estate  # Real estate
+"66": Real Estate  # Combined real estate, insurance, etc.
+
+# Healthcare & Pharmaceuticals
+"28": Healthcare  # Chemicals (includes pharmaceuticals)
+"80": Healthcare  # Health services
+"87": Healthcare  # Engineering & management services (includes research)
+
+# Communication Services
+"48": Communication Services  # Communications
+"78": Communication Services  # Motion pictures
+"27": Communication Services  # Printing & publishing
+
+# Consumer Discretionary
+"23": Consumer Discretionary  # Apparel
+"25": Consumer Discretionary  # Furniture
+"39": Consumer Discretionary  # Miscellaneous manufacturing
+"50": Consumer Discretionary  # Wholesale trade - durable goods
+"55": Consumer Discretionary  # Automotive dealers
+"56": Consumer Discretionary  # Apparel stores
+"57": Consumer Discretionary  # Home furniture stores
+"58": Consumer Discretionary  # Eating & drinking places
+"59": Consumer Discretionary  # Miscellaneous retail
+"70": Consumer Discretionary  # Hotels & lodging
+"75": Consumer Discretionary  # Auto repair & services
+"76": Consumer Discretionary  # Miscellaneous repair services
+"79": Consumer Discretionary  # Amusement & recreation
+
+# Consumer Staples
+"20": Consumer Staples  # Food products
+"21": Consumer Staples  # Tobacco products
+"54": Consumer Staples  # Food stores
+
+# Energy
+"13": Energy  # Oil & gas extraction
+"29": Energy  # Petroleum refining
+"46": Energy  # Pipelines (except natural gas)
+
+# Materials
+"10": Materials  # Metal mining
+"12": Materials  # Coal mining
+"14": Materials  # Mining & quarrying of nonmetallic minerals
+"24": Materials  # Lumber & wood products
+"26": Materials  # Paper products
+"30": Materials  # Rubber & plastics
+"32": Materials  # Stone, clay, glass products
+"33": Materials  # Primary metal industries
+"34": Materials  # Fabricated metal products
+
+# Industrials
+"15": Industrials  # Building construction
+"16": Industrials  # Heavy construction
+"17": Industrials  # Construction - special trade contractors
+"37": Industrials  # Transportation equipment
+"40": Industrials  # Railroad transportation
+"41": Industrials  # Local passenger transportation
+"42": Industrials  # Motor freight transportation
+"43": Industrials  # U.S. Postal Service
+"44": Industrials  # Water transportation
+"45": Industrials  # Transportation by air
+"47": Industrials  # Transportation services
+"82": Industrials  # Educational services
+
+# Utilities
+"49": Utilities  # Electric, gas, sanitary services

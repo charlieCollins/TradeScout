@@ -5,7 +5,7 @@ from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional, Dict, Any, List
 from models.market import Market
-from config import market_context_rules
+from utils.config_loader import get_config_loader, get_field_for_context, validate_required_fields
 
 
 class MarketSession(Enum):
@@ -132,7 +132,7 @@ class MarketContext:
         Returns:
             The appropriate price value based on context, or None if no data available
         """
-        return market_context_rules.get_field_for_context(
+        return get_field_for_context(
             "current_price",
             self.current_session.value,
             available_data
@@ -148,7 +148,7 @@ class MarketContext:
         Returns:
             The appropriate reference price based on context, or None if no data available
         """
-        return market_context_rules.get_field_for_context(
+        return get_field_for_context(
             "reference_price",
             self.current_session.value,
             available_data
@@ -164,7 +164,7 @@ class MarketContext:
         Returns:
             The appropriate volume value based on context, or None if no data available
         """
-        return market_context_rules.get_field_for_context(
+        return get_field_for_context(
             "volume",
             self.current_session.value,
             available_data
@@ -180,7 +180,9 @@ class MarketContext:
         Returns:
             List of field names in priority order
         """
-        mappings = market_context_rules.FIELD_MAPPINGS.get(field_type, {})
+        loader = get_config_loader()
+        rules = loader.load_market_context_rules()
+        mappings = rules.get("field_mappings", {}).get(field_type, {})
         return mappings.get(self.current_session.value, [])
 
 
@@ -199,7 +201,7 @@ class MarketContext:
         Returns:
             True if all required fields are non-NULL
         """
-        return market_context_rules.validate_required_fields(
+        return validate_required_fields(
             operation,
             self.current_session.value,
             available_data

@@ -1,6 +1,7 @@
 """Asset command group for single asset operations."""
 
 import sys
+import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -15,6 +16,7 @@ from rich.panel import Panel
 from .main import pass_config, create_header
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 
 def display_market_context(config):
@@ -22,12 +24,13 @@ def display_market_context(config):
     try:
         # Initialize data service
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from config.universe_config import UNIVERSE_CONFIG
+        from utils.config_loader import get_config_loader
 
         data_service = config.get_data_service()
 
         # Get markets from universe config
-        universe_config = UNIVERSE_CONFIG.get("default_universe", {})
+        config_loader = get_config_loader()
+        universe_config = config_loader.load_universe_config("default_universe")
         configured_exchanges = universe_config.get("included", {}).get("exchanges", [])
 
         if not configured_exchanges:
@@ -125,6 +128,18 @@ def local(config, symbol: str):
         asset_table.add_row("Asset ID", str(asset.id))
         asset_table.add_row("Provider ID", str(asset.provider_id))
 
+        # Get universe memberships
+        all_universes = data_service.get_all_universes()
+        member_of = []
+        for univ in all_universes:
+            if data_service.is_symbol_in_universe(symbol, univ.name):
+                member_of.append(univ.name)
+
+        if member_of:
+            asset_table.add_row("Universes", ", ".join(member_of))
+        else:
+            asset_table.add_row("Universes", "[dim]none[/dim]")
+
         console.print(asset_table)
 
         # Get latest price data from database
@@ -212,8 +227,9 @@ def local(config, symbol: str):
 
 @asset.command()
 @click.argument("symbol", type=str)
+@click.option("--force", is_flag=True, help="Force refresh, bypass TTL cache")
 @pass_config
-def info(config, symbol: str):
+def info(config, symbol: str, force: bool):
     """
     Show detailed information about a single asset.
 
@@ -222,6 +238,7 @@ def info(config, symbol: str):
 
     Example:
         tradescout asset info AAPL
+        tradescout asset info AAPL --force
     """
     # Display market context at the top
     display_market_context(config)
@@ -259,16 +276,55 @@ def info(config, symbol: str):
         asset_table.add_row("Asset ID", str(asset.id))
         asset_table.add_row("Provider ID", str(asset.provider_id))
 
+        # Get universe memberships
+        all_universes = data_service.get_all_universes()
+        member_of = []
+        for univ in all_universes:
+            if data_service.is_symbol_in_universe(symbol, univ.name):
+                member_of.append(univ.name)
+
+        if member_of:
+            asset_table.add_row("Universes", ", ".join(member_of))
+        else:
+            asset_table.add_row("Universes", "[dim]none[/dim]")
+
         console.print(asset_table)
 
-        # Get price data (this will fetch fresh data and store it)
+        # Fetch fresh ticker snapshot (checks TTL, may use cache or fetch from API)
+        console.print()
+        if force:
+            console.print("[dim]Force fetching latest price data from API...[/dim]")
+        else:
+            console.print("[dim]Fetching latest price data...[/dim]")
+
+        # Check what we had before the fetch
+        old_price_data = data_service.get_latest_asset_price(asset.id)
+        old_timestamp = old_price_data.provider_updated_at if old_price_data else None
+
+        # Fetch (may use cache or API depending on TTL and force flag)
+        ticker_snapshot = data_service.get_ticker_snapshot(symbol, force_refresh=force)
+
+        # Check what we have after the fetch
         price_data = data_service.get_latest_asset_price(asset.id)
+        new_timestamp = price_data.provider_updated_at if price_data else None
+
         if price_data:
             console.print()
 
+            # Determine if we got new data
+            is_new_data = (old_timestamp != new_timestamp) if old_timestamp else True
+
             # Provider timestamp header
             provider_time = datetime.fromtimestamp(price_data.provider_updated_at / 1_000_000_000).strftime("%Y-%m-%d %H:%M:%S ET")
-            console.print(f"{symbol} | Provider Updated: {provider_time}")
+
+            if is_new_data:
+                console.print(f"[green]✅ New data fetched[/green] | {symbol} | Provider Updated: {provider_time}")
+            else:
+                # Different messages depending on whether we forced a fetch or used cache
+                if force:
+                    console.print(f"[yellow]📋 No new data from provider[/yellow] | {symbol} | Provider Updated: {provider_time}")
+                else:
+                    console.print(f"[yellow]📋 Using cached data[/yellow] | {symbol} | Provider Updated: {provider_time}")
 
             # Price data table
             price_table = Table(box=box.ROUNDED, show_header=True)
@@ -334,6 +390,155 @@ def info(config, symbol: str):
         else:
             console.print(f"[yellow]⚠️  No price data available for {symbol}[/yellow]")
 
+        # Check if news is stale and fetch if needed
+        try:
+            # Get news TTL from config (default 30 minutes)
+            from utils.config_loader import get_config_loader
+            config_loader = get_config_loader()
+            ttl_config = config_loader.load_database_ttl_config()
+            news_ttl_minutes = ttl_config.get("news_ttl_minutes", 30)
+
+            # Check if we need to fetch fresh news
+            if data_service.is_news_stale(asset.id, ttl_minutes=news_ttl_minutes):
+                console.print()
+                console.print(f"[dim]News data is stale, fetching fresh articles...[/dim]")
+                try:
+                    # Fetch fresh news (silently - we'll show the results below)
+                    data_service.fetch_news_and_sentiment(symbol, limit=10)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch fresh news: {e}")
+                    # Continue anyway - show whatever news we have
+
+        except Exception as e:
+            logger.warning(f"Error checking news staleness: {e}")
+            # Continue anyway
+
+        # Display recent sentiment events
+        try:
+            sentiment_events = data_service.get_sentiment_events(asset_id=asset.id)
+
+            if sentiment_events:
+                # Get sentiment type mapping for display
+                all_types = data_service.sentiment_types_manager.get_all_types(active_only=False)
+                type_id_to_name = {t.id: t.name for t in all_types}
+
+                # Take only the 5 most recent (already ordered by date DESC)
+                recent_events = sentiment_events[:5]
+
+                console.print()
+                console.print(f"[cyan]📰 Recent News Sentiment[/cyan] (Latest {len(recent_events)} of {len(sentiment_events)})")
+
+                # Create sentiment table
+                sentiment_table = Table(box=box.ROUNDED, show_header=True, show_footer=True)
+                sentiment_table.add_column("Date", style="", no_wrap=True)
+                sentiment_table.add_column("Time", style="", no_wrap=True)
+                sentiment_table.add_column("Type", style="")
+                sentiment_table.add_column("Article", style="dim")
+
+                for event in recent_events:
+                    # Format date and time
+                    event_date = event.event_date.strftime("%Y-%m-%d")
+                    event_time = event.event_time.strftime("%H:%M") if event.event_time else "N/A"
+
+                    # Get type name
+                    type_name = type_id_to_name.get(event.sentiment_type_id, "unknown")
+                    # Clean up type name (remove "news_" prefix if present)
+                    if type_name.startswith("news_"):
+                        type_name = type_name[5:]  # Remove "news_" prefix
+
+                    # Get article title from details
+                    article_title = event.get_detail("title", "N/A")
+                    # Truncate if too long
+                    if len(article_title) > 47:
+                        article_title = article_title[:44] + "..."
+
+                    sentiment_table.add_row(
+                        event_date,
+                        event_time,
+                        type_name.capitalize(),
+                        article_title
+                    )
+
+                # Calculate and add overall sentiment score as footer
+                try:
+                    sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=5)
+                    if sentiment_score is not None:
+                        score_value = sentiment_score.overall_score
+
+                        # Format score with color coding
+                        if score_value > 0.3:
+                            score_str = f"[green]+{score_value:.2f}[/green]"
+                        elif score_value < -0.3:
+                            score_str = f"[red]{score_value:.2f}[/red]"
+                        else:
+                            score_str = f"[yellow]{score_value:.2f}[/yellow]"
+
+                        sentiment_table.columns[0].footer = "[bold]Overall:[/bold]"
+                        sentiment_table.columns[1].footer = ""
+                        sentiment_table.columns[2].footer = f"[bold]{score_str} ({sentiment_score.sentiment_label})[/bold]"
+                        sentiment_table.columns[3].footer = f"[dim]{sentiment_score.articles_analyzed} articles, {sentiment_score.confidence_level} confidence[/dim]"
+                except Exception as e:
+                    logger.warning(f"Could not calculate overall sentiment: {e}")
+
+                console.print(sentiment_table)
+            else:
+                console.print()
+                console.print(f"[dim]📰 No sentiment events found for {symbol}[/dim]")
+
+        except Exception as e:
+            console.print()
+            console.print(f"[dim]⚠️  Could not fetch sentiment events: {e}[/dim]")
+
     except Exception as e:
         console.print(f"[red]❌ Error retrieving asset info: {e}[/red]")
+        sys.exit(1)
+
+
+@asset.command()
+@click.argument("symbol", type=str)
+@click.option("--limit", default=10, help="Maximum number of articles to fetch (default: 10)")
+@pass_config
+def news(config, symbol: str, limit: int):
+    """
+    Fetch recent news and sentiment analysis for a symbol.
+
+    Retrieves news articles from Polygon API, extracts sentiment data,
+    and stores sentiment events in the database for gap trading analysis.
+
+    Example:
+        tradescout asset news PLUG
+        tradescout asset news AAPL --limit 5
+    """
+    # Display market context at the top
+    display_market_context(config)
+
+    symbol = symbol.upper()
+
+    # Initialize data service
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        from output.cli_adapter import CLIOutputAdapter
+
+        data_service = config.get_data_service()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
+        sys.exit(1)
+
+    # Fetch news and sentiment
+    try:
+        console.print(f"[cyan]📰 Fetching news for {symbol}...[/cyan]")
+        console.print()
+
+        result = data_service.fetch_news_and_sentiment(symbol, limit=limit)
+
+        # Calculate overall sentiment score from database events
+        sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=5)
+
+        # Use CLI adapter to format and display the result
+        CLIOutputAdapter.format_news_result(result, sentiment_score=sentiment_score)
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to fetch news: {e}[/red]")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)

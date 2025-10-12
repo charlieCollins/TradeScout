@@ -1,51 +1,180 @@
 name: volume
-description: "Unusual volume stocks"
+description: "High volume stocks (unusual trading activity)"
 enabled: true
 
-# Session validation - volume patterns can be detected in any trading session
+# Valid in all sessions - adapts behavior based on current session
 valid_sessions:
   - "premarket"
   - "regular"
   - "afterhours"
+  - "closed"
 
 # Data source configuration
 data_source:
   universe: "default_universe"
   require_recent_trading: true
 
-# Filter criteria
-filters:
-  - field: "min_volume"
-    operator: ">="
-    value: 1000000  # At least 1M volume
-  - field: "min_close"
-    operator: ">="
-    value: 1.0
+# Field mappings - what each concept means per session
+field_mapping:
+  current_volume:
+    # Current session volume
+    premarket: "ap.min_accumulated_volume"   # PM accumulated volume
+    regular: "ap.day_volume"                 # Regular session volume
+    afterhours: null                         # PROBLEM: min.av unreliable in AH
+    closed: "ap.prevday_volume"              # Previous day volume
 
-# Sorting configuration - highest volume first
+  reference_volume:
+    # What to compare against
+    premarket: "ap.prevday_volume"           # Compare to previous full day
+    regular: "ap.prevday_volume"             # Compare to previous full day
+    afterhours: "ap.day_volume"              # Compare to today's regular session
+    closed: "1"                              # Dummy value (sort by absolute volume in closed)
+
+  current_price:
+    # For display
+    premarket: "ap.min_close"
+    regular: "ap.min_close"
+    afterhours: "ap.min_close"
+    closed: "ap.day_close"
+
+# Thresholds - volume spike detection
+thresholds:
+  min_volume_ratio:
+    # Minimum volume ratio to show (2.0 = 2x normal volume)
+    premarket: 2.0
+    regular: 2.0
+    afterhours: 1.5
+    closed: 0.0  # No ratio filter for closed (just show high volume)
+
+  min_absolute_volume:
+    # Minimum absolute volume to avoid low-volume noise
+    premarket: 10000      # 10K shares minimum
+    regular: 50000        # 50K shares minimum
+    afterhours: 10000     # 10K shares minimum
+    closed: 100000        # 100K shares minimum
+
+  min_price:
+    premarket: 1.0
+    regular: 1.0
+    afterhours: 1.0
+    closed: 1.0
+
+# Filters - use template variables that get resolved per session
+filters:
+  # Current volume must exist
+  - field: "{{current_volume}}"
+    operator: "IS NOT NULL"
+    value: null
+
+  # Reference volume must exist
+  - field: "{{reference_volume}}"
+    operator: "IS NOT NULL"
+    value: null
+
+  # Minimum absolute volume filter (avoid penny stock noise)
+  - field: "{{current_volume}}"
+    operator: ">="
+    value: "{{thresholds.min_absolute_volume}}"
+
+  # Volume ratio filter (only for non-closed sessions)
+  - field: "({{current_volume}} * 1.0 / {{reference_volume}})"
+    operator: ">="
+    value: "{{thresholds.min_volume_ratio}}"
+
+  # Minimum price filter
+  - field: "{{current_price}}"
+    operator: ">="
+    value: "{{thresholds.min_price}}"
+
+# Sorting - highest volume ratios first (absolute volume for closed)
 sort:
-  - field: "min_volume"
+  - field: "{{current_volume}}"
     direction: "desc"
 
-# Display configuration
+# Display configuration - context-specific columns
 display:
   limit: 50
   columns:
-    - name: "Symbol"
-      field: "symbol"
-      width: 10
-    - name: "Name"
-      field: "name"
-      width: 30
-    - name: "Last"
-      field: "min_close"
-      format: "price"
-    - name: "Volume"
-      field: "min_volume"
-      format: "volume"
-    - name: "Change %"
-      field: "change_percent"
-      format: "percent"
-    - name: "$ Traded"
-      field: "min_volume * min_close"
-      format: "currency"
+    base:
+      # Always shown
+      - name: "Symbol"
+        field: "symbol"
+        width: 8
+
+    context_specific:
+      premarket:
+        - name: "PM Volume"
+          field: "min_accumulated_volume"
+          format: "volume"
+          width: 12
+        - name: "Prev Volume"
+          field: "prevday_volume"
+          format: "volume"
+          width: 12
+        - name: "Ratio"
+          field: "(min_accumulated_volume * 1.0 / prevday_volume)"
+          format: "ratio"
+          width: 10
+        - name: "PM Price"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "PM Change %"
+          field: "((min_close - prevday_close) / prevday_close * 100)"
+          format: "percent"
+          width: 12
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      regular:
+        - name: "Volume"
+          field: "day_volume"
+          format: "volume"
+          width: 12
+        - name: "Prev Volume"
+          field: "prevday_volume"
+          format: "volume"
+          width: 12
+        - name: "Ratio"
+          field: "(day_volume * 1.0 / prevday_volume)"
+          format: "ratio"
+          width: 10
+        - name: "Current"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "Change %"
+          field: "((min_close - day_open) / day_open * 100)"
+          format: "percent"
+          width: 12
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      afterhours:
+        - name: "AH Volume"
+          field: "Note: Snapshot volume unreliable after-hours"
+          width: 50
+        - name: "AH Price"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "AH Change %"
+          field: "((min_close - day_close) / day_close * 100)"
+          format: "percent"
+          width: 12
+
+      closed:
+        - name: "Volume"
+          field: "prevday_volume"
+          format: "volume"
+          width: 12
+        - name: "Last Close"
+          field: "day_close"
+          format: "price"
+          width: 12
+        - name: "Change %"
+          field: "((day_close - prevday_close) / prevday_close * 100)"
+          format: "percent"
+          width: 12

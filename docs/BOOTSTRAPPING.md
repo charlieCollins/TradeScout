@@ -314,7 +314,7 @@ from services.data_service import DataService
 import os
 
 # Initialize components
-db_manager = DatabaseManager("tradescout.db")
+db_manager = DatabaseManager("data/tradescout.db")
 update_tracker = DataUpdateTracker(None)  # Will be initialized by DataService
 polygon_api_key = os.getenv("POLYGON_API_KEY")
 

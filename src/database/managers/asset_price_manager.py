@@ -5,9 +5,9 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, Optional
 
-from database.config.ttl_config import ASSET_PRICE_TTL_MINUTES
 from models.data_update_metadata import DataUpdateMetadataType
 from models.price import AssetPrice
+from utils.config_loader import get_config_loader
 
 from .base_manager import BaseManager
 
@@ -28,7 +28,9 @@ class AssetPriceManager(BaseManager):
 
     def get_ttl_seconds(self) -> int:
         """Get TTL in seconds for this cache type."""
-        return ASSET_PRICE_TTL_MINUTES * 60
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['asset_price_ttl_minutes'] * 60
 
     def get_entity_from_database(self, key: str) -> Optional[AssetPrice]:
         """Get AssetPrice from asset_prices table.
@@ -132,7 +134,7 @@ class AssetPriceManager(BaseManager):
                 cursor = conn.cursor()
 
                 query = """
-                    INSERT OR REPLACE INTO asset_prices (
+                    INSERT OR IGNORE INTO asset_prices (
                         asset_id, symbol, provider_id, provider_updated_at, trade_date,
                         prevday_open, prevday_high, prevday_low, prevday_close, prevday_volume, prevday_vwap,
                         day_open, day_high, day_low, day_close, day_volume, day_vwap,
@@ -192,21 +194,23 @@ class AssetPriceManager(BaseManager):
 
     def batch_set_entities_to_database(
         self, entities: list[AssetPrice]
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, int, int]:
         """Batch store AssetPrice objects to asset_prices table.
 
         Args:
             entities: List of AssetPrice objects to store
 
         Returns:
-            Tuple of (successful_count, failed_count)
+            Tuple of (new_records, duplicate_records, successful_count, failed_count)
         """
         if not entities:
-            return 0, 0
+            return 0, 0, 0, 0
 
         if not self._check_dependencies():
-            return 0, len(entities)
+            return 0, 0, 0, len(entities)
 
+        new_records = 0
+        duplicate_records = 0
         successful = 0
         failed = 0
 
@@ -214,8 +218,42 @@ class AssetPriceManager(BaseManager):
             with self.db_manager.get_connection() as conn:
                 cursor = conn.cursor()
 
+                # First, check which (asset_id, provider_id, provider_updated_at) combinations already exist
+                # Build a query to check all combinations at once
+                check_query = """
+                    SELECT asset_id, provider_id, provider_updated_at
+                    FROM asset_prices
+                    WHERE (asset_id, provider_id, provider_updated_at) IN ({})
+                """.format(
+                    ",".join(
+                        ["(?, ?, ?)"] * len(entities)
+                    )
+                )
+
+                # Prepare check values
+                check_values = []
+                for entity in entities:
+                    check_values.extend(
+                        [entity.asset_id, entity.provider_id, entity.provider_updated_at]
+                    )
+
+                # Execute check query
+                cursor.execute(check_query, check_values)
+                existing_combinations = set(
+                    (row[0], row[1], row[2]) for row in cursor.fetchall()
+                )
+
+                # Now categorize entities
+                for entity in entities:
+                    key = (entity.asset_id, entity.provider_id, entity.provider_updated_at)
+                    if key in existing_combinations:
+                        duplicate_records += 1
+                    else:
+                        new_records += 1
+
+                # Insert only new records, ignore duplicates (same unique key = same data)
                 query = """
-                    INSERT OR REPLACE INTO asset_prices (
+                    INSERT OR IGNORE INTO asset_prices (
                         asset_id, symbol, provider_id, provider_updated_at, trade_date,
                         prevday_open, prevday_high, prevday_low, prevday_close, prevday_volume, prevday_vwap,
                         day_open, day_high, day_low, day_close, day_volume, day_vwap,
@@ -270,13 +308,103 @@ class AssetPriceManager(BaseManager):
                 conn.commit()
                 successful = len(values_list)
 
-                logger.debug(f"Batch stored {successful} asset prices")
+                logger.debug(
+                    f"Batch stored {successful} asset prices ({new_records} new, {duplicate_records} duplicates)"
+                )
 
         except Exception as e:
             logger.error(f"Error in batch store asset prices: {e}")
             failed = len(entities)
 
-        return successful, failed
+        return new_records, duplicate_records, successful, failed
+
+    def get_random_assets_with_prices(self, limit: int = 10) -> list[tuple]:
+        """Get random assets that have recent price data.
+
+        Args:
+            limit: Number of random assets to return (default: 10)
+
+        Returns:
+            List of tuples: (symbol, asset_id, latest_asset_price_id)
+        """
+        if not self._check_dependencies():
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Get random assets with their latest price data
+                # Return just the identifiers, caller can fetch full AssetPrice if needed
+                cursor.execute(
+                    """
+                    SELECT a.symbol, ap.asset_id, ap.id
+                    FROM asset_prices ap
+                    JOIN assets a ON ap.asset_id = a.id
+                    WHERE ap.id IN (
+                        SELECT MAX(id)
+                        FROM asset_prices
+                        GROUP BY asset_id
+                    )
+                    AND (ap.min_accumulated_volume > 0 OR ap.day_volume > 0 OR ap.prevday_volume > 0)
+                    ORDER BY RANDOM()
+                    LIMIT ?
+                """,
+                    (limit,),
+                )
+
+                results = cursor.fetchall()
+                logger.debug(f"Retrieved {len(results)} random assets with price data")
+                return results
+
+        except Exception as e:
+            logger.error(f"Error getting random assets with prices: {e}")
+            return []
+
+    def get_latest_price_ids_for_symbols(self, symbols: list[str]) -> list[tuple]:
+        """Get latest asset_price IDs for specific symbols.
+
+        Args:
+            symbols: List of ticker symbols (e.g., ['AAPL', 'NVDA'])
+
+        Returns:
+            List of tuples: (symbol, asset_id, latest_asset_price_id)
+        """
+        if not self._check_dependencies():
+            return []
+
+        if not symbols:
+            return []
+
+        try:
+            with self.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Build placeholders for IN clause
+                placeholders = ",".join("?" * len(symbols))
+
+                cursor.execute(
+                    f"""
+                    SELECT a.symbol, ap.asset_id, ap.id
+                    FROM asset_prices ap
+                    JOIN assets a ON ap.asset_id = a.id
+                    WHERE a.symbol IN ({placeholders})
+                    AND ap.id = (
+                        SELECT MAX(id)
+                        FROM asset_prices
+                        WHERE asset_id = a.id
+                    )
+                """,
+                    symbols,
+                )
+
+                results = cursor.fetchall()
+                logger.debug(f"Retrieved latest price IDs for {len(results)} symbols")
+                return results
+
+        except Exception as e:
+            logger.error(f"Error getting latest price IDs for symbols: {e}")
+            return []
 
     def get_stats(self) -> Dict[str, Any]:
         """Get database manager statistics.

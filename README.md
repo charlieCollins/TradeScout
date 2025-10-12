@@ -16,19 +16,20 @@ TradeScout provides real-time market screening across different trading sessions
 ## Current Features
 
 ### Screeners Available
-- `gainers` - Top gaining stocks (regular session)
-- `losers` - Top losing stocks (regular session)
-- `gainerspremarket` - Premarket gap-ups from previous close
-- `loserspremarket` - Premarket gap-downs from previous close
-- `gainersafterhours` - Afterhours gainers vs 4PM close
-- `losersafterhours` - Afterhours losers vs 4PM close
-- `gainersclosed` - Closed session gainers
-- `losersclosed` - Closed session losers
-- `gaps` - Significant gap ups/downs
-- `gapupcandidates` - Gap up candidates analysis
-- `gapdowncandidates` - Gap down candidates analysis
-- `volume` - Unusual volume activity
-- `momentum` - Strong momentum indicators
+
+**Regular Session:**
+- `gainers_regular` - Top gaining stocks (current price vs day open)
+- `losers_regular` - Top losing stocks (current price vs day open)
+
+**Extended Hours:**
+- `gainers_premarket` - Premarket gap-ups from previous close
+- `losers_premarket` - Premarket gap-downs from previous close
+- `gainers_after_hours` - Afterhours gainers vs 4PM close
+- `losers_after_hours` - Afterhours losers vs 4PM close
+
+**Closed Session:**
+- `gainers_closed_scope_regular` - Regular session gainers (day open to close)
+- `losers_closed_scope_regular` - Regular session losers (day open to close)
 
 ### Commands
 
@@ -71,10 +72,10 @@ TradeScout provides real-time market screening across different trading sessions
 - `tradescout database bootstrap-all` - Run all bootstrap operations
 
 ### Data Management
-- **Database**: SQLite with 13 tables for assets, prices, markets, universes, sentiment
+- **Database**: SQLite with 13 tables (location: `data/tradescout.db`)
 - **Universe**: ~7,500 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
-- **Data Source**: Polygon.io Premium (15-minute delayed, extended hours support)
-- **Caching**: TTL-based caching with automatic refresh logic (configurable per data type)
+- **Data Source**: Polygon.io Premium subscription (15-minute delayed, extended hours support)
+- **Caching**: TTL-based caching with automatic refresh logic
 
 ### Session Awareness
 - **Market Sessions**: Premarket (4-9:30 AM), Regular (9:30 AM-4 PM), Afterhours (4-8 PM), Closed
@@ -116,13 +117,13 @@ TradeScout provides real-time market screening across different trading sessions
 ./tradescout market context
 
 # Find afterhours gainers
-./tradescout screener gainersafterhours
+./tradescout screener gainers_after_hours
+
+# Find regular session gainers
+./tradescout screener gainers_regular
 
 # Get detailed stock info
 ./tradescout asset info AAPL
-
-# Analyze gap trading opportunities
-./tradescout gap analyze AAPL TSLA NVDA
 
 # Manage universes
 ./tradescout universe list
@@ -133,7 +134,6 @@ TradeScout provides real-time market screening across different trading sessions
 
 # Database management
 ./tradescout database info
-./tradescout database bootstrap-fundamentals --symbol AAPL
 ```
 
 ## Architecture

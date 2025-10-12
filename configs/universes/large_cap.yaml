@@ -1,0 +1,36 @@
+# Large Cap Universe Configuration
+# Large cap stocks over $10B market cap
+
+name: large_cap
+description: Large cap stocks over $10B market cap
+
+# Included criteria
+included:
+  ticker_types:
+    - CS  # Common Stock only
+
+  exchanges:
+    - XNYS  # New York Stock Exchange
+    - XNAS  # NASDAQ
+
+  symbol_pattern: "^[A-Z]{1,5}$"  # 1-5 alphabetic characters only
+  active_only: true
+
+  min_market_cap: 10000000000  # $10B minimum (large cap definition)
+  # NOTE: min_volume removed - fundamentals don't include volume data
+
+# Excluded criteria
+excluded:
+  non_us_securities: true
+  preferred_stocks: true
+
+  investment_vehicles:
+    etns: true
+    mutual_funds: true
+    closed_end_funds: true
+
+  invalid_symbols:
+    test_symbols: true
+    inactive_delisted: true
+    special_characters: true
+    duplicate_classes: true

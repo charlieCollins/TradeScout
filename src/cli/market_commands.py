@@ -14,7 +14,7 @@ from rich.progress import (BarColumn, Progress, SpinnerColumn,
                            TaskProgressColumn, TextColumn)
 from rich.table import Table
 
-from config.market_context_rules import get_field_for_context
+from utils.config_loader import get_field_for_context
 
 from .asset_commands import display_market_context
 from .main import pass_config
@@ -120,11 +120,17 @@ def update(config, force):
 
         # Process tickers - transform to AssetPrice objects for symbols we have in our database
         console.print("")
-        console.print("[bold blue]Processing ticker data...[/bold blue]")
+        console.print("[bold blue]Processing snapshot data...[/bold blue]")
 
         # Get market context to determine what "active" means for current session
         market_context = config.market_context
         current_session = market_context.current_session.value
+
+        # Load market context rules ONCE (not 11,800 times in the loop!)
+        from utils.config_loader import get_config_loader
+        config_loader = get_config_loader()
+        market_rules = config_loader.load_market_context_rules()
+        volume_field_priority = market_rules.get("field_mappings", {}).get("volume", {}).get(current_session, [])
 
         asset_prices_to_save = []
         processing_stats = {
@@ -143,7 +149,7 @@ def update(config, force):
             console=console,
         ) as progress:
             processing_task = progress.add_task(
-                "Transforming ticker data...", total=len(bulk_snapshot_data.tickers)
+                "Processing snapshot data...", total=len(bulk_snapshot_data.tickers)
             )
 
             # Process each ticker from the MarketSnapshot model
@@ -181,10 +187,13 @@ def update(config, force):
                         "prevday_volume": ticker_snapshot.prev_volume,
                     }
 
-                    # Get appropriate volume field for current session
-                    current_volume = get_field_for_context(
-                        "volume", current_session, available_data
-                    )
+                    # Get appropriate volume field for current session (use pre-loaded priority list)
+                    current_volume = None
+                    for field_name in volume_field_priority:
+                        value = available_data.get(field_name)
+                        if value is not None:
+                            current_volume = value
+                            break
 
                     # Active if volume > 0 for the current session's volume field
                     is_active = current_volume is not None and current_volume > 0
@@ -217,17 +226,38 @@ def update(config, force):
         ) as progress:
             save_task = progress.add_task("Batch inserting asset prices...", total=None)
 
-            successful, failed = data_service.batch_save_asset_prices(
-                asset_prices_to_save
+            new_records, duplicate_records, successful, failed = (
+                data_service.batch_save_asset_prices(asset_prices_to_save)
             )
 
             progress.update(save_task, completed=True)
 
-        console.print(
-            f"[green]✅ Saved {successful:,} asset prices to database[/green]"
-        )
+        # Get total records count in database after update
+        try:
+            with data_service.db_manager.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM asset_prices")
+                total_historical_records = cursor.fetchone()[0]
+        except Exception:
+            total_historical_records = None
+
+        if new_records > 0:
+            console.print(
+                f"[green]✅ Added {new_records:,} new price records to database[/green]"
+            )
+            if duplicate_records > 0:
+                console.print(f"[dim]   ├─ Skipped {duplicate_records:,} duplicates (already had this data)[/dim]")
+        else:
+            console.print(
+                f"[yellow]⚠️  No new data - all {duplicate_records:,} records already in database[/yellow]"
+            )
+
+        if total_historical_records is not None:
+            console.print(
+                f"[dim]   Total historical price records in database: {total_historical_records:,}[/dim]"
+            )
         if failed > 0:
-            console.print(f"[yellow]⚠️  {failed:,} failed to save[/yellow]")
+            console.print(f"[red]❌ {failed:,} failed to save[/red]")
 
     except Exception as e:
         console.print(f"[red]❌ Error during bulk snapshot: {e}[/red]")
@@ -248,16 +278,11 @@ def update(config, force):
     summary_table.add_row(
         "Matched to our assets", f"{processing_stats['matched_symbols']:,}"
     )
-    summary_table.add_row("Successfully saved", f"{successful:,}")
-    summary_table.add_row("Failed to save", f"{failed:,}")
-    summary_table.add_row(
-        "Success rate",
-        (
-            f"{(successful / processing_stats['matched_symbols'] * 100):.1f}%"
-            if processing_stats["matched_symbols"] > 0
-            else "0%"
-        ),
-    )
+    summary_table.add_row("Processed", f"{successful:,}")
+    summary_table.add_row("  ├─ New records added", f"{new_records:,}")
+    summary_table.add_row("  └─ Duplicates skipped", f"{duplicate_records:,}")
+    if failed > 0:
+        summary_table.add_row("Failed to process", f"{failed:,}")
     summary_table.add_row("Completed at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     console.print(summary_table)

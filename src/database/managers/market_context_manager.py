@@ -10,7 +10,7 @@ import json
 from typing import Optional
 from models.market_context import MarketContext
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import MARKET_CONTEXT_TTL_MINUTES
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,9 @@ class MarketContextManager(BaseManager):
         Market context changes throughout the day as markets open/close.
         Use 5-minute TTL for reasonable freshness.
         """
-        return MARKET_CONTEXT_TTL_MINUTES * 60
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['market_context_ttl_minutes'] * 60
 
     def get_entity_from_database(self, key: str) -> Optional[MarketContext]:
         """Get MarketContext from database by market code.

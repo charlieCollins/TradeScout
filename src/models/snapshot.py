@@ -56,28 +56,6 @@ class TickerSnapshot:
     # Market status
     market_status: Optional[str]
 
-    @property
-    def current_price(self) -> Optional[Decimal]:
-        """Get the most recent price (min_bar.close if available, else last_price)."""
-        if self.min_bar and self.min_bar.close is not None:
-            return self.min_bar.close
-        return self.last_price
-
-    @property
-    def change(self) -> Optional[Decimal]:
-        """Calculate price change from previous close."""
-        current = self.current_price
-        if current and self.prev_close:
-            return current - self.prev_close
-        return None
-
-    @property
-    def change_percent(self) -> Optional[Decimal]:
-        """Calculate percentage change from previous close."""
-        if self.change and self.prev_close and self.prev_close != 0:
-            return (self.change / self.prev_close) * 100
-        return None
-
 
 @dataclass(frozen=True)
 class MarketSnapshot:

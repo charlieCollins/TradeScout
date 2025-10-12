@@ -24,7 +24,7 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from models.snapshot import MarketSnapshot
 from models.data_update_metadata import DataUpdateMetadataType
-from database.config.ttl_config import MARKET_SNAPSHOT_TTL_MINUTES
+from utils.config_loader import get_config_loader
 from .base_manager import BaseManager
 
 logger = logging.getLogger(__name__)
@@ -117,7 +117,9 @@ class MarketSnapshotManager(BaseManager):
 
     def get_ttl_seconds(self) -> int:
         """Get TTL in seconds for this data type."""
-        return MARKET_SNAPSHOT_TTL_MINUTES * 60
+        config_loader = get_config_loader()
+        ttl_config = config_loader.load_database_ttl_config()
+        return ttl_config['market_snapshot_ttl_minutes'] * 60
 
     def get_entity_from_database(self, key: str) -> Optional[MarketSnapshot]:
         """Get MarketSnapshot from database storage.

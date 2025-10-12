@@ -85,7 +85,7 @@ class AssetFundamentals:
     @classmethod
     def from_polygon_data(cls, asset_id: int, provider_id: int, polygon_data: dict) -> 'AssetFundamentals':
         """Create AssetFundamentals from Polygon API ticker overview data."""
-        from config.sic_sector_mapping import get_sector_from_sic
+        from utils.config_loader import get_sector_from_sic
 
         sic_code = polygon_data.get("sic_code", "")
         sector = get_sector_from_sic(sic_code) if sic_code else None

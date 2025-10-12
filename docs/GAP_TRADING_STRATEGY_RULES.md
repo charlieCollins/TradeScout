@@ -69,9 +69,13 @@ good_candidate_requirements:
   gap_occurs: "market_open"                # Gap from close to open (not intraday)
   time_of_day: "between 9:30 AM - 10:30 AM" # Entry window only
   
-  # Exclusion Requirements  
-  gap_size: "< 5.0% OR trend_age < 20_days" # NOT an exhaustion gap
+  # Exclusion Requirements
+  gap_size: "< 5.0% OR trend_age < 20_days" # NOT an exhaustion gap (trend_age check: future)
   volume_ratio: "> 0.5"                    # NOT a thin volume gap
+
+  # NOTE: trend_age check not yet implemented - requires 20 days historical data
+  # Currently only checking gap_size >= 5.0% AND volume >= 3.0x for exhaustion detection
+  # Full implementation coming when historical data pipeline is built
   
 # LOGIC: If all conditions above = TRUE, then TRADE
 # LOGIC: If any condition above = FALSE, then REJECT
@@ -95,6 +99,7 @@ bad_candidate_triggers:
   
   # Pattern Problems
   exhaustion_gap: "gap >= 5.0% AND trend_age >= 20_days AND volume >= 3.0x" # Trend ending
+  # NOTE: Currently only checks gap >= 5.0% AND volume >= 3.0x (trend_age check pending)
   counter_trend: "stock_direction != market_direction" # Swimming upstream
   
   # Timing Problems
@@ -123,9 +128,10 @@ Step 4: Is spread <= 1.0%?
         NO → REJECT (poor liquidity)
         YES → Go to Step 5
 
-Step 5: Is it an exhaustion gap? (gap >= 5% AND trend >= 20 days AND volume >= 3x)
+Step 5: Is it an exhaustion gap? (gap >= 5% AND volume >= 3x)
         YES → REJECT (trend ending)
         NO → Go to Step 6
+        NOTE: Full check should include "trend >= 20 days" but not yet implemented
 
 Step 6: Is it Friday?
         YES → REJECT (weekend risk)

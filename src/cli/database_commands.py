@@ -310,6 +310,8 @@ def bootstrap_markets(config):
 @pass_config
 def bootstrap_tickers(config, limit, force):
     """Initialize/update ticker data from Polygon API."""
+    from output.cli_adapter import CLIOutputAdapter, CLIProgressReporter
+
     console.print("[blue]Initializing tickers from Polygon...[/blue]")
 
     if limit:
@@ -323,13 +325,22 @@ def bootstrap_tickers(config, limit, force):
 
     try:
         data_service = config.get_data_service()
-        count = data_service.bootstrap_assets(market="stocks", active=True)
+
+        # Create CLI output adapters
+        progress_reporter = CLIProgressReporter(console=console)
+        output_adapter = CLIOutputAdapter(console=console)
+
+        # Bootstrap assets with progress reporting
+        result = data_service.bootstrap_assets(
+            market="stocks", active=True, progress=progress_reporter
+        )
+
+        # Display results using adapter
+        output_adapter.display_bootstrap_result(result)
+
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap assets: {e}[/red]")
         sys.exit(1)
-
-    console.print("[green]✅ Ticker initialization completed[/green]")
-    console.print(f"  Assets stored: {count:,}")
 
     # Show stats
     try:
@@ -354,7 +365,7 @@ def bootstrap_universes(config, force):
 
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
-        from config.universe_config import UNIVERSE_CONFIG
+        from utils.config_loader import get_config_loader
 
         data_service = config.get_data_service()
     except Exception as e:
@@ -362,7 +373,9 @@ def bootstrap_universes(config, force):
         sys.exit(1)
 
     # Get all universe names from config
-    universe_names = list(UNIVERSE_CONFIG.keys())
+    config_loader = get_config_loader()
+    all_universes = config_loader.load_all_universes()
+    universe_names = list(all_universes.keys())
     console.print(f"[blue]Found {len(universe_names)} universes in config: {', '.join(universe_names)}[/blue]")
 
     total_success = 0
@@ -417,6 +430,8 @@ def bootstrap_universes(config, force):
 @pass_config
 def bootstrap_fundamentals(config, symbol, force, limit):
     """Bootstrap fundamentals data from Polygon API ticker overview."""
+    from output.cli_adapter import CLIOutputAdapter, CLIProgressReporter
+
     if symbol:
         console.print(f"[blue]Bootstrapping fundamentals for {symbol}...[/blue]")
         console.print(f"[yellow]Note: Single symbol bootstrap not yet supported, will bootstrap all assets[/yellow]")
@@ -430,25 +445,28 @@ def bootstrap_fundamentals(config, symbol, force, limit):
     try:
         data_service = config.get_data_service()
 
-        # Get active universe info for display
-        active_universe = data_service.get_active_universe()
-        universe_name = active_universe.name if active_universe else "unknown"
-        universe_stats = data_service.get_universe_stats(universe_name) if active_universe else None
-        num_assets = universe_stats.total_members if universe_stats else 0
-
         if limit:
             console.print(f"[blue]Processing up to {limit:,} assets from database[/blue]")
         else:
             console.print(f"[blue]Processing all assets from database[/blue]")
 
-        # Bootstrap fundamentals
-        count = data_service.bootstrap_fundamentals(limit=limit)
+        # Create CLI output adapters
+        progress_reporter = CLIProgressReporter(console=console)
+        output_adapter = CLIOutputAdapter(console=console)
 
-        console.print(f"[green]✅ Fundamentals bootstrap complete: {count:,} records processed[/green]")
+        # Bootstrap fundamentals with progress reporting
+        result = data_service.bootstrap_fundamentals(
+            limit=limit, progress=progress_reporter
+        )
 
-        # Show stats
+        # Display results using adapter
+        output_adapter.display_bootstrap_result(result)
+
+        # Show current database stats
         fundamentals_stats = data_service.get_fundamentals_stats()
-        console.print(f"  Total fundamentals in database: {fundamentals_stats.get('total_fundamentals', 0):,}")
+        console.print(
+            f"  Total fundamentals in database: {fundamentals_stats.get('total_fundamentals', 0):,}"
+        )
 
     except Exception as e:
         console.print(f"[red]❌ Fundamentals bootstrap failed: {e}[/red]")
@@ -546,9 +564,11 @@ def bootstrap_all(config, force):
     # 5. Universes (all from config)
     console.print("\n[bold]Step 5: Asset Universes[/bold]")
     try:
-        from config.universe_config import UNIVERSE_CONFIG
+        from utils.config_loader import get_config_loader
 
-        universe_names = list(UNIVERSE_CONFIG.keys())
+        config_loader = get_config_loader()
+        all_universes = config_loader.load_all_universes()
+        universe_names = list(all_universes.keys())
 
         for universe_name in universe_names:
             stats = data_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)

@@ -1,0 +1,62 @@
+# Gap Trading Strategy Configuration
+
+# Minimum criteria for gap candidates
+minimum_criteria:
+  gap_percent: 2.0              # Minimum gap size (%)
+  market_cap: 1000000000        # Minimum market cap ($1B)
+  volume_ratio: 1.5             # Minimum volume ratio vs previous day
+
+# Session hours for volume calculations
+session_hours:
+  premarket: 5.5                # 4:00-9:30 AM = 5.5 hours
+  afterhours: 4.0               # 4:00-8:00 PM = 4 hours
+  regular: 6.5                  # 9:30 AM-4:00 PM = 6.5 hours
+
+# Quality scoring formula (total: 100 points)
+quality_scoring:
+  gap_size:
+    max_points: 40
+    multiplier: 8               # gap_percent * 8 = points (2% = 16, 5% = 40)
+
+  volume:
+    max_points: 25
+    thresholds:
+      strong: 2.0               # ≥2.0x volume ratio
+      minimum: 1.5              # 1.5-2.0x range
+    multipliers:
+      strong: 12.5              # (ratio - 1) * 12.5
+      minimum: 12               # (ratio - 1.5) * 12
+
+  catalyst:
+    max_points: 20
+    multiplier: 0.2             # catalyst_score * 0.2
+
+  sector_alignment:
+    points: 10
+
+  market_alignment:
+    points: 5
+
+# Risk level thresholds
+risk_levels:
+  low: 85                       # Score ≥85 = low risk
+  medium: 70                    # Score 70-84 = medium risk
+  high: 0                       # Score <70 = high risk
+
+# Gap significance thresholds
+gap_significance:
+  minor: 1.0                    # 1-2%
+  moderate: 2.0                 # 2-5%
+  significant: 5.0              # 5-10%
+  major: 10.0                   # >10%
+
+# Exhaustion gap detection
+exhaustion_gap:
+  min_gap_percent: 5.0          # Gap must be ≥5% AND
+  min_volume_ratio: 3.0         # Volume must be ≥3x
+  # Note: Historical trend check (≥20 days) not implemented yet
+
+# Weekend/Holiday risk
+weekend_risk:
+  friday_gap_warning: true      # Warn about Friday gaps (2-3 day hold)
+  reduce_position_size: 0.5     # Reduce position by 50% on Fridays

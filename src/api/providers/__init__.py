@@ -13,6 +13,7 @@ API providers do NOT:
 """
 
 from .base_provider import BaseAPIProvider
+from .polygon_aggregates_provider import PolygonAggregatesProvider
 from .polygon_snapshot_provider import PolygonSnapshotProvider
 from .polygon_tickers_provider import PolygonTickersProvider
 from .polygon_markets_provider import PolygonMarketsProvider
@@ -21,6 +22,7 @@ from .polygon_news_provider import PolygonNewsProvider
 
 __all__ = [
     "BaseAPIProvider",
+    "PolygonAggregatesProvider",
     "PolygonSnapshotProvider",
     "PolygonTickersProvider",
     "PolygonMarketsProvider",

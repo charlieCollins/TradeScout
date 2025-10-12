@@ -1,0 +1,28 @@
+# Time-to-live configuration for cached data and operation staleness detection
+
+# Asset price data (real-time market data) - in minutes
+asset_price_ttl_minutes: 10         # Individual asset prices
+ticker_snapshot_ttl_minutes: 15     # Individual ticker snapshots
+market_snapshot_ttl_minutes: 15     # Bulk market snapshots
+
+# Bootstrap operation staleness - in hours
+fundamentals_ttl_hours: 168         # 1 week - fundamentals change rarely
+tickers_ttl_hours: 72               # 3 days - new listings/delistings are infrequent
+assets_ttl_hours: 72                # 3 days - new listings/delistings are infrequent
+universes_ttl_hours: 24             # 1 day - universe membership can change with market cap shifts
+markets_ttl_hours: 8760             # 1 year - market/exchange reference data is essentially static
+
+# External data sources - in minutes
+news_ttl_minutes: 30                # News data cache
+
+# Economic data sources - in hours
+fed_data_ttl_hours: 12              # Federal Reserve economic data (inflation, yields, etc.)
+
+# Service-level caching
+market_context_ttl_minutes: 5       # Market context objects cache
+market_holidays_ttl_days: 30        # Market holidays rarely change (cache for 30 days)
+
+# Data validation and refresh intervals
+max_fundamentals_age_days: 7        # When to warn about stale fundamentals
+max_tickers_age_days: 3             # When to warn about stale ticker universe
+market_data_stale_hours: 4          # When price data is considered too old for trading

@@ -118,12 +118,22 @@ def screener(config, screener_name: str, list_screeners: bool):
             all_warnings.append(snapshot_warning)
         all_warnings.extend(session_warnings)
 
+        # Get market context for context-aware screeners
+        market_context = data_service.get_market_context()
+
         # Execute screener
         console.print(f"[yellow]📊 Running '{screener_name}' screener...[/yellow]")
-        results = screener_engine.execute_screener(screener_def)
+        results = screener_engine.execute_screener(screener_def, market_context)
 
         # Display results
-        screener_display.display_results(results, screener_def, snapshot_time=snapshot_time, sessions_text=sessions_text, warnings=all_warnings)
+        screener_display.display_results(
+            results,
+            screener_def,
+            session=market_context.session_name,
+            snapshot_time=snapshot_time,
+            sessions_text=sessions_text,
+            warnings=all_warnings
+        )
 
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
