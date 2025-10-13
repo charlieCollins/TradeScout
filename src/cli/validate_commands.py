@@ -54,9 +54,8 @@ def volume(config, count: int, symbols: Optional[str]):
     """
     try:
         # Initialize services
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         market_service = config.get_market_context_service()
-        price_manager = data_service.asset_price_manager
 
         # Get current market context (default to XNYS)
         market_context = market_service.get_context("XNYS")
@@ -80,7 +79,7 @@ def volume(config, count: int, symbols: Optional[str]):
         if symbols:
             # Use specified symbols
             symbol_list = [s.strip().upper() for s in symbols.split(",")]
-            test_asset_ids = price_manager.get_latest_price_ids_for_symbols(symbol_list)
+            test_asset_ids = data_service.asset_price_repository.get_latest_price_ids_for_symbols(symbol_list)
 
             if not test_asset_ids:
                 console.print(f"[red]❌ No price data found for symbols: {symbols}[/red]")
@@ -89,7 +88,7 @@ def volume(config, count: int, symbols: Optional[str]):
             # Get random assets with recent activity (fetch more to filter out DELAYED)
             # For extended hours, get 100 and filter to first 10 with data
             fetch_limit = 100 if session in ["premarket", "afterhours"] else count
-            candidate_asset_ids = price_manager.get_random_assets_with_prices(limit=fetch_limit)
+            candidate_asset_ids = data_service.asset_price_repository.get_random_assets_with_prices(limit=fetch_limit)
 
             if not candidate_asset_ids:
                 console.print("[red]❌ No assets with price data found[/red]")
@@ -120,8 +119,8 @@ def volume(config, count: int, symbols: Optional[str]):
                 if successful_tests >= target_tests:
                     break
             # Fetch the full AssetPrice object using asset_id
-            # Note: get_entity_from_database returns the LATEST price for this asset
-            asset_price = price_manager.get_entity_from_database(str(asset_id))
+            # Note: get_latest_by_asset_id returns the LATEST price for this asset
+            asset_price = data_service.asset_price_repository.get_latest_by_asset_id(asset_id)
             if not asset_price:
                 continue
 

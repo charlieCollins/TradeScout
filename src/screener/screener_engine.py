@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import pytz
 
 from screener.template_resolver import TemplateResolver
-from models.market_context import MarketContext
+from models.dataclass.market_context import MarketContext
 
 
 logger = logging.getLogger(__name__)

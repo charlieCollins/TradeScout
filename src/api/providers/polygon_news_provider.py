@@ -63,7 +63,7 @@ class PolygonNewsProvider(BaseAPIProvider):
         ticker: str,
         limit: int = 10,
         published_after: Optional[date] = None
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[List["NewsArticle"]]:
         """Fetch news articles for a specific ticker.
 
         Endpoint: GET /v2/reference/news
@@ -74,29 +74,11 @@ class PolygonNewsProvider(BaseAPIProvider):
             published_after: Only fetch articles published after this date
 
         Returns:
-            List of raw news article dictionaries, or None if error
-
-        Example response item:
-        {
-            "id": "...",
-            "publisher": {"name": "..."},
-            "title": "Apple Announces...",
-            "author": "...",
-            "published_utc": "2024-01-15T14:30:00Z",
-            "article_url": "https://...",
-            "tickers": ["AAPL"],
-            "description": "...",
-            "keywords": ["earnings", "revenue"],
-            "insights": [
-                {
-                    "ticker": "AAPL",
-                    "sentiment": "positive",  # or "negative", "neutral"
-                    "sentiment_reasoning": "...",
-                    "sentiment_score": 0.75  # -1 to 1
-                }
-            ]
-        }
+            List of NewsArticle domain objects, or None if error
         """
+        from models.dataclass.news_article import NewsArticle, SentimentInsight
+        from datetime import datetime
+
         try:
             params = {
                 "ticker": ticker.upper(),
@@ -111,13 +93,56 @@ class PolygonNewsProvider(BaseAPIProvider):
             data = self._make_request("/v2/reference/news", params)
 
             # Polygon returns {"status": "OK", "results": [...]}
-            if isinstance(data, dict) and "results" in data:
-                articles = data["results"]
-                logger.debug(f"Fetched {len(articles)} news articles for {ticker}")
-                return articles
-            else:
+            if not isinstance(data, dict) or "results" not in data:
                 logger.warning(f"Unexpected response format from news API: {data}")
                 return []
+
+            raw_articles = data["results"]
+            articles = []
+
+            # Transform raw API response to NewsArticle domain objects
+            for raw in raw_articles:
+                try:
+                    # Parse published timestamp
+                    published_utc_str = raw.get("published_utc", "")
+                    try:
+                        published_utc = datetime.fromisoformat(published_utc_str.replace('Z', '+00:00'))
+                    except Exception:
+                        logger.warning(f"Failed to parse published_utc: {published_utc_str}")
+                        continue
+
+                    # Transform insights
+                    insights = []
+                    for insight_data in raw.get("insights", []):
+                        insight = SentimentInsight(
+                            ticker=insight_data.get("ticker", ""),
+                            sentiment=insight_data.get("sentiment", "neutral"),
+                            sentiment_score=insight_data.get("sentiment_score", 0.0),
+                            sentiment_reasoning=insight_data.get("sentiment_reasoning")
+                        )
+                        insights.append(insight)
+
+                    # Create NewsArticle
+                    article = NewsArticle(
+                        id=raw.get("id", ""),
+                        article_url=raw.get("article_url", ""),
+                        title=raw.get("title", ""),
+                        description=raw.get("description"),
+                        author=raw.get("author"),
+                        publisher_name=raw.get("publisher", {}).get("name", ""),
+                        published_utc=published_utc,
+                        tickers=raw.get("tickers", []),
+                        insights=insights,
+                        keywords=raw.get("keywords", [])
+                    )
+                    articles.append(article)
+
+                except Exception as e:
+                    logger.warning(f"Failed to transform article {raw.get('id', 'unknown')}: {e}")
+                    continue
+
+            logger.debug(f"Transformed {len(articles)} news articles for {ticker}")
+            return articles
 
         except Exception as e:
             logger.error(f"Error fetching news for {ticker}: {e}")

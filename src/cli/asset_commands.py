@@ -26,7 +26,7 @@ def display_market_context(config):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from utils.config_loader import get_config_loader
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         # Get markets from universe config
         config_loader = get_config_loader()
@@ -100,7 +100,7 @@ def local(config, symbol: str):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -121,8 +121,8 @@ def local(config, symbol: str):
         asset, market = asset_info
         asset_table.add_row("Name", asset.name or "N/A")
         asset_table.add_row("Market", f"{market.name} ({market.code})" if market else "N/A")
-        asset_table.add_row("Type", asset.asset_type.value if asset.asset_type else "N/A")
-        asset_table.add_row("Class", asset.asset_class.value if asset.asset_class else "N/A")
+        asset_table.add_row("Type", asset.asset_type or "N/A")  # Already a string in AssetSQLModel
+        asset_table.add_row("Class", asset.asset_class or "N/A")  # Already a string in AssetSQLModel
         asset_table.add_row("Currency", asset.currency or "N/A")
         asset_table.add_row("Status", "✅ Active" if asset.is_active else "❌ Inactive")
         asset_table.add_row("Asset ID", str(asset.id))
@@ -249,7 +249,7 @@ def info(config, symbol: str, force: bool):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -269,8 +269,8 @@ def info(config, symbol: str, force: bool):
         asset, market = asset_info
         asset_table.add_row("Name", asset.name or "N/A")
         asset_table.add_row("Market", f"{market.name} ({market.code})" if market else "N/A")
-        asset_table.add_row("Type", asset.asset_type.value if asset.asset_type else "N/A")
-        asset_table.add_row("Class", asset.asset_class.value if asset.asset_class else "N/A")
+        asset_table.add_row("Type", asset.asset_type or "N/A")  # Already a string in AssetSQLModel
+        asset_table.add_row("Class", asset.asset_class or "N/A")  # Already a string in AssetSQLModel
         asset_table.add_row("Currency", asset.currency or "N/A")
         asset_table.add_row("Status", "✅ Active" if asset.is_active else "❌ Inactive")
         asset_table.add_row("Asset ID", str(asset.id))
@@ -298,14 +298,15 @@ def info(config, symbol: str, force: bool):
             console.print("[dim]Fetching latest price data...[/dim]")
 
         # Check what we had before the fetch
-        old_price_data = data_service.get_latest_asset_price(asset.id)
+        old_price_data = data_service.get_latest_asset_price(symbol)
         old_timestamp = old_price_data.provider_updated_at if old_price_data else None
 
         # Fetch (may use cache or API depending on TTL and force flag)
-        ticker_snapshot = data_service.get_ticker_snapshot(symbol, force_refresh=force)
+        # TODO: Implement force_refresh support in get_ticker_snapshot
+        ticker_snapshot = data_service.get_ticker_snapshot(symbol)
 
         # Check what we have after the fetch
-        price_data = data_service.get_latest_asset_price(asset.id)
+        price_data = data_service.get_latest_asset_price(symbol)
         new_timestamp = price_data.provider_updated_at if price_data else None
 
         if price_data:
@@ -399,7 +400,7 @@ def info(config, symbol: str, force: bool):
             news_ttl_minutes = ttl_config.get("news_ttl_minutes", 30)
 
             # Check if we need to fetch fresh news
-            if data_service.is_news_stale(asset.id, ttl_minutes=news_ttl_minutes):
+            if data_service.is_news_stale(symbol, hours=news_ttl_minutes / 60):
                 console.print()
                 console.print(f"[dim]News data is stale, fetching fresh articles...[/dim]")
                 try:
@@ -415,11 +416,11 @@ def info(config, symbol: str, force: bool):
 
         # Display recent sentiment events
         try:
-            sentiment_events = data_service.get_sentiment_events(asset_id=asset.id)
+            sentiment_events = data_service.get_sentiment_events(symbol=symbol)
 
             if sentiment_events:
                 # Get sentiment type mapping for display
-                all_types = data_service.sentiment_types_manager.get_all_types(active_only=False)
+                all_types = data_service.get_all_sentiment_types(active_only=False)
                 type_id_to_name = {t.id: t.name for t in all_types}
 
                 # Take only the 5 most recent (already ordered by date DESC)
@@ -519,7 +520,7 @@ def news(config, symbol: str, limit: int):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from output.cli_adapter import CLIOutputAdapter
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)

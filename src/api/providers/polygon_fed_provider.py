@@ -11,7 +11,7 @@ from typing import List, Optional, Dict, Any
 from datetime import date, datetime
 
 from .base_provider import BaseAPIProvider
-from models.fed_data import FedData
+from models.dataclass.fed_data import FedData
 
 logger = logging.getLogger(__name__)
 

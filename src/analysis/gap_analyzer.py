@@ -12,8 +12,8 @@ import logging
 from typing import List, Optional, Dict, Any
 from datetime import date
 
-from models.gap import GapCandidate, GapDirection, GapSignificance, RiskLevel
-from models.market_context import MarketContext, MarketSession
+from models.dataclass.gap import GapCandidate, GapDirection, GapSignificance, RiskLevel
+from models.dataclass.market_context import MarketContext, MarketSession
 from utils.config_loader import get_config_loader
 
 logger = logging.getLogger(__name__)

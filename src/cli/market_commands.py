@@ -52,7 +52,7 @@ def update(config, force):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
@@ -234,10 +234,7 @@ def update(config, force):
 
         # Get total records count in database after update
         try:
-            with data_service.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM asset_prices")
-                total_historical_records = cursor.fetchone()[0]
+            total_historical_records = data_service.asset_price_repository.count_all()
         except Exception:
             total_historical_records = None
 
@@ -359,7 +356,7 @@ def context(config):
     try:
         # Get universe statistics using data provider
         active_universe = config.get_active_universe()
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         # Get universe market breakdown
         universe_markets = data_service.get_universe_market_breakdown(active_universe)
@@ -460,20 +457,15 @@ def context(config):
         console.print("[bold]Last Market Snapshot Update:[/bold]")
 
         try:
-            # Query data_update_metadata directly
-            with data_service.db_manager.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT completed_at, status
-                    FROM data_update_metadata
-                    WHERE operation_type = 'market_snapshots' AND operation_subtype = 'fetch'
-                    ORDER BY completed_at DESC LIMIT 1
-                """)
-                result = cursor.fetchone()
+            # Query metadata using repository
+            metadata = data_service.metadata_repository.get_latest_by_operation(
+                operation_type='market_snapshots',
+                operation_subtype='fetch'
+            )
 
-            if result:
-                completed_at_str, status = result
-                completed_at = datetime.fromisoformat(completed_at_str)
+            if metadata and metadata.completed_at:
+                completed_at = metadata.completed_at
+                status = metadata.status
 
                 # Calculate age
                 age = datetime.now() - completed_at

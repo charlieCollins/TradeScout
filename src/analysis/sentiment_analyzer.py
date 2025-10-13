@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from dataclasses import dataclass
 
-from models.sentiment_event import SentimentEvent
+from models.dataclass.sentiment_event import SentimentEvent
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +151,7 @@ class SentimentAnalyzer:
             oldest = datetime.combine(oldest_event.event_date, oldest_event.event_time or datetime.min.time())
             newest = datetime.combine(newest_event.event_date, newest_event.event_time or datetime.min.time())
 
-        logger.info(
+        logger.debug(
             f"Sentiment analysis for {symbol}: {len(recent_events)} events, "
             f"score={overall_score:.2f}, breakdown={sentiment_breakdown}"
         )

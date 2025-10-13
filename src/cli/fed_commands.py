@@ -42,7 +42,7 @@ def update(config, limit: int):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -63,12 +63,11 @@ def update(config, limit: int):
         all_data = fed_provider.fetch_all_fed_data(limit=limit)
 
         # Store to database
-        fed_data_manager = data_service.fed_data_manager
         total_stored = 0
 
         for data_type, fed_data_list in all_data.items():
             if fed_data_list:
-                stored = fed_data_manager.bulk_upsert(fed_data_list)
+                stored = data_service.fed_bulk_upsert(fed_data_list)
                 total_stored += stored
                 console.print(f"[green]✓[/green] {data_type}: {stored} observations stored")
             else:
@@ -105,16 +104,14 @@ def info(config, limit: int):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
 
     try:
-        fed_data_manager = data_service.fed_data_manager
-
         # Get latest for each type
-        latest_data = fed_data_manager.get_all_latest()
+        latest_data = data_service.fed_get_all_latest()
 
         console.print()
         console.print("[bold cyan]📊 Federal Reserve Economic Data[/bold cyan]")

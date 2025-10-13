@@ -14,7 +14,7 @@ from rich.progress import (
     TimeElapsedColumn,
 )
 
-from models.results import BootstrapResult, FetchResult, UpdateResult, NewsResult
+from models.dataclass.results import BootstrapResult, FetchResult, UpdateResult, NewsResult
 
 
 class CLIProgressReporter:

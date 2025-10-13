@@ -7,7 +7,7 @@ Transforms Polygon's market status data into our MarketContext and MarketHoliday
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date
-from models.market_holiday import MarketHoliday, HolidayStatus
+from models.dataclass.market_holiday import MarketHoliday, HolidayStatus
 from .base_provider import BaseAPIProvider
 
 logger = logging.getLogger(__name__)

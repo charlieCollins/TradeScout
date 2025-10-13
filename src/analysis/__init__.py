@@ -1,7 +1,7 @@
 """Analysis modules for TradeScout."""
 
 from .gap_analyzer import GapAnalyzer
-from models.gap import GapCandidate, GapDirection, GapSignificance, RiskLevel
+from models.dataclass.gap import GapCandidate, GapDirection, GapSignificance, RiskLevel
 
 __all__ = [
     'GapAnalyzer',

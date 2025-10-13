@@ -1,161 +1,188 @@
 # TradeScout Database Architecture
 
-**Last Updated**: 2025-10-11
+**Last Updated**: 2025-10-12
 **Database**: SQLite
 **Location**: `data/tradescout.db`
 **Schema Version**: 004
-**Architecture**: Manager/Provider Pattern
+**Architecture**: Repository + SQLModel + Cache-Aside Pattern
 
 ---
 
 ## Overview
 
-TradeScout uses **SQLite with 16 tables** for market data management, sentiment tracking, gap analysis, and operation metadata. The system follows a clean **Manager/Provider architecture** where:
+TradeScout uses **SQLite with 16 tables** for market data management, sentiment tracking, gap analysis, and operation metadata. The system follows a **layered repository architecture** where:
 
-- **Managers** handle database CRUD operations
+- **Repositories** handle business-focused database queries
+- **SQLModel** provides type-safe ORM mapping
 - **Providers** handle external API calls
-- **DataService** orchestrates between them
+- **DataServiceV2** orchestrates between them
+- **CacheService** implements cache-aside pattern with TTL
 
-All data types use **immutable model objects** (dataclasses) - no raw dicts or tuples passed around.
+All data uses **dual model system**:
+- **Domain models** (dataclasses) - lightweight, immutable business entities
+- **SQLModel** (ORM) - type-safe database table representations
 
 ---
 
 ## Table Summary
 
-| Table | Purpose | Manager | Provider | Status |
-|-------|---------|---------|----------|--------|
-| **Reference Data** |||||
-| `providers` | API provider configuration | ✅ ProviderManager | - | ✅ Active |
-| `markets` | Exchange information | ✅ MarketsManager | ✅ PolygonMarketsProvider | ✅ Active |
-| `assets` | Stock ticker universe | ✅ AssetManager | ✅ PolygonTickersProvider | ✅ Active |
-| `asset_fundamentals` | Company fundamentals | ✅ FundamentalsManager | ✅ PolygonTickersProvider | ✅ Active |
-| **Price Data** |||||
-| `asset_prices` | Historical/live prices | ✅ TickerSnapshotManager<br>✅ MarketSnapshotManager | ✅ PolygonSnapshotProvider | ✅ Active |
-| **Universe Management** |||||
-| `universes` | Asset groupings | ✅ UniverseManager | - | ✅ Active |
-| `universe_memberships` | Membership tracking | ✅ UniverseManager | - | ✅ Active |
-| **Sentiment** |||||
-| `sentiment_types` | Event type definitions | ✅ SentimentTypesManager | - | ✅ Active |
-| `sentiment_events` | Detected events | ✅ SentimentEventsManager | ✅ PolygonNewsProvider | ✅ Active |
-| **Gap Analysis** |||||
-| `gap_results` | Gap candidate results | ✅ GapResultsManager | - | ✅ Active |
-| `gap_performance_tracking` | Gap performance metrics | ✅ GapPerformanceManager | ✅ PolygonAggregatesProvider | ✅ Active |
-| **Economic Data** |||||
-| `fed_data` | Federal Reserve data | ✅ FedDataManager | ✅ PolygonFedProvider | ✅ Active |
-| **Market Status** |||||
-| `market_holidays` | Holiday calendar | ✅ MarketHolidaysManager | ✅ PolygonMarketStatusProvider | ✅ Active |
-| `market_context_cache` | Market status/session | ✅ MarketContextManager | ✅ PolygonMarketStatusProvider | ✅ Active |
-| **Metadata** |||||
-| `data_update_metadata` | Operation tracking | ✅ DataUpdateMetadataManager | - | ✅ Active |
-| **System** |||||
-| `schema_versions` | Schema migrations | ✅ System | - | ✅ Active |
+| Table                      | Purpose | Repository | Provider | Status |
+|----------------------------|---------|------------|----------|--------|
+| **Reference Data**         |||||
+| `providers`                | API provider configuration | ✅ ProviderRepository | - | ✅ Active |
+| `markets`                  | Exchange information | ✅ MarketRepository | ✅ PolygonMarketsProvider | ✅ Active |
+| `assets`                   | Stock ticker universe | ✅ AssetRepository | ✅ PolygonTickersProvider | ✅ Active |
+| `asset_fundamentals`       | Company fundamentals | ✅ FundamentalsRepository | ✅ PolygonTickersProvider | ✅ Active |
+| **Price Data**             |||||
+| `asset_prices`             | Historical/live prices | ✅ AssetPriceRepository | ✅ PolygonSnapshotProvider<br>✅ PolygonAggregatesProvider | ✅ Active |
+| **Universe Management**    |||||
+| `universes`                | Asset groupings | ✅ UniverseRepository | - | ✅ Active |
+| `universe_memberships`     | Membership tracking | ✅ UniverseRepository | - | ✅ Active |
+| **Sentiment**              |||||
+| `sentiment_types`          | Event type definitions | ✅ SentimentTypeRepository | - | ✅ Active |
+| `sentiment_events`         | Detected events | ✅ SentimentEventRepository | ✅ PolygonNewsProvider | ✅ Active |
+| **Gap Analysis**           |||||
+| `gap_results`              | Gap candidate results | ✅ GapResultRepository | - | ✅ Active |
+| `gap_performance_tracking` | Gap performance metrics | ✅ GapPerformanceTrackingRepository | ✅ PolygonAggregatesProvider | ✅ Active |
+| `gap_result_news`          | Gap-related news | ✅ GapResultNewsRepository | ✅ PolygonNewsProvider | ✅ Active |
+| **Economic Data**          |||||
+| `fed_data`                 | Federal Reserve data | ✅ FedDataRepository | ✅ PolygonFedProvider | ✅ Active |
+| **Market Status**          |||||
+| `market_holidays`          | Holiday calendar | ✅ MarketHolidayRepository | ✅ PolygonMarketStatusProvider | ✅ Active |
+| **Metadata**               |||||
+| `data_update_metadata`     | Operation tracking | ✅ DataUpdateMetadataRepository | - | ✅ Active |
+| **System**                 |||||
+| `schema_versions`          | Schema migrations | ✅ System | - | ✅ Active |
 
-**Legend**: ✅ Complete | 🚧 In Progress | 🔍 Under Review | ❌ Legacy
+**Total**: 16 tables
 
 ---
 
-## Architecture: Manager/Provider Pattern
+## Architecture: Repository + SQLModel Pattern
 
 ### Data Flow
 
 ```
-User Request
+User Request (CLI or FastAPI)
     ↓
-DataService (orchestration)
+DataServiceV2 (orchestration)
     ↓
-┌──────────────────────────────┐
-│  Manager (database)          │  ←→  Provider (API)
-│  - CRUD operations           │      - External calls
-│  - TTL validation            │      - Response parsing
-│  - Model conversion          │      - Rate limiting
-└──────────────────────────────┘
-    ↓
-SQLite Database
+┌──────────────────────────────────────────┐
+│  CacheService (cache-aside)              │
+│  - TTL freshness checks                  │
+│  - Metadata tracking                     │
+└──────────────────────────────────────────┘
+    ↓                     ↓
+Repository              Provider
+(business queries)      (API calls)
+    ↓                     ↓
+SQLModel                Response parsing
+(ORM mapping)           Rate limiting
+    ↓                     ↓
+SQLite ←─────────────────┘
+Database          (store fresh data)
 ```
 
-### Example: Get Market Data
+### Example: Get Asset Information
 
 ```python
-# User calls DataService
-snapshot = data_service.get_ticker_snapshot("AAPL", force_refresh=False)
+# User calls DataServiceV2
+asset = data_service.get_asset("AAPL", force_refresh=False)
 
-# DataService coordinates:
-# 1. Check if data is stale (TTL validation in manager)
-# 2. If stale: Fetch from API (provider)
-# 3. Store to database (manager)
-# 4. Return model object
+# DataServiceV2 uses CacheService:
+asset_sql = self.asset_cache.get_or_fetch(
+    key="AAPL",
+    fetch_fn=lambda: self._fetch_and_convert_asset("AAPL"),
+    force_refresh=False
+)
 
-# Manager handles database:
-manager = TickerSnapshotManager(db_manager, update_tracker, metadata_manager)
-cached_snapshot = manager.get_entity_from_database("AAPL")
+# CacheService coordinates:
+# 1. Check metadata: Is data fresh? (< 7 days TTL)
+# 2. If fresh: Repository.get_by_symbol("AAPL") → return cached
+# 3. If stale:
+#    a. Call fetch_fn() → Provider fetches from API
+#    b. Convert domain model → SQLModel
+#    c. Repository.save(asset_sql)
+#    d. MetadataRepository.record_update("tickers")
+# 4. Return AssetSQLModel
+
+# Repository handles database queries:
+repository = AssetRepository(session)
+cached_asset = repository.get_by_symbol("AAPL")
 
 # Provider handles API:
-provider = PolygonSnapshotProvider(api_key)
-fresh_snapshot = provider.fetch_single_ticker("AAPL")
+provider = PolygonTickersProvider(api_key)
+fresh_asset = provider.fetch_ticker_details("AAPL")  # Returns Asset domain model
 ```
 
 ### When to Use Metadata Tracking
 
 **USE `data_update_metadata` for**:
-- ✅ **Bulk operations**: Market snapshots (7k tickers at once)
-- ✅ **Bootstrap operations**: Markets, assets, fundamentals (batch from API)
-- ✅ **Scheduled batches**: Universe refresh, fundamentals update
+- ✅ **Bulk operations**: Bootstrap operations (7k+ tickers at once)
+- ✅ **TTL-based caching**: Check if data category is stale
+- ✅ **Operation tracking**: Monitor long-running processes
+- ✅ **Statistics**: Track API calls, success/failure rates
 
-**DON'T use for**:
-- ❌ **Individual CRUD**: Single asset lookups
-- ❌ **Records with `updated_at`**: Check freshness from record itself
-- ❌ **Continuous operations**: Sentiment events created on-demand
-
-**Why?** Metadata tracks "when did we last run this expensive batch operation?" to avoid re-running unnecessarily. Without metadata, we'd scan thousands of rows to check staleness. With metadata, we check ONE row.
+**DON'T USE for**:
+- ❌ Single entity updates (use updated_at column on entity table)
+- ❌ Real-time queries (check entity's updated_at directly)
 
 ---
 
-## Table Schemas
+## Core Tables
 
-### 1. providers
+### Reference Data
 
-**Purpose**: API provider configuration
-**Manager**: `ProviderManager` (no metadata tracking)
-**Data Source**: Hardcoded (single Polygon.io entry)
+#### `providers`
+
+API provider configuration and tracking.
 
 ```sql
 CREATE TABLE providers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,              -- 'polygon'
-    display_name TEXT NOT NULL,              -- 'Polygon.io'
-    base_url TEXT,                           -- 'https://api.polygon.io'
+    name TEXT NOT NULL UNIQUE,           -- Provider identifier
+    display_name TEXT NOT NULL,           -- Human-readable name
+    base_url TEXT,
     api_key_required BOOLEAN DEFAULT TRUE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-**Bootstrap**: `data_service.bootstrap_providers()` - Hardcoded Polygon config
+**Domain Model**: `Provider` (dataclass)
+**SQLModel**: `ProviderSQLModel`
+**Repository**: `ProviderRepository`
+
+**Key Methods**:
+- `get_by_name(name: str)` - Get provider by identifier
+- `get_active_provider()` - Get first active provider (typically Polygon)
+- `save(provider: ProviderSQLModel)` - Persist provider
+
+**Current Providers**:
+- `polygon` - Polygon.io (primary provider)
 
 ---
 
-### 2. markets
+#### `markets`
 
-**Purpose**: Exchange/market reference data
-**Manager**: `MarketsManager` (with metadata tracking, TTL: 1 year)
-**Provider**: `PolygonMarketsProvider` → `/v3/reference/exchanges`
+Exchange and trading venue information.
 
 ```sql
 CREATE TABLE markets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    code TEXT NOT NULL UNIQUE,               -- 'XNYS', 'XNAS', 'ARCX'
-    name TEXT NOT NULL,                       -- 'New York Stock Exchange'
+    code TEXT NOT NULL UNIQUE,            -- 'XNAS', 'XNYS', 'CRYPTO'
+    name TEXT NOT NULL,                    -- 'NASDAQ', 'NYSE'
     country TEXT DEFAULT 'US',
     timezone TEXT DEFAULT 'America/New_York',
     currency TEXT DEFAULT 'USD',
 
-    -- Trading hours (in market timezone)
-    premarket_start_time TIME,               -- '04:00:00'
-    premarket_end_time TIME,                  -- '09:30:00'
-    regular_open_time TIME,                   -- '09:30:00'
-    regular_close_time TIME,                  -- '16:00:00'
-    afterhours_start_time TIME,               -- '16:00:00'
-    afterhours_end_time TIME,                 -- '20:00:00'
+    -- Trading hours (in local timezone)
+    premarket_start_time TIME,             -- '04:00:00'
+    premarket_end_time TIME,                -- '09:30:00'
+    regular_open_time TIME,                 -- '09:30:00'
+    regular_close_time TIME,                -- '16:00:00'
+    afterhours_start_time TIME,             -- '16:00:00'
+    afterhours_end_time TIME,               -- '20:00:00'
 
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -163,33 +190,51 @@ CREATE TABLE markets (
 );
 ```
 
-**Typical Data**: 7-12 US exchanges (XNYS, XNAS, ARCX, BATS, etc.)
-**Bootstrap**: `data_service.bootstrap_markets(asset_class="stocks", locale="us")`
+**Domain Model**: `Market` (dataclass)
+**SQLModel**: `MarketSQLModel`
+**Repository**: `MarketRepository`
+**Provider**: `PolygonMarketsProvider`
+
+**Key Methods**:
+- `get_by_code(code: str)` - Get market by MIC code (e.g., 'XNAS')
+- `find_all_active()` - Get all active markets
+- `save(market: MarketSQLModel)` - Persist market
+- `bulk_save(markets: List[MarketSQLModel])` - Bulk persist
+
+**Bootstrap**: `./tradescout database bootstrap-markets`
 
 ---
 
-### 3. assets
+#### `assets`
 
-**Purpose**: Complete ticker universe
-**Manager**: `AssetManager` (with metadata tracking, TTL: 3 days)
-**Provider**: `PolygonTickersProvider` → `/v3/reference/tickers`
+Stock ticker universe with classification and status tracking.
 
 ```sql
 CREATE TABLE assets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT NOT NULL UNIQUE,             -- 'AAPL', 'MSFT'
-    name TEXT NOT NULL,                       -- 'Apple Inc.'
+    symbol TEXT NOT NULL UNIQUE,          -- 'AAPL', 'MSFT'
+    name TEXT NOT NULL,                    -- 'Apple Inc.'
     market_id INTEGER NOT NULL,
 
-    -- Classification
-    asset_type TEXT CHECK(asset_type IN ('stock', 'etf', 'crypto', 'option', 'forex')) DEFAULT 'stock',
+    -- Asset classification
+    asset_type TEXT CHECK(asset_type IN (
+        'stock', 'etf', 'reit', 'fund', 'warrant',
+        'right', 'unit', 'bond', 'adr', 'other'
+    )) DEFAULT 'stock',
+    asset_class TEXT CHECK(asset_class IN (
+        'equity', 'fixed_income', 'commodity'
+    )) DEFAULT 'equity',
 
     -- Trading details
     currency TEXT DEFAULT 'USD',
+    lot_size INTEGER DEFAULT 1,
+    tick_size DECIMAL(10,6),
 
     -- Status
     is_active BOOLEAN DEFAULT TRUE,
     is_delisted BOOLEAN DEFAULT FALSE,
+    listing_date DATE,
+    delisting_date DATE,
 
     -- Provider reference
     provider_id INTEGER,
@@ -199,141 +244,192 @@ CREATE TABLE assets (
     FOREIGN KEY (market_id) REFERENCES markets (id),
     FOREIGN KEY (provider_id) REFERENCES providers (id)
 );
+
+CREATE INDEX idx_assets_symbol ON assets(symbol);
+CREATE INDEX idx_assets_market ON assets(market_id);
+CREATE INDEX idx_assets_type ON assets(asset_type);
+CREATE INDEX idx_assets_active ON assets(is_active);
 ```
 
-**Typical Data**: ~10,000+ active tickers
-**Bootstrap**: `data_service.bootstrap_assets(market="stocks", active=True)`
-**Index**: `idx_assets_symbol`, `idx_assets_market`, `idx_assets_active`
+**Domain Model**: `Asset` (dataclass)
+**SQLModel**: `AssetSQLModel`
+**Repository**: `AssetRepository`
+**Provider**: `PolygonTickersProvider`
+
+**Key Methods**:
+- `get_by_id(id: int)` - Get asset by database ID
+- `get_by_symbol(symbol: str)` - Get asset by ticker symbol
+- `find_all_active(limit: Optional[int])` - Get active assets
+- `find_by_market(market_id: int)` - Get assets for exchange
+- `bulk_save(assets: List[AssetSQLModel])` - Bulk persist
+- `count_active()` - Count active assets
+- `get_stats()` - Get asset statistics (by type, etc.)
+
+**Bootstrap**: `./tradescout database bootstrap-assets`
+**Typical Count**: ~11,000 active US stocks/ETFs
 
 ---
 
-### 4. asset_fundamentals
+#### `asset_fundamentals`
 
-**Purpose**: Company fundamentals for screening
-**Manager**: `FundamentalsManager` (with metadata tracking, TTL: 1 week)
-**Provider**: `PolygonTickersProvider.fetch_ticker_details_raw()` → `/v3/reference/tickers/{symbol}`
-
-**Note**: Same API endpoint as `assets` - single call provides BOTH ticker reference data AND fundamentals.
+Company fundamental data for screening and analysis.
 
 ```sql
 CREATE TABLE asset_fundamentals (
-    asset_id INTEGER PRIMARY KEY,            -- One-to-one with assets
+    asset_id INTEGER PRIMARY KEY,         -- One-to-one with assets table
 
     -- Company identification
-    company_name TEXT,
+    company_name TEXT,                     -- 'Apple Inc.' (for display)
 
-    -- Classification
-    sector TEXT,                             -- 'Technology', 'Healthcare'
-    industry TEXT,                           -- 'Consumer Electronics'
-    sic_code TEXT,                           -- Standard Industrial Classification
+    -- Business classification
+    sector TEXT,                           -- 'Technology'
+    industry TEXT,                         -- 'Consumer Electronics'
+    sic_code TEXT,                         -- Standard Industrial Classification
 
-    -- Key metrics
-    market_cap BIGINT,                       -- Market cap in cents
-    shares_outstanding BIGINT,
-    avg_volume_30d BIGINT,                   -- 30-day avg volume
-    beta DECIMAL(6,3),
-    pe_ratio DECIMAL(8,2),
-    dividend_yield DECIMAL(6,4),
+    -- Key financials
+    market_cap BIGINT,                     -- Market capitalization in cents
+    shares_outstanding BIGINT,             -- Outstanding shares
 
-    -- Tracking
+    -- Additional metrics for screening
+    avg_volume_30d BIGINT,                 -- 30-day average volume
+    beta DECIMAL(6,3),                     -- Beta coefficient
+    pe_ratio DECIMAL(8,2),                 -- Price to earnings ratio
+    dividend_yield DECIMAL(6,4),           -- Annual dividend yield
+
+    -- Data tracking
     provider_id INTEGER,
     last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (asset_id) REFERENCES assets (id),
     FOREIGN KEY (provider_id) REFERENCES providers (id)
 );
+
+CREATE INDEX idx_fundamentals_sector ON asset_fundamentals(sector);
+CREATE INDEX idx_fundamentals_industry ON asset_fundamentals(industry);
+CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
 ```
 
-**Typical Data**: Fundamentals for all active assets
-**Bootstrap**: `data_service.bootstrap_fundamentals(limit=None)` - Can take time (one API call per asset)
-**Index**: `idx_fundamentals_sector`, `idx_fundamentals_market_cap`
+**Domain Model**: `AssetFundamentals` (dataclass)
+**SQLModel**: `FundamentalsSQLModel`
+**Repository**: `FundamentalsRepository`
+**Provider**: `PolygonTickersProvider` (from ticker details endpoint)
+
+**Key Methods**:
+- `get_by_asset_id(asset_id: int)` - Get fundamentals for asset
+- `bulk_upsert(fundamentals: List[FundamentalsSQLModel])` - Bulk insert/update
+- `find_by_sector(sector: str)` - Get assets in sector
+- `count_total()` - Count total fundamentals records
+
+**Bootstrap**: `./tradescout database bootstrap-fundamentals`
+**Typical Count**: ~7,000 (not all assets have fundamentals)
 
 ---
 
-### 5. asset_prices
+### Price Data
 
-**Purpose**: Live and historical price snapshots
-**Managers**: `TickerSnapshotManager` (single ticker), `MarketSnapshotManager` (bulk)
-**Provider**: `PolygonSnapshotProvider` → `/v2/snapshot/locale/us/markets/stocks/tickers`
+#### `asset_prices`
+
+Historical and real-time price snapshots from Polygon.
 
 ```sql
 CREATE TABLE asset_prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_id INTEGER NOT NULL,
-    symbol TEXT NOT NULL,
+    symbol TEXT NOT NULL,                  -- Redundant but useful for queries
 
     -- Provider tracking
     provider_id INTEGER NOT NULL,
-    provider_updated_at BIGINT,              -- Provider's timestamp (nanoseconds)
+    provider_updated_at BIGINT,            -- Provider's 'updated' field (nanoseconds)
+
+    -- Trading date (derived from provider_updated)
     trade_date DATE NOT NULL,
 
-    -- Previous Day Data (reference price)
-    prevday_close DECIMAL(12,4),             -- THE reference price for % change
+    -- Previous Day Data (prevDay.* from snapshot)
+    prevday_open DECIMAL(12,4),
+    prevday_high DECIMAL(12,4),
+    prevday_low DECIMAL(12,4),
+    prevday_close DECIMAL(12,4),           -- THE reference price
     prevday_volume BIGINT,
     prevday_vwap DECIMAL(12,4),
 
-    -- Current Day Regular Session
+    -- Current Day Regular Session (day.* from snapshot)
     day_open DECIMAL(12,4),
     day_high DECIMAL(12,4),
     day_low DECIMAL(12,4),
-    day_close DECIMAL(12,4),                 -- Regular session close
+    day_close DECIMAL(12,4),               -- Regular session close (4:00 PM)
     day_volume BIGINT,
     day_vwap DECIMAL(12,4),
 
-    -- Last Minute Bar (real-time)
-    min_timestamp BIGINT,
-    min_close DECIMAL(12,4),                 -- Last traded price (any session)
+    -- Last Minute Bar Data (min.* from snapshot)
+    min_timestamp BIGINT,                  -- Timestamp (milliseconds)
+    min_open DECIMAL(12,4),
+    min_high DECIMAL(12,4),
+    min_low DECIMAL(12,4),
+    min_close DECIMAL(12,4),               -- Last traded price (any session)
     min_volume BIGINT,
     min_vwap DECIMAL(12,4),
+    min_accumulated_volume BIGINT,
+    min_num_trades INTEGER,
 
+    -- Metadata
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (asset_id) REFERENCES assets (id),
     FOREIGN KEY (provider_id) REFERENCES providers (id),
+
+    -- One record per asset per provider per fetch
     UNIQUE(asset_id, provider_id, provider_updated_at)
 );
+
+CREATE INDEX idx_asset_prices_symbol ON asset_prices(symbol);
+CREATE INDEX idx_asset_prices_asset ON asset_prices(asset_id);
+CREATE INDEX idx_asset_prices_date ON asset_prices(trade_date);
+CREATE INDEX idx_asset_prices_updated ON asset_prices(updated_at);
 ```
 
-**Typical Data**: 50,000+ snapshots (grows over time)
-**Update**: `data_service.refresh_market_data(symbols, force_refresh=False)`
-**Index**: `idx_asset_prices_symbol`, `idx_asset_prices_asset`, `idx_asset_prices_date`
+**Domain Model**: `AssetPrice` (dataclass)
+**SQLModel**: `AssetPriceSQLModel`
+**Repository**: `AssetPriceRepository`
+**Provider**: `PolygonSnapshotProvider`, `PolygonAggregatesProvider`
+
+**Key Methods**:
+- `get_latest_by_asset_id(asset_id: int)` - Get most recent price
+- `get_latest_by_symbol(symbol: str)` - Get most recent price by symbol
+- `bulk_save(prices: List[AssetPriceSQLModel])` - Bulk persist prices
+- `find_by_date_range(start_date, end_date)` - Get prices in range
+
+**Usage**: Gap analysis, screening, portfolio tracking
 
 ---
 
-### 6. universes
+### Universe Management
 
-**Purpose**: Asset grouping definitions
-**Manager**: `UniverseManager` (with metadata tracking, TTL: 24 hours)
-**Data Source**: Internal filtering (no API)
+#### `universes`
+
+Asset groupings based on criteria (momentum, value, growth, etc.).
 
 ```sql
 CREATE TABLE universes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,               -- 'default_universe', 'tech'
+    name TEXT NOT NULL UNIQUE,             -- 'momentum', 'value', 'growth'
     description TEXT,
 
-    -- Criteria (JSON)
-    criteria TEXT,                           -- Filtering parameters
+    -- Universe parameters
+    min_market_cap BIGINT,
+    min_volume BIGINT,
+    max_assets INTEGER,                     -- Maximum number of assets in universe
 
     -- Status
-    is_active BOOLEAN DEFAULT TRUE,          -- Currently selected
+    is_active BOOLEAN DEFAULT TRUE,
     last_updated DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-**Typical Data**: 1-5 universe definitions
-**Configuration**: `src/config/universe_config.py`
-**Bootstrap**: `data_service.bootstrap_universes(universe_name="default_universe")`
+#### `universe_memberships`
 
----
-
-### 7. universe_memberships
-
-**Purpose**: Asset membership tracking
-**Manager**: `UniverseManager`
-**Data Source**: Internal (created during universe bootstrap)
+Tracks which assets belong to which universes.
 
 ```sql
 CREATE TABLE universe_memberships (
@@ -341,54 +437,55 @@ CREATE TABLE universe_memberships (
     universe_id INTEGER NOT NULL,
     asset_id INTEGER NOT NULL,
 
-    -- Membership metadata
-    added_date DATE NOT NULL,
-    removed_date DATE,
-
-    -- Status
-    is_active BOOLEAN DEFAULT TRUE,
-
     FOREIGN KEY (universe_id) REFERENCES universes (id),
     FOREIGN KEY (asset_id) REFERENCES assets (id),
-    UNIQUE(universe_id, asset_id, added_date)
+    UNIQUE(universe_id, asset_id)          -- Each asset once per universe
 );
+
+CREATE INDEX idx_universe_memberships_universe ON universe_memberships(universe_id);
+CREATE INDEX idx_universe_memberships_asset ON universe_memberships(asset_id);
 ```
 
-**Typical Data**: 7,000+ memberships for default_universe
-**Index**: `idx_universe_memberships_universe`, `idx_universe_memberships_asset`
+**Domain Models**: `Universe`, `UniverseMembership` (dataclasses)
+**SQLModel**: `UniverseSQLModel`, `UniverseMembershipSQLModel`
+**Repository**: `UniverseRepository`
+
+**Key Methods**:
+- `get_by_name(name: str)` - Get universe by name
+- `find_all_active()` - Get all active universes
+- `get_memberships(universe_id: int)` - Get assets in universe
+- `bulk_add_memberships(memberships: List[UniverseMembershipSQLModel])` - Bulk add
+- `clear_memberships(universe_id: int)` - Clear all memberships
+- `get_statistics(universe_id: int)` - Get universe stats
+
+**Bootstrap**: `./tradescout database bootstrap-universes`
 
 ---
 
-### 8. sentiment_types
+### Sentiment Tracking
 
-**Purpose**: Sentiment event type definitions
-**Manager**: `SentimentTypesManager` (no metadata tracking - static config)
-**Data Source**: Hardcoded types
+#### `sentiment_types`
+
+Event type definitions for sentiment tracking.
 
 ```sql
 CREATE TABLE sentiment_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,               -- 'news_positive', 'news_negative'
+    name TEXT NOT NULL UNIQUE,             -- 'gap_up', 'gap_down', 'momentum_spike'
     description TEXT,
-    category TEXT,                           -- 'news', 'analyst', 'earnings'
-    parameters TEXT,                         -- JSON: {"min_confidence": 0.7}
+    category TEXT,                          -- 'price_action', 'volume', 'technical'
+
+    -- Calculation parameters (JSON)
+    parameters TEXT,                        -- '{"threshold": 0.02, "min_volume": 1000000}'
+
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-**Typical Data**: 3-10 predefined types
-**Phase 1**: News sentiment only (news_positive, news_negative, news_neutral)
-**Future**: Earnings events, analyst ratings
-**Bootstrap**: `data_service.bootstrap_sentiment_types()`
+#### `sentiment_events`
 
----
-
-### 9. sentiment_events
-
-**Purpose**: Detected sentiment events
-**Manager**: `SentimentEventsManager` (no metadata tracking - continuous creation)
-**Provider**: `PolygonNewsProvider` → `/v2/reference/news`
+Detected sentiment events with measurements.
 
 ```sql
 CREATE TABLE sentiment_events (
@@ -396,128 +493,49 @@ CREATE TABLE sentiment_events (
     asset_id INTEGER NOT NULL,
     sentiment_type_id INTEGER NOT NULL,
 
-    -- Event timing
+    -- Event details
     event_date DATE NOT NULL,
     event_time TIME,
     session TEXT CHECK(session IN ('premarket', 'regular', 'afterhours')),
 
     -- Event measurements
-    value DECIMAL(12,4),                     -- Sentiment score, confidence
+    value DECIMAL(12,4),                   -- Gap percentage, volume spike multiplier
     magnitude TEXT CHECK(magnitude IN ('small', 'medium', 'large', 'extreme')),
 
-    -- Additional context (JSON)
-    details TEXT,                            -- {"title": "...", "source": "polygon"}
+    -- Additional data (JSON)
+    details TEXT,                           -- '{"prev_close": 100.50, "open": 103.75}'
+    external_id TEXT,
 
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (asset_id) REFERENCES assets (id),
     FOREIGN KEY (sentiment_type_id) REFERENCES sentiment_types (id)
 );
+
+CREATE INDEX idx_sentiment_events_asset ON sentiment_events(asset_id);
+CREATE INDEX idx_sentiment_events_type ON sentiment_events(sentiment_type_id);
+CREATE INDEX idx_sentiment_events_date ON sentiment_events(event_date);
+CREATE UNIQUE INDEX idx_sentiment_events_unique_external
+  ON sentiment_events(asset_id, sentiment_type_id, external_id)
+  WHERE external_id IS NOT NULL;
 ```
 
-**Typical Data**: Grows continuously as news/events detected
-**Retention**: 90 days (cleanup, not TTL)
-**Index**: `idx_sentiment_events_asset`, `idx_sentiment_events_type`, `idx_sentiment_events_date`
+**Domain Models**: `SentimentType`, `SentimentEvent` (dataclasses)
+**SQLModel**: `SentimentTypeSQLModel`, `SentimentEventSQLModel`
+**Repositories**: `SentimentTypeRepository`, `SentimentEventRepository`
+**Provider**: `PolygonNewsProvider`
 
 ---
 
-### 10. data_update_metadata
+### Gap Analysis
 
-**Purpose**: Track bulk operation timestamps for TTL validation
-**Manager**: `DataUpdateMetadataManager`
+#### `gap_results`
 
-```sql
-CREATE TABLE data_update_metadata (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-
-    -- Operation identification
-    operation_type TEXT NOT NULL,            -- 'markets', 'fundamentals', 'market_snapshots'
-    operation_subtype TEXT,                  -- 'bootstrap', 'refresh'
-
-    -- Run metadata
-    started_at DATETIME NOT NULL,
-    completed_at DATETIME,
-
-    -- Status
-    status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')),
-
-    -- Statistics (JSON)
-    stats TEXT,                              -- {"inserted": 1234, "updated": 456}
-
-    -- Details
-    total_items INTEGER,
-    processed_items INTEGER DEFAULT 0,
-    failed_items INTEGER DEFAULT 0,
-    api_calls_made INTEGER DEFAULT 0,
-
-    -- Context
-    operation_params TEXT,                   -- JSON: {"symbol": "AAPL"}
-    error_message TEXT,
-
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-```
-
-**Purpose**: Enables "did we already fetch all markets this week?" checks without scanning table
-**Index**: `idx_data_update_operation`, `idx_data_update_completed`
-
----
-
-### 11. market_holidays
-
-**Purpose**: Market holiday calendar
-**Manager**: `MarketHolidaysManager` (with metadata tracking, TTL: 30 days)
-**Provider**: `PolygonMarketStatusProvider` → `/v1/marketstatus/upcoming`
-
-```sql
-CREATE TABLE market_holidays (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    date TEXT NOT NULL UNIQUE,            -- YYYY-MM-DD format
-    name TEXT,                            -- Holiday name
-    status TEXT NOT NULL                  -- 'closed' or 'early_close'
-);
-```
-
-**Typical Data**: 12-15 upcoming holidays
-**Update**: `data_service.get_market_holidays(force_refresh=False)` - Auto-refreshes when stale
-**Query**: `data_service.get_upcoming_holidays(from_date=None)` - Get upcoming holidays only
-**Index**: `idx_market_holidays_date`
-
-**Note**: Polygon returns one holiday per exchange (NYSE, NASDAQ, etc.). We deduplicate by date since all US exchanges share the same holiday schedule.
-
----
-
-### 12. market_context_cache
-
-**Purpose**: Current market state/session context
-**Manager**: `MarketContextManager` (with metadata tracking, TTL: 5 minutes)
-**Provider**: `PolygonMarketStatusProvider` → `/v1/marketstatus/now`
-
-```sql
-CREATE TABLE market_context_cache (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    market_code TEXT NOT NULL UNIQUE,     -- 'XNYS', 'XNAS', etc.
-    context_data TEXT NOT NULL            -- Serialized MarketContext object (JSON)
-);
-```
-
-**Typical Data**: 1-3 market contexts (NYSE, NASDAQ, etc.)
-**Update**: `data_service.get_market_context(market_code, force_refresh=False)`
-**Model**: `MarketContext` - Combines market info with current status (session, trading day, etc.)
-**Index**: `idx_market_context_code`
-
-**Note**: MarketContext requires coordination with `market_holidays` table to determine `is_trading_day`.
-
----
-
-### 13. gap_results
-
-**Purpose**: Store gap analysis results for historical review and strategy validation
-**Manager**: `GapResultsManager` (no metadata tracking - discrete analysis runs)
-**Data Source**: Internal gap analyzer
+Gap candidate analysis results with quality scores and filtering.
 
 ```sql
 CREATE TABLE gap_results (
+    -- Primary identification
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_id INTEGER NOT NULL,
     analysis_timestamp TIMESTAMP NOT NULL,
@@ -527,12 +545,12 @@ CREATE TABLE gap_results (
     -- Gap characteristics
     gap_percentage REAL NOT NULL,
     gap_direction TEXT NOT NULL,           -- 'up' or 'down'
-    gap_type TEXT,                         -- 'full', 'partial', NULL
+    gap_type TEXT,                          -- 'full', 'partial', NULL
 
     -- Price snapshot at analysis time
     reference_price REAL NOT NULL,         -- prevday.c or day.c
     current_price REAL NOT NULL,           -- min.c at analysis time
-    day_open REAL,
+    day_open REAL,                          -- NULL if premarket
     day_high REAL,
     day_low REAL,
     day_close REAL,
@@ -576,55 +594,62 @@ CREATE TABLE gap_results (
     catalyst_description TEXT,
 
     -- Metadata
-    min_timestamp BIGINT,
+    min_timestamp BIGINT,                  -- Polygon min.t
     data_freshness_hours REAL,
+    academic_gap_type TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY (asset_id) REFERENCES assets(id)
 );
+
+CREATE INDEX idx_gap_results_analysis_timestamp ON gap_results(analysis_timestamp);
+CREATE INDEX idx_gap_results_trading_date ON gap_results(trading_date);
+CREATE INDEX idx_gap_results_session ON gap_results(session_type);
+CREATE INDEX idx_gap_results_status ON gap_results(status);
+CREATE INDEX idx_gap_results_quality ON gap_results(quality_tier);
+CREATE INDEX idx_gap_results_asset_id ON gap_results(asset_id);
 ```
 
-**Typical Data**: Grows continuously with each `gap analyze` run (optional save)
-**Query**: `./tradescout gap results --num-days=7 --status=passed`
-**Index**: `idx_gap_results_analysis_timestamp`, `idx_gap_results_trading_date`, `idx_gap_results_session`, `idx_gap_results_status`, `idx_gap_results_quality`, `idx_gap_results_asset_id`
+**Domain Model**: `GapCandidate` (dataclass)
+**SQLModel**: `GapResultSQLModel`
+**Repository**: `GapResultRepository`
 
-**Use Cases**:
-- Historical gap review: "What gaps were found last week?"
-- Strategy validation: "Do volume filters prevent bad setups?"
-- Pattern analysis: "How often do Friday gaps get flagged?"
+**Key Methods**:
+- `find_by_session(session_type: str, trading_date: date)` - Get gaps for session
+- `find_passed_gaps(trading_date: date)` - Get all passed gaps
+- `bulk_save(gaps: List[GapResultSQLModel])` - Bulk persist
+- `get_statistics(trading_date: date)` - Get gap analysis stats
 
-See [GAP_RESULTS.md](GAP_RESULTS.md) for query examples and use cases.
+**Usage**: `./tradescout gap analyze`, `./tradescout gap report`
 
 ---
 
-### 14. gap_performance_tracking
+#### `gap_performance_tracking`
 
-**Purpose**: Track actual intraday performance for gap candidates
-**Manager**: `GapPerformanceManager` (no metadata tracking - historical snapshots)
-**Provider**: `PolygonAggregatesProvider` → `/v2/aggs/ticker/{symbol}/range`
+Performance tracking for gap trades (intraday and multi-day).
 
 ```sql
 CREATE TABLE gap_performance_tracking (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     gap_result_id INTEGER NOT NULL UNIQUE,
 
-    -- Intraday performance (9:30 AM - 4:00 PM ET)
-    entry_price REAL,                      -- Open at 9:30 AM
+    -- Intraday performance (same day)
+    entry_price REAL,
     entry_timestamp TIMESTAMP,
-    exit_price REAL,                       -- Close at 4:00 PM
+    exit_price REAL,
     exit_timestamp TIMESTAMP,
-    max_intraday_price REAL,               -- Day's high
-    min_intraday_price REAL,               -- Day's low
+    max_intraday_price REAL,
+    min_intraday_price REAL,
 
     -- Performance metrics
-    realized_return_pct REAL,              -- (exit - entry) / entry * 100
-    max_drawdown_pct REAL,                 -- (min - entry) / entry * 100
-    max_upside_pct REAL,                   -- (max - entry) / entry * 100
-    gap_filled BOOLEAN,                    -- Price touched reference price?
+    realized_return_pct REAL,
+    max_drawdown_pct REAL,
+    max_upside_pct REAL,
+    gap_filled BOOLEAN,                    -- Did price return to reference?
     gap_fill_timestamp TIMESTAMP,
 
     -- Outcome classification
-    outcome TEXT,                          -- 'winner', 'loser', 'breakeven'
+    outcome TEXT,                           -- 'winner', 'loser', 'breakeven', 'not_traded'
     trade_taken BOOLEAN DEFAULT FALSE,
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -632,272 +657,308 @@ CREATE TABLE gap_performance_tracking (
 
     FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
 );
+
+CREATE INDEX idx_gap_performance_tracking_gap_result_id ON gap_performance_tracking(gap_result_id);
+CREATE INDEX idx_gap_performance_tracking_outcome ON gap_performance_tracking(outcome);
 ```
 
-**Typical Data**: One record per gap result (after trading day completes)
-**Update**: `./tradescout gap performance --date=2025-10-09` (on-demand)
-**Index**: `idx_gap_performance_tracking_gap_result_id`, `idx_gap_performance_tracking_outcome`
-
-**Session-Aware Date Logic**:
-- **Premarket gap** (8:30 AM Oct 9) → Track Oct 9 regular hours (9:30-4:00 PM)
-- **Afterhours gap** (5:00 PM Oct 9) → Track Oct 10 regular hours (9:30-4:00 PM)
-
-**Outcome Classification**:
-- **Winner**: realized_return_pct ≥ 2.0%
-- **Loser**: realized_return_pct ≤ -1.0%
-- **Breakeven**: Between -1.0% and 2.0%
-
-See [GAP_PERFORMANCE.md](GAP_PERFORMANCE.md) for detailed design and examples.
+**Domain Model**: `GapPerformance` (dataclass)
+**SQLModel**: `GapPerformanceTrackingSQLModel`
+**Repository**: `GapPerformanceTrackingRepository`
+**Provider**: `PolygonAggregatesProvider` (for performance data)
 
 ---
 
-### 15. fed_data
+#### `gap_result_news`
 
-**Purpose**: Federal Reserve economic indicators for market context
-**Manager**: `FedDataManager` (with metadata tracking, TTL: varies by data type)
-**Provider**: `PolygonFedProvider` → `/v1/indicators/sma/{ticker}`
+News articles associated with gap results.
+
+```sql
+CREATE TABLE gap_result_news (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    gap_result_id INTEGER NOT NULL,
+    news_headline TEXT NOT NULL,
+    news_source TEXT,
+    news_published_at TIMESTAMP,
+    news_sentiment REAL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_gap_result_news_gap_result_id ON gap_result_news(gap_result_id);
+```
+
+**SQLModel**: `GapResultNewsSQLModel`
+**Repository**: `GapResultNewsRepository`
+**Provider**: `PolygonNewsProvider`
+
+---
+
+### Economic Data
+
+#### `fed_data`
+
+Federal Reserve economic indicators (inflation, yields, etc.).
 
 ```sql
 CREATE TABLE fed_data (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     data_type TEXT NOT NULL,               -- 'inflation', 'inflation_expectations', 'treasury_yields'
-    observation_date TEXT NOT NULL,        -- YYYY-MM-DD format
-    value REAL NOT NULL,                   -- Rate, yield, index, etc.
-    details TEXT NOT NULL,                 -- JSON metadata
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
+    observation_date TEXT NOT NULL,        -- ISO format date (YYYY-MM-DD)
+    value REAL NOT NULL,                    -- The actual data value (rate, yield, index)
+    details TEXT NOT NULL,                  -- JSON blob with additional metadata
+    created_at TEXT NOT NULL,               -- ISO format datetime
+    updated_at TEXT NOT NULL,               -- ISO format datetime
 
+    -- Unique constraint: one record per data type per observation date
     UNIQUE(data_type, observation_date)
 );
+
+CREATE INDEX idx_fed_data_type ON fed_data(data_type);
+CREATE INDEX idx_fed_data_date ON fed_data(observation_date);
+CREATE INDEX idx_fed_data_type_date ON fed_data(data_type, observation_date DESC);
 ```
 
-**Typical Data**: Economic indicators updated periodically
-**Update**: `./tradescout fed update --type=inflation`
-**Index**: `idx_fed_data_type`, `idx_fed_data_date`, `idx_fed_data_type_date`
+**Domain Model**: `FedData` (dataclass)
+**SQLModel**: `FedDataSQLModel`
+**Repository**: `FedDataRepository`
+**Provider**: `PolygonFedProvider`
 
-**Data Types**:
-- **inflation**: CPI, PCE data
-- **inflation_expectations**: Market-based expectations
-- **treasury_yields**: 2Y, 10Y Treasury yields
+**Key Methods**:
+- `get_latest_by_type(data_type: str)` - Get most recent observation
+- `find_by_date_range(data_type: str, start_date, end_date)` - Get time series
+- `bulk_upsert(fed_data: List[FedDataSQLModel])` - Bulk insert/update
 
-**Use Cases**:
-- Macro context for gap trading decisions
-- Rate environment awareness
-- Market regime classification
+**Bootstrap**: `./tradescout fed update`
 
 ---
 
-### 16. schema_versions
+### Market Status
 
-**Purpose**: Database migration tracking
-**Managed by**: `database_initializer.py`
+#### `market_holidays`
+
+Market holiday calendar for determining trading days.
 
 ```sql
-CREATE TABLE schema_versions (
-    version TEXT PRIMARY KEY,
-    applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
+CREATE TABLE market_holidays (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL UNIQUE,             -- YYYY-MM-DD format
+    name TEXT,                              -- Holiday name
+    status TEXT NOT NULL                    -- 'closed' or 'early-close'
 );
+
+CREATE INDEX idx_market_holidays_date ON market_holidays(date);
+```
+
+**Domain Model**: `MarketHoliday` (dataclass)
+**SQLModel**: `MarketHolidaySQLModel`
+**Repository**: `MarketHolidayRepository`
+**Provider**: `PolygonMarketStatusProvider`
+
+**Key Methods**:
+- `find_upcoming(limit: int)` - Get upcoming holidays
+- `is_holiday(date: date)` - Check if date is holiday
+- `clear_all()` - Clear all holidays (before refresh)
+- `bulk_save(holidays: List[MarketHolidaySQLModel])` - Bulk persist
+
+**Bootstrap**: `./tradescout database bootstrap-market-holidays`
+
+---
+
+### Metadata
+
+#### `data_update_metadata`
+
+Operation tracking for bootstrap/refresh operations with statistics.
+
+```sql
+CREATE TABLE data_update_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    -- Operation identification
+    operation_type TEXT NOT NULL,          -- 'fundamentals', 'tickers', 'snapshot', 'universe'
+    operation_subtype TEXT,                -- 'bootstrap', 'refresh', 'single_symbol'
+
+    -- Run metadata
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME,
+
+    -- Status tracking
+    status TEXT CHECK(status IN ('running', 'completed', 'failed', 'partial')) DEFAULT 'running',
+
+    -- Statistics (JSON for flexibility)
+    stats TEXT,                             -- JSON: '{"inserted": 1234, "updated": 456, "errors": 2}'
+
+    -- Operation details
+    total_items INTEGER,                    -- symbols, assets, etc.
+    processed_items INTEGER DEFAULT 0,
+    failed_items INTEGER DEFAULT 0,
+    api_calls_made INTEGER DEFAULT 0,
+
+    -- Additional context
+    operation_params TEXT,                  -- JSON: '{"symbol": "AAPL", "force": true, "limit": 100}'
+    error_message TEXT,
+
+    -- Timestamps
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_data_update_operation ON data_update_metadata(operation_type);
+CREATE INDEX idx_data_update_completed ON data_update_metadata(completed_at);
+CREATE INDEX idx_data_update_status ON data_update_metadata(status);
+```
+
+**Domain Model**: `DataUpdateMetadata` (dataclass)
+**SQLModel**: `DataUpdateMetadataSQLModel`
+**Repository**: `DataUpdateMetadataRepository`
+
+**Key Methods**:
+- `get_latest_by_operation(operation_type: str)` - Get last update time (for TTL)
+- `record_update(operation_type: str, subtype: str)` - Record operation completion
+- `find_recent(limit: int)` - Get recent operations
+- `get_running_operations()` - Get currently running operations
+
+**Usage**: TTL validation, operation tracking, statistics
+
+---
+
+## Table Relationships
+
+```
+providers (1) ──< (many) assets
+markets (1) ──< (many) assets
+assets (1) ──< (many) asset_prices
+assets (1) ──── (1) asset_fundamentals
+assets (many) >──< (many) universes  [via universe_memberships]
+assets (1) ──< (many) sentiment_events
+sentiment_types (1) ──< (many) sentiment_events
+assets (1) ──< (many) gap_results
+gap_results (1) ──── (1) gap_performance_tracking
+gap_results (1) ──< (many) gap_result_news
 ```
 
 ---
 
-## Bootstrap Operations
+## Data Flow Example: Gap Analysis
 
-### Dependency Chain
+1. **User runs**: `./tradescout gap analyze premarket`
 
-```
-1. Providers (hardcoded)
-   ↓
-2. Markets (API fetch)
-   ↓
-3. Assets (API fetch, needs Markets + Providers)
-   ↓
-4. Fundamentals (API fetch, needs Assets)
-   ↓
-5. Universes (internal filtering, needs Assets + Fundamentals)
-   ↓
-6. Sentiment Types (hardcoded)
-   ↓
-7. Market Holidays (API fetch, independent)
-```
+2. **DataServiceV2.analyze_gaps()**:
+   - Get active universe assets: `UniverseRepository.get_memberships()`
+   - Fetch market snapshots: `PolygonSnapshotProvider.fetch_market_snapshot()`
+   - Store prices: `AssetPriceRepository.bulk_save()`
 
-### Bootstrap Commands
+3. **GapAnalyzer**:
+   - Calculate gaps
+   - Score quality
+   - Apply filters
 
-```python
-from services.data_service import DataService
+4. **Save results**: `GapResultRepository.bulk_save()`
 
-# Initialize
-data_service = DataService(db_manager, update_tracker, polygon_api_key)
-
-# 1. Providers (1 record)
-data_service.bootstrap_providers()
-
-# 2. Markets (7-12 exchanges)
-data_service.bootstrap_markets(asset_class="stocks", locale="us")
-
-# 3. Assets (~10,000 tickers)
-data_service.bootstrap_assets(market="stocks", active=True)
-
-# 4. Fundamentals (one API call per asset - can be slow)
-data_service.bootstrap_fundamentals(limit=100)  # Or limit=None for all
-
-# 5. Universes (filters existing assets)
-data_service.bootstrap_universes(universe_name="default_universe")
-
-# 6. Sentiment types (3 types for Phase 1)
-data_service.bootstrap_sentiment_types()
-
-# 7. Market Holidays (12-15 upcoming holidays)
-data_service.get_market_holidays(force_refresh=True)
-```
-
-### TTL Configuration
-
-**File**: `src/database/config/ttl_config.py`
-
-```python
-# Bootstrap operations
-MARKETS_TTL_HOURS = 8760        # 1 year - markets rarely change
-ASSETS_TTL_HOURS = 72           # 3 days - new listings happen
-FUNDAMENTALS_TTL_HOURS = 168    # 1 week - fundamentals change periodically
-UNIVERSES_TTL_HOURS = 24        # 1 day - membership can shift
-
-# Snapshot operations
-TICKER_SNAPSHOT_TTL_MINUTES = 15
-MARKET_SNAPSHOT_TTL_MINUTES = 15
-
-# Market status operations
-MARKET_HOLIDAYS_TTL_DAYS = 30       # 30 days - holidays rarely change
-MARKET_CONTEXT_TTL_MINUTES = 5      # 5 minutes - market state changes throughout day
-```
+5. **Display**: CLI shows gap candidates with quality scores
 
 ---
 
-## Performance & Indexing
+## Performance Considerations
 
-### Critical Indexes
+### Indexes
 
-All critical indexes are created during schema initialization:
+All key query paths have indexes:
+- Symbol lookups: `idx_assets_symbol`
+- Active asset filtering: `idx_assets_active`
+- Date range queries: `idx_asset_prices_date`
+- Gap analysis: `idx_gap_results_trading_date`, `idx_gap_results_session`
 
-**Asset Lookups**:
-- `idx_assets_symbol` - Fast symbol → asset resolution
-- `idx_assets_market` - Filter by exchange
-- `idx_assets_active` - Filter active tickers only
+### Bulk Operations
 
-**Price Queries**:
-- `idx_asset_prices_symbol` - Price lookups by ticker
-- `idx_asset_prices_asset` - Price history for asset
-- `idx_asset_prices_date` - Historical date queries
+Repositories support bulk operations for efficiency:
+- `bulk_save()` - Bulk insert/update
+- `bulk_upsert()` - Bulk insert with conflict resolution
+- Batch size: Typically 100-1000 records
 
-**Universe Filtering**:
-- `idx_universe_memberships_universe` - Get all assets in universe
-- `idx_universe_memberships_asset` - Find universe for asset
-- `idx_fundamentals_sector` - Sector-based screening
-- `idx_fundamentals_market_cap` - Market cap filtering
+### TTL-Based Caching
 
-**Sentiment Queries**:
-- `idx_sentiment_events_asset` - Events for specific ticker
-- `idx_sentiment_events_type` - Events by type (news_positive, etc.)
-- `idx_sentiment_events_date` - Events in date range
-
-**Metadata Tracking**:
-- `idx_data_update_operation` - Find last operation by type
-- `idx_data_update_completed` - Sort by completion time
+Cache-aside pattern reduces API calls:
+- Assets: 7-day TTL
+- Fundamentals: 7-day TTL
+- Market holidays: 30-day TTL
+- Snapshots: 5-minute TTL (real-time data)
 
 ---
 
-## Model Objects
+## Schema Evolution
 
-All database operations use **immutable dataclasses** - no raw dicts or tuples.
+### Migration Strategy
 
-**Models Location**: `src/models/`
+TradeScout uses incremental schema migrations:
 
-**Available Models**:
-- `Asset` - Stock ticker data
-- `AssetFundamentals` - Company fundamentals
-- `Market` - Exchange information
-- `MarketHoliday` - Holiday calendar entries
-- `MarketContext` - Current market state/session
-- `Universe`, `UniverseMembership` - Universe management
-- `TickerSnapshot`, `MarketSnapshot` - Price data
-- `SentimentType`, `SentimentEvent` - Sentiment tracking
-- `DataUpdateMetadata` - Operation metadata
+**Location**: `database/migrations/`
 
-**Example**:
-```python
-# Manager returns model object, not raw tuple
-asset = asset_manager.get_entity_from_database("AAPL")
-# asset is an Asset dataclass with: id, symbol, name, market_id, etc.
+**Tracking**: `schema_versions` table
 
-# Can check fields
-if asset.is_active and asset.market_id == 1:
-    # ...
+**Process**:
+1. Write migration SQL script
+2. Update `schema_versions`
+3. Run migration via `DatabaseManager.run_migrations()`
 
-# Immutable - can't accidentally mutate
-# asset.symbol = "MSFT"  # Error: frozen dataclass
-```
+**Current Version**: 004
+
+**Migration History**:
+- v001: Initial schema
+- v002: Add gap analysis tables
+- v003: Add sentiment tracking
+- v004: Add gap performance tracking + news
 
 ---
 
-## Data Service Interface
+## Backup and Recovery
 
-**File**: `src/services/data_service.py`
+### Backup Strategy
 
-The `DataService` class provides the public interface for all data operations:
+```bash
+# Daily backup
+cp data/tradescout.db data/backups/tradescout_$(date +%Y%m%d).db
 
-```python
-class DataService:
-    """Orchestrates data access between managers and providers."""
-
-    # Bootstrap operations
-    def bootstrap_providers() -> int
-    def bootstrap_markets(asset_class, locale) -> int
-    def bootstrap_assets(market, active) -> int
-    def bootstrap_fundamentals(limit) -> int
-    def bootstrap_universes(universe_name) -> Dict[str, int]
-    def bootstrap_sentiment_types() -> int
-
-    # Get operations
-    def get_asset(symbol, force_refresh) -> Optional[Asset]
-    def get_fundamentals(symbol, force_refresh) -> Optional[AssetFundamentals]
-    def get_market(market_code) -> Optional[Market]
-    def get_ticker_snapshot(symbol, force_refresh) -> Optional[TickerSnapshot]
-    def refresh_market_data(symbols, force_refresh) -> int
-    def get_market_holidays(force_refresh) -> List[MarketHoliday]
-    def get_upcoming_holidays(from_date) -> List[MarketHoliday]
-    def get_market_context(market_code, force_refresh) -> Optional[MarketContext]
-    def get_sentiment_events(asset_id, sentiment_type_id, start_date, end_date) -> List[SentimentEvent]
-
-    # Statistics
-    def get_asset_stats() -> dict
-    def get_fundamentals_stats() -> dict
-    def get_markets_stats() -> dict
-    def get_market_holidays_stats() -> dict
-    def get_market_context_stats() -> dict
-    def get_sentiment_types_stats() -> dict
-    def get_sentiment_events_stats() -> dict
+# Compress older backups
+gzip data/backups/tradescout_*.db
 ```
+
+### Recovery
+
+```bash
+# Restore from backup
+cp data/backups/tradescout_20251012.db data/tradescout.db
+```
+
+### Data Freshness
+
+Check last update times:
+```bash
+./tradescout database stats
+```
+
+Shows:
+- Assets count + last update
+- Fundamentals count + last update
+- Universe memberships
+- Recent operations
 
 ---
 
 ## Summary
 
-**Architecture**: Clean Manager/Provider separation
-**Data Types**: Immutable model objects throughout
-**Metadata Tracking**: Only for bulk/bootstrap operations
-**Current Status**: 16 tables, 15 active managers, 7 API providers
-**Market Status**: Market holidays and context fully integrated with Manager/Provider pattern
-**Sentiment**: Phase 1 complete - infrastructure, managers, and PolygonNewsProvider all active
-**Gap Analysis**: Complete gap results tracking and performance validation system
+**Architecture**: Repository + SQLModel + Cache-Aside Pattern
+**Tables**: 16 tables covering reference, price, sentiment, gap analysis, and metadata
+**Repositories**: 16 repositories with business-focused queries
+**Providers**: 7 Polygon API providers
+**Domain Models**: Dual model system (dataclass + SQLModel)
+**Caching**: TTL-based cache-aside pattern
+**Migration**: Incremental schema evolution with versioning
 
-**Directory Structure**:
-- **Managers**: `src/database/managers/` - Database CRUD operations
-- **Providers**: `src/api/providers/` - External API integrations
-- **Models**: `src/models/` - Immutable dataclasses
-- **Service**: `src/services/data_service.py` - Public orchestration layer
-
-**See Also**:
-- `docs/BOOTSTRAPPING.md` - Bootstrap operations guide
-- `docs/SENTIMENT.md` - Sentiment detection system
-- `docs/ARCHITECTURE_MANAGERS.md` - Manager pattern details (future)
-- `docs/ARCHITECTURE_API_PROVIDERS.md` - Provider pattern details (future)
+**Key Strengths**:
+- Type-safe throughout (SQLModel + Python type hints)
+- Business-focused queries (repositories speak domain language)
+- Generic caching (works for any entity)
+- Clean separation (providers don't touch database, repositories don't call APIs)
+- Comprehensive tracking (metadata for all operations)

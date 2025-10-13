@@ -20,11 +20,12 @@ class Config:
     def __init__(self):
         self.db_path = "data/tradescout.db"
         self.verbose = False
-        self.db_manager = None
         self._market_context = None
         self._market_context_service = None
         self._active_universe = None
         self._polygon_api_key = None
+        self._sqlmodel_engine = None
+        self._data_service_v2 = None
 
     @property
     def polygon_api_key(self):
@@ -50,27 +51,64 @@ class Config:
         """Get market context service (creates if needed)."""
         if self._market_context_service is None:
             from services.market_context_service import MarketContextService
-            from services.data_service import DataService
-            from api.config.api_keys import POLYGON_API_KEY
 
-            # Create data service
-            data_service = DataService(self.db_manager, POLYGON_API_KEY)
+            # Use DataServiceV2 as data provider
+            data_service_v2 = self.get_data_service_v2()
 
             # Create service
-            self._market_context_service = MarketContextService(data_service)
+            self._market_context_service = MarketContextService(data_service_v2)
 
         return self._market_context_service
 
     def get_data_service(self):
-        """Get data service instance (creates if needed)."""
-        # Reuse the data service from market context service if available
-        if self._market_context_service is not None:
-            return self._market_context_service.data_provider
+        """Get data service instance (DEPRECATED - use get_data_service_v2()).
 
-        # Otherwise create a new one
-        from services.data_service import DataService
-        from api.config.api_keys import POLYGON_API_KEY
-        return DataService(self.db_manager, POLYGON_API_KEY)
+        Only kept for backwards compatibility with old code.
+        Returns DataServiceV2 which has the same universe methods.
+        """
+        return self.get_data_service_v2()
+
+    def get_sqlmodel_engine(self):
+        """Get or create SQLModel engine for DataServiceV2."""
+        if self._sqlmodel_engine is None:
+            from sqlmodel import create_engine
+            database_url = f"sqlite:///{self.db_path}"
+            self._sqlmodel_engine = create_engine(
+                database_url,
+                echo=False,
+                connect_args={"check_same_thread": False}
+            )
+        return self._sqlmodel_engine
+
+    def get_data_service_v2(self):
+        """Get DataServiceV2 instance (new architecture).
+
+        This creates DataServiceV2 with a SQLModel session.
+        Cached for the lifetime of the Config object.
+
+        Note: The session is long-lived for CLI use. For web apps,
+        use per-request sessions instead.
+        """
+        if self._data_service_v2 is None:
+            from sqlmodel import Session
+            from services.data_service_v2 import DataServiceV2
+            from api.config.api_keys import POLYGON_API_KEY
+
+            # Create engine if needed
+            engine = self.get_sqlmodel_engine()
+
+            # Create session (long-lived for CLI)
+            # Note: For web apps, use per-request sessions instead
+            session = Session(engine)
+
+            # Create DataServiceV2
+            self._data_service_v2 = DataServiceV2(
+                session=session,
+                polygon_api_key=POLYGON_API_KEY,
+                db_path=self.db_path
+            )
+
+        return self._data_service_v2
 
     def get_active_universe(self) -> str:
         """Get the currently active universe name."""
@@ -140,14 +178,8 @@ def main(config, db_path: str, debug: bool):
         console.print("[yellow]Run 'tradescout database init' to create database[/yellow]")
         sys.exit(1)
 
-    # Initialize database manager
-    try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_manager import DatabaseManager
-        config.db_manager = DatabaseManager(config.db_path)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to initialize database: {e}[/red]")
-        sys.exit(1)
+    # Add src to path for imports
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def create_header(title: str, symbol: str = None) -> Panel:

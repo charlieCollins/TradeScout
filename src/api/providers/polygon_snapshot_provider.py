@@ -2,7 +2,7 @@
 
 import logging
 from typing import Optional, Dict, Any
-from models.snapshot import MarketSnapshot, TickerSnapshot
+from models.dataclass.snapshot import MarketSnapshot, TickerSnapshot
 from .base_provider import BaseAPIProvider
 
 logger = logging.getLogger(__name__)

@@ -5,8 +5,8 @@ from datetime import datetime, date, timedelta, time as dt_time
 from typing import Optional, List, Dict, Any
 import pytz
 
-from models.market import Market
-from models.market_context import (
+from models.dataclass.market import Market
+from models.dataclass.market_context import (
     MarketContext, MarketSession, TradingDayType
 )
 
@@ -187,6 +187,7 @@ class MarketContextService:
         else:
             raise RuntimeError(f"Unknown market status from Polygon API: {api_market}")
 
+    # TODO not sure this will actually get the next market day, it's just adding 1 day after skipping weekdays, need to validate
     def _find_next_trading_day(self, today: date, market_status: dict) -> Optional[date]:
         """Find the next trading day after today using Polygon holiday API."""
         holidays = self.data_provider.get_market_holidays()

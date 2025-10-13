@@ -27,8 +27,6 @@ When you seem stuck or problems are overly complex, I'll redirect you - my guida
 
 **Always say:** "Let me research the codebase and create a plan before implementing."
 
-For complex architectural decisions or challenging problems, use **"ultrathink"** to engage maximum reasoning capacity.
-
 ## Implementation Standards
 
 ### Design Patterns
@@ -86,132 +84,49 @@ Be intellectually honest. If an idea has flaws or limitations, point them out co
 When analysing proposals, always consider: What could go wrong? What are the trade-offs? What alternatives exist?
 Skip phrases like "You're absolutely right", "That's a great idea", "Excellent point" - Lead with analysis, not agreement.
 
-## Problem Solving
-
-
 ## Advanced Techniques
 
 ### Multiple Agents Strategy
-*Leverage subagents aggressively* for better results:
+Use Task tool to launch specialized agents for parallel work:
 
-* Spawn agents to explore different parts of the codebase in parallel
+* Launch agents to explore different parts of the codebase in parallel
 * Use one agent to write tests while another implements features
-* Delegate research tasks: "I'll have an agent investigate the database schema while I analyze the API structure"
+* Delegate research tasks to agents for parallel investigation
 * For complex refactors: One agent identifies changes, another implements them
 
-Say: "I'll spawn agents to tackle different aspects of this problem" whenever a task has multiple independent parts.
+Use agents whenever a task has multiple independent parts that can be tackled simultaneously.
 
 ### Problem-Solving When Stuck
 When you're stuck or confused:
 1. **Stop** - Don't spiral into complex solutions
-2. **Delegate** - Consider spawning agents for parallel investigation
-3. **Ultrathink** - For complex problems, say "I need to ultrathink through this challenge" to engage deeper reasoning
-4. **Step back** - Re-read the requirements
-5. **Simplify** - The simple solution is usually correct
-6. **Ask** - "I see two approaches: [A] vs [B]. Which do you prefer?"
+2. **Delegate** - Launch Task agents for parallel investigation
+3. **Step back** - Re-read CLAUDE.md and the requirements
+4. **Simplify** - The simple solution is usually correct
+5. **Ask** - "I see two approaches: [A] vs [B]. Which do you prefer?"
 
-## Project Architecture
-
-### Critical Data Rules - PRICE COMPARISONS
-
-**ALWAYS:**
-1. **Previous SESSION close** = Last regular trading session close (could be today, yesterday, 3 days ago - doesn't matter)
-   - Get from bulk snapshot API
-   
-2. **Current REAL-TIME price** = The price RIGHT NOW (pre-market, regular, after-hours - doesn't matter)
-   - Get from individual real-time quote API
-
-**The calculation is ALWAYS:**
-- Change = Current real-time price - Previous session close
-- Change % = (Change / Previous session close) × 100
-
-**PERIOD. That's it.**
-
-### Two-Layer Filtering: Universes vs Screeners
-
-TradeScout uses a two-layer filtering architecture with distinct purposes:
-
-**Layer 1: Universe Filters** (config/universes/*.py)
-- **Purpose**: Define the general trackable asset pool
-- **Criteria**: Broad quality filters (market cap, avg volume, exchanges)
-- **Stability**: Relatively static - doesn't change often
-- **Question**: "What assets do we care about tracking at all?"
-- **Example**: min_market_cap, min_volume, included exchanges
-
-**Layer 2: Screener Filters** (configs/screeners/*.yaml)
-- **Purpose**: Find specific trading opportunities within the universe
-- **Criteria**: Strategy-specific (price movements, sessions, technical patterns)
-- **Stability**: Dynamic - changes based on what you're looking for
-- **Question**: "What opportunities exist RIGHT NOW in our universe?"
-- **Example**: afterhours gain >= 2%, price >= $1, volume spikes
-
-**Why Two Layers?**
-
-This allows different filtering goals:
-- **Universe**: "Track WORX - it meets our general liquidity criteria"
-- **Screener**: "Don't show WORX in afterhours gainers - it's under $1 and we want higher-priced opportunities"
-
-You can have penny stocks in your universe for tracking, but exclude them from specific screeners where low price = high spreads/low liquidity concerns.
-
-**The Flow:**
-1. Universe bootstrap filters → Builds trackable asset pool
-2. Screener filters → Finds opportunities within that pool
-3. Asset can be IN universe but NOT in screener results
-
-### Development vs Production Separation
-- **Production** (`src/tradescout/`): Clean code, standard cache
-- **Exploration** (`data/examples/`): Simple file saving for API results
-- **Principle**: Production code pristine, exploration uses file caching
-
-### Technology Stack
-- **Backend**: Python CLI with Rich interface
-- **Database**: SQLite (implemented)
-- **APIs**: Multi-provider system (Polygon PREMIUM SUBSCRIPTION - NOT FREE TIER, YFinance, Finnhub, Alpha Vantage, NewsAPI)
-- **Web Scrapers**: Extended hours data collection
-- **Platform**: Linux/Ubuntu/WSL2
-- **Budget**: $0-50/month (includes POLYGON PREMIUM SUBSCRIPTION)
-- **IMPORTANT**: We have a PREMIUM Polygon subscription - NEVER assume free tier limitations
-
-## Session Management & State Continuity
+## Session Management
 
 ### Session Continuity
-- Run `claude --continue` or `claude --resume` to resume conversations
-- Session workflows imported via @CLAUDE_SESSION_MGMT.md
+- `/hello` - Initialize session (sync CLAUDE_TODO.md → TodoWrite, create CLAUDE_CONTEXT.md entry)
+- `/goodbye` - Wrap up session (sync TodoWrite → CLAUDE_TODO.md, update CLAUDE_CONTEXT.md)
+- `claude --continue` - Resume without ceremony (for quick sessions)
 
-### Optional Session Management Commands
-Use `/hello` and `/goodbye` slash commands for structured session management:
+### Context Files
+- **CLAUDE.md** - Main instructions (this file)
+- **CLAUDE_TODO.md** - Active tasks only, no history
+- **CLAUDE_CONTEXT.md** - Last 3 sessions only
+- **CLAUDE_LESSONS_LEARNED.md** - Critical mistakes and antipatterns
 
-**Benefits of structured session workflow:**
-- **Explicit context bridging** - Ensures nothing falls through cracks
-- **TODO synchronization** - Bridges Claude's TodoWrite with persistent files
-- **Progress documentation** - Creates searchable session history
-- **Handoff preparation** - Good for team environments
+Imports: @CLAUDE_SESSION_MGMT.md, @CLAUDE_LESSONS_LEARNED.md
 
-**Alternative:** Simple `claude --continue` for lightweight session resumption without ceremony.
+### TODO File Management
+**CLAUDE_TODO.md** - Forward-looking only, no history:
+- Remove completed tasks immediately - don't keep historical work
+- Focus on what's next, not what's been done
+- Keep it actionable and clean
 
-### Import-Based Context Management
-@CLAUDE_SESSION_MGMT.md
-@CLAUDE_LESSONS_LEARNED.md
+**TodoWrite tool** - Session task tracking:
+- Use TodoWrite for active session task management
+- Mark tasks completed immediately upon finishing
+- Sync TodoWrite ↔ CLAUDE_TODO.md during /hello and /goodbye
 
-### File Structure
-- `CLAUDE.md` - Main project instructions with imports
-- `CLAUDE_TODO.md` - Task synchronization (separate file for tool compatibility)
-- `CLAUDE_CONTEXT.md` - Session history and context storage (managed by workflows)
-- `CLAUDE_LESSONS_LEARNED.md` - Development insights and redirections
-
-### TODO File Management (CLAUDE_TODO.md)
-- Keep CLAUDE_TODO.md concise and forward-looking only
-- Remove completed tasks regularly - we don't need historical completed work cluttering the file
-- Focus on what's next to do, not what's already been accomplished
-- The TODO file should be actionable and clean for the next session
-
-### TodoWrite Best Practices
-- Always use TodoWrite for task management
-- Mark tasks as completed immediately upon finishing
-- Clean up completed tasks from the list regularly
-- Keep active TODO list focused on current and upcoming work
-
-## Key Reminders
-- Never commit unless explicitly asked
-- Cache API calls to avoid rate limits
-- Save example data to avoid repeated API calls

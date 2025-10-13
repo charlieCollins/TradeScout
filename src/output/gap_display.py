@@ -13,8 +13,8 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
-from models.gap import GapCandidate
-from models.market_context import MarketContext
+from models.dataclass.gap import GapCandidate
+from models.dataclass.market_context import MarketContext
 
 
 class GapAnalysisDisplay:

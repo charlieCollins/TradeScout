@@ -69,7 +69,7 @@ def screener(config, screener_name: str, list_screeners: bool):
         # Initialize components
 
         screener_config = ScreenerConfig()
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         screener_engine = ScreenerEngine(data_service, config)
         screener_display = ScreenerDisplay()
 

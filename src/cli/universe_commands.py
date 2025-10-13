@@ -25,7 +25,7 @@ def universes(config):
 def universe_list(config):
     """List all available universes."""
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         universes_list = data_service.get_all_universes()
 
         if not universes_list:
@@ -80,7 +80,7 @@ def universe_info(config, universe_name):
         universe_name = config.get_active_universe()
 
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         # Get universe details
         universes_list = data_service.get_all_universes()
@@ -168,7 +168,7 @@ def universe_activate(config, universe_name):
         console.print(f"[green]✅ Activated universe: {universe_name}[/green]")
 
         # Show brief info about the activated universe
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         stats = data_service.get_universe_stats(universe_name)
         count = stats.total_members if stats else 0
         console.print(f"[dim]This universe contains {count:,} assets[/dim]")

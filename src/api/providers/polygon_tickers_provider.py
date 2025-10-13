@@ -13,7 +13,7 @@ The provider offers both parsed (Asset) and raw (dict) methods to support both u
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from models.asset import Asset, AssetType, AssetClass
+from models.dataclass.asset import Asset, AssetType, AssetClass
 from .base_provider import BaseAPIProvider
 
 logger = logging.getLogger(__name__)
@@ -351,7 +351,7 @@ class PolygonTickersProvider(BaseAPIProvider):
         """Get provider information.
 
         Returns:
-            Dictionary with provider metadata
+            Asset object with provider metadata
         """
         return {
             "name": "polygon_tickers",

@@ -10,7 +10,7 @@ Calculates actual intraday performance for gap candidates by:
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple, List
-from models.gap_performance import GapPerformance
+from models.dataclass.gap_performance import GapPerformance
 
 logger = logging.getLogger(__name__)
 
@@ -18,15 +18,15 @@ logger = logging.getLogger(__name__)
 class GapPerformanceCalculator:
     """Calculate gap performance metrics from market data."""
 
-    def __init__(self, aggregates_provider, market_holidays_manager):
+    def __init__(self, aggregates_provider, market_holidays_repository):
         """Initialize performance calculator.
 
         Args:
             aggregates_provider: PolygonAggregatesProvider for fetching bars
-            market_holidays_manager: MarketHolidaysManager for trading day checks
+            market_holidays_repository: MarketHolidayRepository for trading day checks
         """
         self.aggregates_provider = aggregates_provider
-        self.market_holidays_manager = market_holidays_manager
+        self.market_holidays_repository = market_holidays_repository
 
     def get_performance_trading_date(self, gap_result: dict) -> date:
         """Determine which trading day to use for performance data.
@@ -84,8 +84,8 @@ class GapPerformanceCalculator:
         if check_date.weekday() >= 5:  # Saturday = 5, Sunday = 6
             return True
 
-        # Check market holidays - get_entity_from_database returns MarketHoliday or None
-        holiday = self.market_holidays_manager.get_entity_from_database(check_date.isoformat())
+        # Check market holidays - get_by_date returns MarketHolidaySQLModel or None
+        holiday = self.market_holidays_repository.get_by_date(check_date.isoformat())
         return holiday is not None
 
     def is_trading_day_complete(self, trading_date: date) -> bool:

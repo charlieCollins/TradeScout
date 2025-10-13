@@ -32,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from analysis.gap_analyzer import GapAnalyzer, GapCandidate
 from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
 from api.config.api_keys import POLYGON_API_KEY
-from database.managers import GapResultsManager
 from output.gap_display import GapAnalysisDisplay, GapPerformanceDisplay
 
 console = Console()
@@ -95,19 +94,13 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
 
         # Check data freshness and update if needed
         console.print("[bold cyan]⏰ Checking Data Freshness...[/bold cyan]")
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         # Get most recent snapshot time
-        db = data_service.db_manager
-        result = db.execute_query(
-            "SELECT MAX(updated_at) as last_update FROM asset_prices",
-            []
-        )
+        last_update = data_service.get_last_price_update_time()
 
-        if result and result[0][0]:
+        if last_update:
             from datetime import datetime as dt
-            last_update_str = result[0][0]
-            last_update = dt.fromisoformat(last_update_str.replace('Z', '+00:00'))
             now = dt.now(last_update.tzinfo) if last_update.tzinfo else dt.now()
             age_minutes = (now - last_update).total_seconds() / 60
 
@@ -153,7 +146,7 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
 
         console.print(f"[bold cyan]🎯 Universe: {active_universe.name}[/bold cyan]")
 
-        universe_symbols = data_service.universe_manager.get_active_universe_symbols()
+        universe_symbols = data_service.get_active_universe_symbols()
         console.print(f"  Symbols: {len(universe_symbols):,}")
         console.print(f"  Min gap: {min_gap}%")
         console.print(f"  Min market cap: ${min_market_cap/1e9:.1f}B")
@@ -408,8 +401,7 @@ def _prepare_and_save_candidates(
         Number of candidates saved to database
     """
     try:
-        gap_results_manager = GapResultsManager(data_service.db_manager)
-        asset_manager = data_service.asset_manager
+        from models.sqlmodel.gap_result_sqlmodel import GapResultSQLModel
 
         trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
         is_friday = trading_date.weekday() == 4
@@ -418,8 +410,8 @@ def _prepare_and_save_candidates(
 
         # Process each candidate and determine status
         for candidate in all_candidates:
-            # Look up asset_id
-            asset = asset_manager.get_entity_from_database(candidate.symbol)
+            # Look up asset_id using DataServiceV2
+            asset = data_service.get_asset(candidate.symbol)
             if not asset:
                 logger.warning(f"Asset {candidate.symbol} not found in database, skipping")
                 continue
@@ -479,8 +471,55 @@ def _prepare_and_save_candidates(
             if candidate.catalyst_score is not None:
                 candidate.has_tier1_catalyst = candidate.catalyst_score >= 80
 
-            # Save to database
-            gap_result_id = gap_results_manager.save_gap_result(candidate, analysis_timestamp)
+            # Convert GapCandidate to GapResultSQLModel
+            gap_result_sql = GapResultSQLModel(
+                asset_id=candidate.asset_id,
+                analysis_timestamp=analysis_timestamp,
+                session_type=candidate.session_type,
+                trading_date=candidate.trading_date,
+                gap_percentage=candidate.gap_percentage,
+                gap_direction=candidate.direction.value if candidate.direction else None,
+                gap_type=candidate.gap_type,
+                academic_gap_type=candidate.academic_gap_type,
+                reference_price=candidate.reference_price,
+                current_price=candidate.current_price,
+                day_open=candidate.day_open,
+                day_high=candidate.day_high,
+                day_low=candidate.day_low,
+                day_close=candidate.day_close,
+                prevday_close=candidate.prevday_close,
+                prevday_high=candidate.prevday_high,
+                prevday_low=candidate.prevday_low,
+                extended_hours_volume=candidate.extended_hours_volume,
+                previous_day_volume=candidate.previous_day_volume,
+                volume_ratio=candidate.volume_ratio,
+                market_cap=candidate.market_cap,
+                sector=candidate.sector,
+                quality_score=candidate.quality_score,
+                quality_tier=candidate.quality_tier,
+                catalyst_score=candidate.catalyst_score,
+                volume_score=candidate.volume_score,
+                gap_size_score=candidate.gap_size_score,
+                sector_alignment_score=candidate.sector_alignment_score,
+                market_alignment_score=candidate.market_alignment_score,
+                passed_gap_filter=candidate.passed_gap_filter,
+                passed_volume_filter=candidate.passed_volume_filter,
+                passed_market_cap_filter=candidate.passed_market_cap_filter,
+                passed_exhaustion_filter=candidate.passed_exhaustion_filter,
+                is_friday_gap=candidate.is_friday_gap,
+                status=candidate.status,
+                rejection_reason=candidate.rejection_reason,
+                news_count=candidate.news_count,
+                sentiment_score=candidate.sentiment_score,
+                has_tier1_catalyst=candidate.has_tier1_catalyst,
+                catalyst_description=candidate.catalyst_description,
+                min_timestamp=candidate.min_timestamp,
+                data_freshness_hours=candidate.data_freshness_hours
+            )
+
+            # Save to database using new repository
+            gap_result = data_service.gap_result_repository.save(gap_result_sql)
+            gap_result_id = gap_result.id
 
             if gap_result_id:
                 saved_count += 1
@@ -659,69 +698,54 @@ def _generate_text_report(candidates, validated_candidates, filtered_candidates,
 @pass_config
 def results_command(config, num_days, num_results_per_day, session, status):
     """Query historical gap analysis results from database.
-    
+
     Shows gap candidates from recent analysis runs, grouped by trading date.
     Default: Last 5 days, top 10 results per day.
     """
-    from database.database_manager import DatabaseManager
-    from database.managers import GapResultsManager
     from datetime import date, timedelta
     from collections import defaultdict
-    
+
     console.print(Panel.fit(
         "[bold cyan]Gap Analysis Results - Historical Data[/bold cyan]",
         border_style="cyan"
     ))
-    
-    db_manager = DatabaseManager()
-    gap_manager = GapResultsManager(db_manager)
-    
+
+    # Get DataServiceV2
+    data_service = config.get_data_service_v2()
+
     # Calculate date range
     end_date = date.today()
     start_date = end_date - timedelta(days=30)  # Look back 30 days to find num_days worth of data
-    
-    # Query database
+
+    # Query database using repository
     try:
-        with db_manager.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Build query based on filters
-            where_clauses = ["gr.trading_date >= ?", "gr.trading_date <= ?"]
-            params = [start_date, end_date]
-            
-            if session != 'all':
-                where_clauses.append("gr.session_type = ?")
-                params.append(session)
-            
-            if status != 'all':
-                where_clauses.append("gr.status = ?")
-                params.append(status)
-            
-            query = f"""
-                SELECT gr.*, a.symbol, a.name
-                FROM gap_results gr
-                JOIN assets a ON gr.asset_id = a.id
-                WHERE {' AND '.join(where_clauses)}
-                ORDER BY gr.trading_date DESC, gr.session_type, 
-                         gr.gap_percentage DESC
-            """
-            
-            cursor.execute(query, params)
-            all_results = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-    
+        # Use repository method with filters
+        results = data_service.gap_result_repository.find_by_date_range_with_symbols(
+            start_date=start_date,
+            end_date=end_date,
+            session_type=session if session != 'all' else None,
+            status=status if status != 'all' else None
+        )
+
+        # Convert to dict format for compatibility with existing display logic
+        all_results = []
+        for gap_result, symbol, name in results:
+            result_dict = gap_result.model_dump()
+            result_dict['symbol'] = symbol
+            result_dict['name'] = name
+            all_results.append(result_dict)
+
     except Exception as e:
         console.print(f"[red]Error querying gap results: {e}[/red]")
         return
-    
+
     if not all_results:
         console.print("\n[yellow]No gap results found matching criteria[/yellow]")
         return
-    
+
     # Group by trading date
     results_by_date = defaultdict(list)
-    for row in all_results:
-        result = dict(zip(columns, row))
+    for result in all_results:
         results_by_date[result['trading_date']].append(result)
     
     # Show last num_days trading days
@@ -851,8 +875,6 @@ def backtest_command(config, date, num_days, force, dry_run):
         ./tradescout gap backtest --date 2025-10-09
         ./tradescout gap backtest --dry-run       # Preview updates
     """
-    from database.database_manager import DatabaseManager
-    from database.managers import GapResultsManager, GapPerformanceManager, MarketHolidaysManager, DataUpdateMetadataManager
     from analysis.gap_performance_calculator import GapPerformanceCalculator
     from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
     from api.config.api_keys import POLYGON_API_KEY
@@ -865,51 +887,37 @@ def backtest_command(config, date, num_days, force, dry_run):
 
     console.print("\n[bold]Backtesting gap candidates against actual market data...[/bold]\n")
 
-    # Initialize managers
-    db_manager = DatabaseManager()
-    metadata_manager = DataUpdateMetadataManager(db_manager)
-    gap_results_manager = GapResultsManager(db_manager)
-    gap_performance_manager = GapPerformanceManager(db_manager)
-    market_holidays_manager = MarketHolidaysManager(db_manager, metadata_manager)
+    # Get DataServiceV2
+    data_service = config.get_data_service_v2()
 
     aggregates_provider = PolygonAggregatesProvider(POLYGON_API_KEY)
-    calculator = GapPerformanceCalculator(aggregates_provider, market_holidays_manager)
+
+    # Note: GapPerformanceCalculator still uses old MarketHolidaysManager temporarily
+    # We pass data_service.market_holiday_repository which has compatible methods
+    calculator = GapPerformanceCalculator(aggregates_provider, data_service.market_holiday_repository)
 
     # Get gap results to process
     try:
-        with db_manager.get_connection() as conn:
-            cursor = conn.cursor()
+        # Use repository method
+        if date:
+            # Specific date
+            target_date = date_type.fromisoformat(date)
+            results = data_service.gap_result_repository.find_recent_with_symbols(
+                num_days=1,
+                specific_date=target_date
+            )
+        else:
+            # Most recent N days (all candidates per day)
+            results = data_service.gap_result_repository.find_recent_with_symbols(
+                num_days=num_days
+            )
 
-            # Build query
-            if date:
-                # Specific date
-                target_date = date_type.fromisoformat(date)
-                cursor.execute("""
-                    SELECT gr.*, a.symbol
-                    FROM gap_results gr
-                    JOIN assets a ON gr.asset_id = a.id
-                    WHERE gr.trading_date = ?
-                    ORDER BY gr.trading_date DESC, gr.quality_score DESC
-                """, (target_date,))
-            else:
-                # Most recent N days (all candidates per day)
-                cursor.execute("""
-                    WITH recent_dates AS (
-                        SELECT DISTINCT trading_date
-                        FROM gap_results
-                        ORDER BY trading_date DESC
-                        LIMIT ?
-                    )
-                    SELECT gr.*, a.symbol
-                    FROM gap_results gr
-                    JOIN assets a ON gr.asset_id = a.id
-                    WHERE gr.trading_date IN (SELECT trading_date FROM recent_dates)
-                    ORDER BY gr.trading_date DESC, gr.quality_score DESC
-                """, (num_days,))
-
-            rows = cursor.fetchall()
-            columns = [description[0] for description in cursor.description]
-            gap_results = [dict(zip(columns, row)) for row in rows]
+        # Convert to dict format
+        gap_results = []
+        for gap_result, symbol in results:
+            result_dict = gap_result.model_dump()
+            result_dict['symbol'] = symbol
+            gap_results.append(result_dict)
 
     except Exception as e:
         console.print(f"[red]Error querying gap results: {e}[/red]")
@@ -932,13 +940,12 @@ def backtest_command(config, date, num_days, force, dry_run):
         # Collect all performance data for statistics
         all_performance_data = []
         for gr in gap_results:
-            from database.managers import GapPerformanceManager
-            perf_mgr = GapPerformanceManager(db_manager)
-            existing = perf_mgr.get_performance_for_gap(gr['id'])
+            existing = data_service.gap_performance_repository.get_by_gap_result_id(gr['id'])
             if existing:
+                existing_dict = existing.model_dump()
                 all_performance_data.append({
                     'session_type': gr['session_type'],
-                    'performance': existing
+                    'performance': existing_dict
                 })
 
         if all_performance_data:
@@ -979,18 +986,19 @@ def backtest_command(config, date, num_days, force, dry_run):
         should_update = force
 
         if not should_update:
-            existing = gap_performance_manager.get_performance_for_gap(gap_result['id'])
+            existing = data_service.gap_performance_repository.get_by_gap_result_id(gap_result['id'])
             if not existing:
                 should_update = True
-            elif existing['entry_price'] is None or existing['exit_price'] is None:
+            elif existing.entry_price is None or existing.exit_price is None:
                 should_update = True
 
         if not should_update:
             # Already has performance data - read and display it
-            existing_dict = gap_performance_manager.get_performance_for_gap(gap_result['id'])
-            if existing_dict:
+            existing_sql = data_service.gap_performance_repository.get_by_gap_result_id(gap_result['id'])
+            if existing_sql:
+                existing_dict = existing_sql.model_dump()
                 # Convert dict to GapPerformance object for display
-                from models.gap_performance import GapPerformance, PerformanceOutcome
+                from models.dataclass.gap_performance import GapPerformance, PerformanceOutcome
                 from datetime import datetime as dt
 
                 existing_perf = GapPerformance(
@@ -1063,9 +1071,34 @@ def backtest_command(config, date, num_days, force, dry_run):
 
             # Save to database (unless dry-run)
             if not dry_run:
-                perf_id = gap_performance_manager.upsert_performance(performance)
-                if not perf_id:
-                    console.print("[red]✗ Failed to save[/red]")
+                # Convert GapPerformance domain model to SQLModel
+                from models.sqlmodel.gap_performance_tracking_sqlmodel import GapPerformanceTrackingSQLModel
+                from datetime import datetime
+
+                performance_sql = GapPerformanceTrackingSQLModel(
+                    gap_result_id=performance.gap_result_id,
+                    entry_price=performance.entry_price,
+                    exit_price=performance.exit_price,
+                    max_intraday_price=performance.max_intraday_price,
+                    min_intraday_price=performance.min_intraday_price,
+                    realized_return_pct=performance.realized_return_pct,
+                    max_drawdown_pct=performance.max_drawdown_pct,
+                    max_upside_pct=performance.max_upside_pct,
+                    gap_filled=performance.gap_filled,
+                    gap_fill_timestamp=performance.gap_fill_timestamp,
+                    outcome=performance.outcome.value if performance.outcome else None,
+                    trade_taken=False,
+                    updated_at=datetime.utcnow()
+                )
+
+                try:
+                    perf_result = data_service.gap_performance_repository.upsert(performance_sql)
+                    if not perf_result:
+                        console.print("[red]✗ Failed to save[/red]")
+                        failed_count += 1
+                        continue
+                except Exception as e:
+                    console.print(f"[red]✗ Failed to save: {e}[/red]")
                     failed_count += 1
                     continue
 
@@ -1125,25 +1158,24 @@ def backtest_command(config, date, num_days, force, dry_run):
 
     # Performance statistics
     if updated_count > 0 and not dry_run:
-        stats = gap_performance_manager.get_performance_statistics()
+        stats = data_service.gap_performance_repository.get_statistics()
         if stats:
             console.print(f"\n[bold]Performance Statistics ({stats['total_records']} gaps):[/bold]")
 
-            outcomes = stats.get('outcomes', {})
+            outcomes = stats.get('by_outcome', {})
             winners = outcomes.get('winner', 0)
             losers = outcomes.get('loser', 0)
             breakeven = outcomes.get('breakeven', 0)
+            not_traded = outcomes.get('not_traded', 0)
             total = winners + losers + breakeven
 
             if total > 0:
                 console.print(f"  Winners (≥2%):       {winners} ({100*winners/total:.1f}%)")
                 console.print(f"  Losers (≤-1%):       {losers} ({100*losers/total:.1f}%)")
                 console.print(f"  Breakeven (-1-2%):   {breakeven} ({100*breakeven/total:.1f}%)")
+                if not_traded > 0:
+                    console.print(f"  Not traded:          {not_traded}")
 
-                console.print(f"\n  Avg return:          {stats['avg_return']:.1f}%")
-                console.print(f"  Avg winner:          {stats['avg_winner_return']:.1f}%")
-                console.print(f"  Avg loser:           {stats['avg_loser_return']:.1f}%")
-
-                console.print(f"\n  Gap fill rate:       {stats['gap_fill_rate']:.1f}% ({stats['gap_filled_count']}/{stats['total_records']} gaps filled)")
+                console.print(f"\n  Incomplete records:  {stats.get('incomplete_records', 0)}")
 
 

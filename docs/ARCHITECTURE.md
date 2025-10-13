@@ -1,57 +1,61 @@
 # TradeScout Architecture
 
-**Purpose:** Technical architecture reference for TradeScout's codebase
-**Last Updated:** 2025-10-10
+**Purpose:** Technical architecture reference for TradeScout's repository-based architecture
+**Last Updated:** 2025-10-12
 
 ---
 
 ## High-Level Architecture
 
-TradeScout uses a **three-layer architecture** to separate concerns:
+TradeScout uses a **layered repository architecture** with clean separation of concerns:
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │             CLI Layer (src/cli/)                     │
-│         User commands → DataService calls            │
+│         User commands → Service calls                │
 └─────────────────────┬────────────────────────────────┘
                       │
 ┌─────────────────────▼────────────────────────────────┐
-│          DataService Layer (src/services/)           │
-│     Business logic, orchestration, TTL checks        │
+│        Service Layer (src/services/)                 │
+│     Business logic, orchestration, workflows         │
+│     - DataServiceV2 (main orchestrator)              │
+│     - MarketContextService (market state)            │
+│     - CacheService (cache-aside pattern)             │
 └──────────┬─────────────────────┬─────────────────────┘
            │                     │
     ┌──────▼────────┐     ┌──────▼────────────┐
-    │  Database     │     │  API Providers    │
-    │  Managers     │     │  (Polygon, etc.)  │
-    │  (src/       │     │  (src/api/        │
-    │  database/   │     │  providers/)       │
-    │  managers/)  │     │                    │
-    └──────┬───────┘     └──────┬─────────────┘
+    │  Repositories │     │  API Providers     │
+    │  (src/        │     │  (src/api/         │
+    │  repositories/)│    │  providers/)       │
+    │               │     │                    │
+    │  Business     │     │  HTTP/JSON         │
+    │  Queries      │     │  transformations   │
+    └──────┬───────┘      └──────┬─────────────┘
            │                     │
    ┌───────▼──────┐      ┌──────▼──────────┐
-   │ SQLite DB    │      │ External APIs   │
-   │ (data/*.db)  │      │ (polygon.io)    │
-   └──────────────┘      └─────────────────┘
+   │ SQLModel ORM │      │ External APIs   │
+   │ (models/     │      │ (polygon.io)    │
+   │ sqlmodel/)   │      │                 │
+   │              │      │                 │
+   │ Table defs   │      │                 │
+   └──────┬───────┘      └─────────────────┘
+          │
+   ┌──────▼──────┐
+   │ SQLite DB   │
+   │ (data/*.db) │
+   └─────────────┘
 ```
 
 ---
 
-## Layer 1: Models (Business Entities)
+## Dual Model System
 
-**Location:** `src/models/`
+TradeScout maintains **two parallel model systems** for clean separation:
 
-**Purpose:** Immutable dataclasses representing business entities
+### Domain Models (Dataclasses)
+**Location:** `src/models/dataclass/`
 
-**Key Models:**
-- `Asset` - Stock/ticker details (symbol, name, type)
-- `Fundamentals` - Company fundamentals (market cap, sector, SIC)
-- `AssetPrice` - Current price snapshot (close, open, high, low, volume)
-- `TickerSnapshot` - Real-time market data (minute bars, session data)
-- `MarketSnapshot` - Collection of ticker snapshots
-- `SentimentEvent` - News/sentiment data point
-- `FedData` - Federal Reserve economic data
-- `GapCandidate` - Identified gap trading opportunity
-- `MarketContext` - Current market state (session, date, status)
+**Purpose:** Lightweight, immutable business entities for data transfer
 
 **Characteristics:**
 ```python
@@ -60,29 +64,89 @@ class Asset:
     id: int
     symbol: str
     name: str
-    asset_type: str
+    asset_type: AssetType  # Enum
     market_id: int
     is_active: bool
+    created_at: datetime
+```
+
+**Used By:**
+- API Providers (return domain models)
+- Services (business logic operations)
+- Analysis modules
+- CLI display logic
+
+**Key Models:**
+- `Asset` - Stock/ticker details
+- `Market` - Exchange/market info
+- `AssetFundamentals` - Company fundamentals
+- `Provider` - Data provider metadata
+- `MarketHoliday` - Holiday calendar
+- `FedData` - Economic indicators
+- `SentimentEvent` - News/sentiment
+- `AssetPrice` - Price snapshots
+- `GapCandidate` - Gap trading opportunities
+- `MarketContext` - Market session state
+
+### ORM Models (SQLModel)
+**Location:** `src/models/sqlmodel/`
+
+**Purpose:** Database table definitions with ORM features
+
+**Characteristics:**
+```python
+class AssetSQLModel(SQLModel, table=True):
+    __tablename__ = "assets"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str = Field(unique=True, index=True)
+    name: Optional[str] = None
+    asset_type: str  # Stored as string
+    market_id: int = Field(foreign_key="markets.id")
+    is_active: bool = True
     created_at: datetime
     updated_at: datetime
 ```
 
-**Rules:**
-- ✅ Frozen (immutable)
-- ✅ Type hints on all fields
-- ✅ No database/API awareness
-- ✅ Business logic only (helpers, validators)
-- ❌ No external dependencies
+**Used By:**
+- Repositories (database operations only)
+- Database migrations
+- SQLModel metadata operations
+
+**Key Models:**
+- `AssetSQLModel` - assets table
+- `MarketSQLModel` - markets table
+- `FundamentalsSQLModel` - fundamentals table
+- `ProviderSQLModel` - providers table
+- `UniverseSQLModel` - universes table
+- `AssetPriceSQLModel` - asset_prices table
+- `DataUpdateMetadataSQLModel` - TTL tracking
+- `SentimentEventSQLModel` - sentiment_events table
+- `FedDataSQLModel` - fed_data table
+- `MarketHolidaySQLModel` - market_holidays table
+
+### Model Import Conventions
+
+```python
+# Domain models - for business logic
+from models.dataclass.asset import Asset, AssetType, AssetClass
+
+# ORM models - for database operations
+from models.sqlmodel.asset_sqlmodel import AssetSQLModel
+
+# Backward compatibility - exports domain models from root
+from models import Asset, AssetType, AssetClass
+```
 
 ---
 
-## Layer 2a: API Providers
+## Layer 1: API Providers
 
 **Location:** `src/api/providers/`
 
-**Purpose:** Fetch data from external APIs (Polygon, etc.)
+**Purpose:** Fetch data from external APIs, return domain models
 
-**Base Class:** `BaseAPIProvider`
+**Base Class:**
 ```python
 class BaseAPIProvider(ABC):
     def __init__(self, api_key: str, base_url: str):
@@ -93,153 +157,342 @@ class BaseAPIProvider(ABC):
     def _add_authentication(self, params: Dict) -> Dict:
         """Add API key/auth to request params"""
 
-    @abstractmethod
-    def _get_health_endpoint(self) -> str:
-        """Health check endpoint"""
-
     def _make_request(self, endpoint: str, params: Dict) -> Dict:
         """Make HTTP request with retry logic, rate limiting"""
 ```
 
 **Existing Providers:**
 
-| Provider | Purpose | Endpoints |
-|----------|---------|-----------|
-| `PolygonSnapshotProvider` | Real-time snapshot data | `/v2/snapshot/locale/us/markets/stocks/tickers` |
-| `PolygonTickersProvider` | Ticker details/metadata | `/v3/reference/tickers/{symbol}` |
-| `PolygonAggregatesProvider` | Historical OHLC bars | `/v2/aggs/ticker/{symbol}/range/{timespan}` |
-| `PolygonNewsProvider` | News/sentiment | `/v2/reference/news` |
-| `PolygonMarketStatusProvider` | Market hours/status | `/v1/marketstatus/now` |
-| `PolygonMarketsProvider` | Market/exchange data | `/v3/reference/exchanges` |
-| `PolygonFedProvider` | Fed economic data | `/fed/v1/inflation`, `/fed/v1/treasury-yields` |
+| Provider | Purpose | Returns |
+|----------|---------|---------|
+| `PolygonTickersProvider` | Ticker metadata | `Asset` domain models |
+| `PolygonSnapshotProvider` | Real-time snapshots | `TickerSnapshot` domain models |
+| `PolygonAggregatesProvider` | Historical OHLC | `AssetPrice` domain models |
+| `PolygonNewsProvider` | News/sentiment | `SentimentEvent` domain models |
+| `PolygonMarketStatusProvider` | Market status | `MarketHoliday` domain models |
+| `PolygonMarketsProvider` | Exchange data | `Market` domain models |
+| `PolygonFedProvider` | Economic data | `FedData` domain models |
 
 **Provider Responsibilities:**
-- ✅ HTTP communication
-- ✅ Authentication (API keys)
-- ✅ Rate limit handling (HTTP 429)
-- ✅ Response parsing (JSON → Model objects)
-- ✅ Retry logic (exponential backoff)
+- ✅ HTTP communication with external APIs
+- ✅ Authentication (API keys, OAuth)
+- ✅ Rate limit handling (HTTP 429 backoff)
+- ✅ JSON parsing → Domain model transformation
+- ✅ Retry logic with exponential backoff
 - ❌ NO database writes
 - ❌ NO caching/TTL logic
 - ❌ NO business logic
 
 ---
 
-## Layer 2b: Database Managers
+## Layer 2: Repositories
 
-**Location:** `src/database/managers/`
+**Location:** `src/repositories/`
 
-**Purpose:** Persist and retrieve data with TTL-based staleness checking
+**Purpose:** Business-focused data access wrapping ORM layer
 
-**Base Class:** `BaseManager`
+### What is a Repository?
+
+A **repository** is a business-focused data access layer that translates domain questions into database queries. It sits between the service layer (DataServiceV2) and the database (SQLModel).
+
+### Why Repositories Exist
+
+#### 1. SQLModel is TOO LOW-LEVEL for Business Logic
+
+SQLModel directly maps to database tables:
+
 ```python
-class BaseManager(ABC):
-    def __init__(self, db_manager: DatabaseManager):
-        self.db_manager = db_manager
-
-    @abstractmethod
-    def get_operation_type(self) -> str:
-        """Return operation type for TTL tracking"""
-
-    @abstractmethod
-    def get_ttl_seconds(self) -> int:
-        """Return TTL in seconds for this data type"""
+# models/sqlmodel/asset_sqlmodel.py - This is JUST a table representation
+class AssetSQLModel(SQLModel, table=True):
+    __tablename__ = "assets"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str
+    name: str
+    # ... just fields, no behavior
 ```
 
-**Existing Managers:**
+This gives you basic CRUD operations:
+- `session.get(AssetSQLModel, id)` - get by primary key
+- `session.add(asset)` - insert
+- `session.query(AssetSQLModel).all()` - select all
 
-| Manager | Entity | Table | TTL Logic |
-|---------|--------|-------|-----------|
-| `AssetManager` | `Asset` | `assets` | Per-ticker (7 days) |
-| `AssetPriceManager` | `AssetPrice` | `asset_prices` | Per-ticker (5 min) |
-| `FundamentalsManager` | `Fundamentals` | `fundamentals` | Per-ticker (7 days) |
-| `TickerSnapshotManager` | `TickerSnapshot` | `ticker_snapshots` | Per-ticker (5 min) |
-| `MarketSnapshotManager` | `MarketSnapshot` | N/A (in-memory) | Bulk operation (5 min) |
-| `SentimentEventsManager` | `SentimentEvent` | `sentiment_events` | Per-ticker (30 min) |
-| `FedDataManager` | `FedData` | `fed_data` | Bulk operation (12 hours) |
-| `MarketsManager` | `Market` | `markets` | Global (7 days) |
-| `MarketHolidaysManager` | `MarketHoliday` | `market_holidays` | Global (30 days) |
-| `MarketContextManager` | `MarketContext` | N/A (computed) | Session-based |
+But your business logic needs to ask questions like:
+- **"Give me all ACTIVE assets"**
+- **"Find assets by market"**
+- **"Get an asset WITH its market data (join)"**
+- **"Search by symbol prefix"**
 
-**Manager Responsibilities:**
-- ✅ CRUD operations (Create, Read, Update, Delete)
-- ✅ TTL staleness checking
-- ✅ Bulk upserts
-- ✅ Query helpers
-- ❌ NO API calls
-- ❌ NO business logic
+These are **domain operations**, not just table operations.
 
-**Pattern: get_or_fetch()**
+#### 2. Repositories Translate Business Questions to SQL
+
+Example from `repositories/asset_repository.py`:
+
 ```python
-def get_or_fetch(
-    self,
-    key: str,
-    fetch_fn: Callable,
-    force_refresh: bool = False
-) -> Optional[T]:
-    """Get from DB if fresh, otherwise fetch and store.
+def find_all_active(self, limit: Optional[int] = None) -> List[AssetSQLModel]:
+    """Get all active assets from database.
 
-    1. Check if data exists and is fresh (TTL)
-    2. If yes, return from database
-    3. If no, call fetch_fn() to get from API
-    4. Store fetched data to database
-    5. Return data
+    Business query: Core operation for trading systems.
     """
+    statement = select(AssetSQLModel).where(
+        AssetSQLModel.is_active == True
+    ).order_by(AssetSQLModel.symbol)
+
+    if limit:
+        statement = statement.limit(limit)
+
+    return list(self.session.exec(statement).all())
 ```
 
----
+**Business question:** "Give me active assets"
+**Repository translates to:** `SELECT * FROM assets WHERE is_active = true ORDER BY symbol`
 
-## Layer 3: DataService (Orchestration)
+#### 3. Joins and Complex Queries
 
-**Location:** `src/services/data_service.py`
+Example join query from `asset_repository.py`:
 
-**Purpose:** Orchestrate managers + providers to fulfill business requirements
-
-**Key Methods:**
 ```python
-class DataService:
-    def __init__(self, db_manager: DatabaseManager, api_key: str):
-        # Initialize all managers
-        self.asset_manager = AssetManager(db_manager)
-        self.asset_price_manager = AssetPriceManager(db_manager)
-        self.fundamentals_manager = FundamentalsManager(db_manager)
-        # ...
+def get_by_symbol_with_market(
+    self, symbol: str
+) -> Optional[tuple[AssetSQLModel, MarketSQLModel]]:
+    """Get asset with its associated market (join query).
 
-        # Initialize all providers
-        self.polygon_snapshot_provider = PolygonSnapshotProvider(api_key)
-        self.polygon_tickers_provider = PolygonTickersProvider(api_key)
-        # ...
+    Business query: Need asset + market data together.
+    """
+    from models.sqlmodel.market_sqlmodel import MarketSQLModel
 
-    def get_asset(self, symbol: str, force_refresh: bool = False) -> Optional[Asset]:
-        """Get asset with TTL-based caching"""
-        return self.asset_manager.get_or_fetch(
-            key=symbol,
-            fetch_fn=lambda: self.polygon_tickers_provider.fetch_ticker_details(symbol),
-            force_refresh=force_refresh
-        )
+    statement = select(AssetSQLModel, MarketSQLModel).join(
+        MarketSQLModel,
+        AssetSQLModel.market_id == MarketSQLModel.id
+    ).where(
+        AssetSQLModel.symbol == symbol.upper(),
+        AssetSQLModel.is_active == True
+    )
 
-    def get_latest_price(self, symbol: str, force_refresh: bool = False) -> Optional[AssetPrice]:
-        """Get latest price with TTL-based caching"""
-        # Complex orchestration: snapshot → parse → store → return
+    result = self.session.exec(statement).first()
+    return result if result else None
 ```
 
-**DataService Responsibilities:**
-- ✅ Orchestrate managers + providers
-- ✅ Implement business workflows
-- ✅ TTL-based refresh decisions
-- ✅ Error handling for end users
-- ✅ Logging
+**Business question:** "Give me AAPL with its exchange info"
+**Repository translates to:** `SELECT * FROM assets JOIN markets ON assets.market_id = markets.id WHERE symbol = 'AAPL'`
+
+**Without repository**, DataServiceV2 would have to write this SQL logic directly. That's messy and error-prone.
+
+#### 4. Aggregations and Statistics
+
+Example from `asset_repository.py`:
+
+```python
+def get_stats(self) -> dict:
+    """Get asset repository statistics.
+
+    Business query: Dashboard/monitoring needs.
+    """
+    from sqlmodel import func
+
+    total_assets = self.count_active()
+
+    # Count by asset type
+    statement = select(
+        AssetSQLModel.asset_type,
+        func.count(AssetSQLModel.id).label('count')
+    ).where(
+        AssetSQLModel.is_active == True
+    ).group_by(AssetSQLModel.asset_type)
+
+    results = self.session.exec(statement).all()
+    by_type = {asset_type: count for asset_type, count in results}
+
+    return {
+        "total_assets": total_assets,
+        "by_type": by_type
+    }
+```
+
+**Business question:** "Show me asset statistics"
+**Repository aggregates:** Multiple queries + calculations + formatting
+
+SQLModel doesn't have a `get_stats()` method - that's **domain logic**, not table logic.
+
+### Repository Principles
+
+#### ✅ Repository Speaks Domain Language
+
+```python
+# BAD - Service layer doing SQL directly
+assets = session.exec(
+    select(AssetSQLModel).where(AssetSQLModel.is_active == True)
+).all()
+
+# GOOD - Repository speaks business language
+assets = asset_repository.find_all_active()
+```
+
+The service layer should never write raw SQL queries. It should ask repositories for what it needs in business terms.
+
+#### ✅ Repository Has Single Responsibility
+
+Each repository manages ONE entity:
+- `AssetRepository` → assets table business operations
+- `MarketRepository` → markets table business operations
+- `FundamentalsRepository` → fundamentals table business operations
+- `UniverseRepository` → universes + memberships tables
+
+But they can **join** with other tables when needed for business queries.
+
+#### ✅ Repository Enables Testing
+
+```python
+# You can mock repositories in tests
+mock_repo = Mock(AssetRepository)
+mock_repo.find_all_active.return_value = [test_asset1, test_asset2]
+
+# Can't easily mock raw SQLModel session queries
+```
+
+#### ✅ Repository Promotes Reuse
+
+Complex query from `universe_repository.py`:
+
+```python
+def get_assets_with_fundamentals(self) -> List[Dict[str, Any]]:
+    """Complex join query used by universe filtering.
+
+    Business query: "Give me all assets WITH their fundamental data"
+    """
+    statement = select(
+        AssetSQLModel.id,
+        AssetSQLModel.symbol,
+        AssetSQLModel.name,
+        AssetSQLModel.asset_type,
+        FundamentalsSQLModel.sector,
+        FundamentalsSQLModel.market_cap,
+        MarketSQLModel.code.label("market_code")
+    ).join(
+        FundamentalsSQLModel,
+        # complex join logic
+    ).join(
+        MarketSQLModel,
+        # more join logic
+    )
+
+    # Returns dict format for filtering
+    return [dict(row._mapping) for row in results]
+```
+
+This **complex multi-table join** is used by:
+- `bootstrap_universes()` - universe filtering
+- Potentially other operations needing enriched asset data
+
+**Without repository:** This SQL would be duplicated everywhere you need it.
+
+### Repository Structure
+
+#### Standard Methods
+
+Every repository should have:
+
+**Query Methods:**
+```python
+def get_by_id(self, id: int) -> Optional[T]          # Single record by ID
+def get_by_[field](self, value) -> Optional[T]       # Single record by field
+def find_all() -> List[T]                             # All records
+def find_by_[criteria]() -> List[T]                   # Filtered records
+```
+
+**Persistence Methods:**
+```python
+def save(self, entity: T) -> T                        # Insert/update single
+def bulk_save(self, entities: List[T]) -> int         # Insert/update many
+def delete(self, entity: T) -> None                   # Delete single
+```
+
+**Statistics Methods:**
+```python
+def count_all() -> int                                # Total count
+def count_by_[criteria]() -> int                      # Conditional count
+def get_stats() -> dict                               # Aggregated statistics
+```
+
+### Existing Repositories
+
+| Repository | Entity | Business Queries |
+|------------|--------|------------------|
+| `AssetRepository` | `AssetSQLModel` | get_by_symbol, find_all_active, search |
+| `MarketRepository` | `MarketSQLModel` | get_by_code, find_all_active |
+| `FundamentalsRepository` | `FundamentalsSQLModel` | get_by_asset_id, bulk_upsert |
+| `ProviderRepository` | `ProviderSQLModel` | get_by_name, get_active_provider |
+| `UniverseRepository` | `UniverseSQLModel` | get_by_name, bulk_add_memberships, get_statistics |
+| `AssetPriceRepository` | `AssetPriceSQLModel` | get_latest_by_asset_id, bulk_save |
+| `DataUpdateMetadataRepository` | `DataUpdateMetadataSQLModel` | get_latest_by_operation, record_update |
+| `SentimentEventRepository` | `SentimentEventSQLModel` | find_recent_by_asset, bulk_save |
+| `SentimentTypeRepository` | `SentimentTypeSQLModel` | get_by_name, find_all_active |
+| `FedDataRepository` | `FedDataSQLModel` | get_latest_by_type, find_by_date_range |
+| `MarketHolidayRepository` | `MarketHolidaySQLModel` | find_upcoming, clear_all |
+
+**Repository Responsibilities:**
+- ✅ Business-focused query methods
+- ✅ CRUD operations on SQLModel entities
+- ✅ Type-safe SQLModel queries
+- ✅ Bulk operations for efficiency
+- ✅ Transaction management
+- ❌ NO API calls
+- ❌ NO business logic (workflows, validation)
+- ❌ NO TTL/caching logic
 
 ---
 
-## TTL (Time-To-Live) System
+## Layer 3: Cache Service
 
-### Purpose
+**Location:** `src/services/cache_service.py`
 
-Prevent excessive API calls by caching data with configurable freshness thresholds.
+**Purpose:** Generic cache-aside pattern with TTL tracking
 
-### Configuration
+**Pattern:**
+```python
+class CacheService[T]:
+    """Cache-aside pattern for any entity type."""
 
+    def __init__(
+        self,
+        repository: Any,  # Repository with get/save methods
+        metadata_repository: DataUpdateMetadataRepository,
+        metadata_type: DataUpdateMetadataType,
+        ttl_seconds: int
+    ):
+        self.repository = repository
+        self.metadata_repository = metadata_repository
+        self.metadata_type = metadata_type
+        self.ttl_seconds = ttl_seconds
+
+    def get_or_fetch(
+        self,
+        key: str,
+        fetch_fn: Callable[[], Optional[T]],
+        force_refresh: bool = False
+    ) -> Optional[T]:
+        """Cache-aside: Get from DB if fresh, else fetch and store."""
+
+        # Check freshness
+        if not force_refresh and self._is_fresh():
+            cached = self.repository.get(key)
+            if cached:
+                return cached
+
+        # Fetch fresh data
+        fresh_data = fetch_fn()
+        if fresh_data:
+            # Store to cache
+            self.repository.save(fresh_data)
+            # Update TTL metadata
+            self.metadata_repository.record_update(
+                self.metadata_type.value
+            )
+
+        return fresh_data
+```
+
+**TTL Configuration:**
 **File:** `configs/database_ttl.yaml`
 
 ```yaml
@@ -262,119 +515,519 @@ markets_ttl_days: 7
 market_holidays_ttl_days: 30
 ```
 
-### TTL Tracking
+**Cache Service Benefits:**
+- Generic (works with any entity type)
+- Configurable TTL per entity
+- Automatic metadata tracking
+- Reduces API calls 90%+
+- No external cache needed (Redis, etc.)
 
-**Table:** `data_update_metadata`
+---
 
+## Layer 4: Data Service V2 (Orchestration)
+
+**Location:** `src/services/data_service_v2.py`
+
+**Purpose:** Orchestrate repositories + providers + caches for business workflows
+
+**Architecture:**
+```python
+class DataServiceV2:
+    """Main orchestration service using repository pattern."""
+
+    def __init__(self, session: Session, api_key: str):
+        # Initialize repositories
+        self.asset_repository = AssetRepository(session)
+        self.market_repository = MarketRepository(session)
+        self.fundamentals_repository = FundamentalsRepository(session)
+        self.metadata_repository = DataUpdateMetadataRepository(session)
+        # ... more repositories
+
+        # Initialize providers
+        self.polygon_tickers_provider = PolygonTickersProvider(api_key)
+        self.polygon_snapshot_provider = PolygonSnapshotProvider(api_key)
+        # ... more providers
+
+        # Initialize caches
+        self.asset_cache = CacheService[AssetSQLModel](
+            repository=self.asset_repository,
+            metadata_repository=self.metadata_repository,
+            metadata_type=DataUpdateMetadataType.TICKERS,
+            ttl_seconds=CacheConfig.ASSETS_TTL
+        )
+        # ... more caches
+```
+
+**Business Workflows:**
+```python
+def get_asset(self, symbol: str, force_refresh: bool = False) -> Optional[Asset]:
+    """Get asset with TTL-based caching.
+
+    Returns domain model, not ORM model.
+    """
+    # Use cache service
+    asset_sql = self.asset_cache.get_or_fetch(
+        key=symbol,
+        fetch_fn=lambda: self._fetch_and_convert_asset(symbol),
+        force_refresh=force_refresh
+    )
+
+    if not asset_sql:
+        return None
+
+    # Convert SQLModel → Domain model
+    return Asset(
+        id=asset_sql.id,
+        symbol=asset_sql.symbol,
+        name=asset_sql.name,
+        asset_type=AssetType(asset_sql.asset_type),
+        market_id=asset_sql.market_id,
+        is_active=asset_sql.is_active,
+        created_at=asset_sql.created_at,
+        updated_at=asset_sql.updated_at
+    )
+
+def _fetch_and_convert_asset(self, symbol: str) -> Optional[AssetSQLModel]:
+    """Fetch from provider, convert to SQLModel."""
+    # Provider returns domain model
+    asset_domain = self.polygon_tickers_provider.fetch_ticker_details(symbol)
+    if not asset_domain:
+        return None
+
+    # Convert domain model → SQLModel for storage
+    return AssetSQLModel(
+        symbol=asset_domain.symbol,
+        name=asset_domain.name,
+        asset_type=asset_domain.asset_type.value,
+        market_id=asset_domain.market_id,
+        is_active=asset_domain.is_active,
+        created_at=asset_domain.created_at,
+        updated_at=asset_domain.updated_at
+    )
+```
+
+**Service Responsibilities:**
+- ✅ Orchestrate repositories + providers + caches
+- ✅ Implement business workflows
+- ✅ Convert between domain models ↔ SQLModels
+- ✅ Error handling for end users
+- ✅ Logging
+- ✅ Transaction coordination
+
+---
+
+## Data Flow Examples
+
+### Example 1: Get Asset Information
+
+```
+1. CLI Command:
+   ./tradescout asset info AAPL
+
+2. CLI Layer:
+   asset = data_service.get_asset("AAPL")
+
+3. DataServiceV2:
+   - Uses CacheService.get_or_fetch()
+
+4. CacheService:
+   - Checks metadata: Is AAPL data fresh? (< 7 days)
+   - If YES: AssetRepository.get_by_symbol("AAPL") → AssetSQLModel
+   - If NO:
+     a. Call fetch_fn() → Provider
+     b. Provider returns Asset (domain)
+     c. Convert Asset → AssetSQLModel
+     d. AssetRepository.save(asset_sql)
+     e. MetadataRepository.record_update("tickers")
+
+5. PolygonTickersProvider (if fetched):
+   - HTTP GET: /v3/reference/tickers/AAPL
+   - Parse JSON → Asset domain model
+   - Return to CacheService
+
+6. DataServiceV2:
+   - Convert AssetSQLModel → Asset domain model
+   - Return to CLI
+
+7. CLI Display:
+   - Show symbol, name, type, market, status
+```
+
+### Example 2: Bootstrap All Assets
+
+```
+1. CLI Command:
+   ./tradescout database bootstrap-assets
+
+2. CLI Layer:
+   result = data_service.bootstrap_assets()
+
+3. DataServiceV2:
+   - Check prerequisites (providers, markets exist)
+   - Build market_code_to_id mapping
+   - Call provider for all tickers
+
+4. PolygonTickersProvider:
+   - HTTP GET: /v3/reference/tickers?market=stocks&active=true
+   - Paginate through results (next_url)
+   - Parse each ticker → Asset domain model
+   - Return List[Asset]
+
+5. DataServiceV2:
+   - Convert each Asset → AssetSQLModel
+   - AssetRepository.bulk_save(asset_sql_list)
+   - MetadataRepository.record_update("tickers", "bootstrap")
+   - Return BootstrapResult
+
+6. CLI Display:
+   - Show count, duration, statistics
+```
+
+---
+
+## What Goes Where: Layer Responsibilities
+
+This section defines **exactly** what code belongs in each layer to maintain clean separation of concerns.
+
+### Repository Layer (Data Access)
+
+**Responsibilities:**
+- ✅ SQL queries (SELECT, INSERT, UPDATE, DELETE)
+- ✅ Joins across tables
+- ✅ Aggregations (COUNT, SUM, GROUP BY)
+- ✅ Filtering by database fields
+- ✅ Sorting, pagination, limits
+- ✅ Database transactions
+- ✅ Type-safe query building
+
+**Examples:**
+```python
+def get_by_symbol(self, symbol: str) -> Optional[AssetSQLModel]
+def find_all_active(self, limit: Optional[int] = None) -> List[AssetSQLModel]
+def bulk_save(self, assets: List[AssetSQLModel]) -> int
+def count_active(self) -> int
+```
+
+**Does NOT Belong Here:**
+- ❌ API calls to external services
+- ❌ Business rules ("if market cap > X then do Y")
+- ❌ Data transformations (API response → domain model)
+- ❌ TTL/caching decisions
+
+### Service Layer (Business Logic)
+
+**Responsibilities:**
+- ✅ Orchestration (call multiple repositories)
+- ✅ Business rules (if this then that)
+- ✅ API calls (fetch from Polygon)
+- ✅ Data transformation (API response → database model)
+- ✅ Caching decisions (when to refresh)
+- ✅ Error handling & retries
+- ✅ Progress tracking
+- ✅ Validation of business constraints
+
+**Examples:**
+```python
+def bootstrap_assets(self, market: str, active: bool)
+def calculate_asset_sentiment(self, symbol: str)
+def get_market_snapshot(self, symbols: List[str])
+```
+
+**Does NOT Belong Here:**
+- ❌ Raw SQL queries
+- ❌ Direct database connections
+- ❌ HTTP request/response handling (belongs in FastAPI)
+- ❌ User interface logic (belongs in CLI)
+
+### Provider Layer (External APIs)
+
+**Responsibilities:**
+- ✅ HTTP communication with external APIs
+- ✅ Authentication (API keys, OAuth)
+- ✅ Rate limit handling (HTTP 429 backoff)
+- ✅ JSON parsing → Domain model transformation
+- ✅ Retry logic with exponential backoff
+- ✅ Provider-specific error handling
+
+**Examples:**
+```python
+def fetch_ticker_details(self, symbol: str) -> Optional[Asset]
+def fetch_all_tickers(self, market: str) -> List[Asset]
+def fetch_market_status(self) -> Optional[Dict[str, Any]]
+```
+
+**Does NOT Belong Here:**
+- ❌ Database writes
+- ❌ Caching/TTL logic
+- ❌ Business logic (filtering, validation)
+- ❌ References to repositories or services
+
+### Cache Service Layer
+
+**Responsibilities:**
+- ✅ Cache-aside pattern implementation
+- ✅ TTL freshness checks
+- ✅ Metadata timestamp tracking
+- ✅ Generic caching logic (works for any entity)
+
+**Does NOT Belong Here:**
+- ❌ Entity-specific logic
+- ❌ Business rules
+- ❌ Direct API calls (passed as fetch_fn)
+
+### CLI Layer (User Interface)
+
+**Responsibilities:**
+- ✅ Parse user commands and arguments
+- ✅ Call service layer methods
+- ✅ Format output for terminal display
+- ✅ Handle user errors (invalid input)
+- ✅ Progress bars and status updates
+
+**Does NOT Belong Here:**
+- ❌ Business logic
+- ❌ Database queries
+- ❌ API calls
+- ❌ Data transformations
+
+### Model Layers
+
+**Domain Models (Dataclasses):**
+- ✅ Business entity definitions
+- ✅ Enums for type safety
+- ✅ Helper methods for display
+- ✅ Validation logic
+- ❌ NO database awareness
+- ❌ NO API calls
+
+**SQLModel (ORM):**
+- ✅ Table definitions
+- ✅ Column types and constraints
+- ✅ Relationships (foreign keys)
+- ✅ Indexes
+- ❌ NO business logic
+- ❌ NO complex calculations
+
+---
+
+## Migration Guide: Old vs New Architecture
+
+### Old Pattern (BaseManager)
+
+The old architecture mixed responsibilities in a single class:
+
+```python
+# OLD - Mixed responsibilities
+class AssetManager(BaseManager):
+    def get_or_fetch(self, key, fetch_fn):
+        # Cache logic + database logic + TTL logic mixed together
+        ...
+
+    def get_entity_from_database(self, key):
+        # Raw SQL + manual row mapping
+        cursor.execute("SELECT * FROM assets WHERE symbol = ?", (symbol,))
+        row = cursor.fetchone()
+        return dict(zip(columns, row))
+```
+
+**Problems:**
+- Mixed concerns (cache + database + business logic)
+- Raw SQL strings everywhere
+- Manual row-to-dict mapping (error-prone)
+- Hard to test (can't mock parts)
+- Hard to reuse queries
+- No type safety
+
+### New Pattern (Layered)
+
+The new architecture separates responsibilities across layers:
+
+```python
+# NEW - Separated responsibilities
+
+# 1. SQLModel - Pure table definition
+class AssetSQLModel(SQLModel, table=True):
+    __tablename__ = "assets"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    symbol: str
+    # ... type-safe fields
+
+# 2. Repository - Business queries
+class AssetRepository:
+    def find_all_active(self) -> List[AssetSQLModel]:
+        statement = select(AssetSQLModel).where(
+            AssetSQLModel.is_active == True
+        )
+        return list(self.session.exec(statement).all())
+
+# 3. Cache - Cache-aside pattern
+class CacheService:
+    def get_or_fetch(self, key, fetch_fn, ttl_seconds):
+        # Generic caching logic
+
+# 4. Service - Orchestration
+class DataServiceV2:
+    def get_asset(self, symbol: str) -> Optional[Asset]:
+        return self.asset_cache.get_or_fetch(
+            key=symbol,
+            fetch_fn=lambda: self._fetch_asset(symbol)
+        )
+```
+
+**Benefits:**
+- Separation of concerns - each layer has one job
+- Type safety everywhere (SQLModel + Python type hints)
+- Easy to test - mock each layer independently
+- Reusable queries - define once, use everywhere
+- Clear business intent - method names describe operations
+- No raw SQL in business logic
+
+### Migration Status: COMPLETE
+
+The migration from the old manager-based pattern to the repository-based architecture is **complete**:
+
+**Completed Migration:**
+- ✅ **All SQLModels created** - Asset, Market, Fundamentals, Provider, Universe, AssetPrice, DataUpdateMetadata, SentimentEvent, FedData, MarketHoliday, Gap tracking
+- ✅ **All Repositories implemented** - Business queries for all entities
+- ✅ **DataServiceV2 fully wired** - All repositories initialized and integrated
+- ✅ **FastAPI endpoints created** - HTTP interface with auto-generated docs
+- ✅ **CLI migrated** - All commands use DataServiceV2
+- ✅ **Old code deleted** - BaseManager pattern removed, old data_service.py removed
+
+**Current Architecture:**
+- `DataServiceV2` is the primary orchestration service
+- Repository pattern used throughout
+- Dual model system (domain dataclasses + ORM SQLModels)
+- Cache-aside pattern with TTL management
+- Type-safe queries with SQLModel
+
+---
+
+## Database Schema
+
+### Core Tables
+
+**assets**
 ```sql
-CREATE TABLE data_update_metadata (
-    operation_type TEXT PRIMARY KEY,  -- e.g., 'ticker_snapshot', 'fed_data'
-    last_update TEXT NOT NULL,        -- ISO timestamp of last update
+CREATE TABLE assets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol TEXT UNIQUE NOT NULL,
+    name TEXT,
+    asset_type TEXT NOT NULL,
+    asset_class TEXT NOT NULL,
+    market_id INTEGER NOT NULL,
+    currency TEXT DEFAULT 'USD',
+    provider_id INTEGER NOT NULL,
+    is_active BOOLEAN DEFAULT 1,
+    is_delisted BOOLEAN DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (market_id) REFERENCES markets(id),
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+);
+```
+
+**providers**
+```sql
+CREATE TABLE providers (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    display_name TEXT NOT NULL,
+    base_url TEXT,
+    api_key_required BOOLEAN DEFAULT 1,
+    is_active BOOLEAN DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+```
+
+**markets**
+```sql
+CREATE TABLE markets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    code TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    country TEXT DEFAULT 'US',
+    timezone TEXT DEFAULT 'America/New_York',
+    currency TEXT DEFAULT 'USD',
+    regular_open_time TEXT,
+    regular_close_time TEXT,
+    is_active BOOLEAN DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 ```
 
-**Purpose:** Track last update time for bulk operations (all tickers, all indices, etc.)
-
-**Example:**
+**asset_fundamentals**
 ```sql
--- Last time we fetched market snapshot for all tickers
-INSERT INTO data_update_metadata VALUES ('market_snapshot', '2025-10-10 14:30:00', ...);
-
--- Last time we fetched all Fed data
-INSERT INTO data_update_metadata VALUES ('fed_data', '2025-10-10 06:00:00', ...);
+CREATE TABLE asset_fundamentals (
+    asset_id INTEGER PRIMARY KEY,         -- One-to-one with assets table
+    company_name TEXT,
+    sector TEXT,
+    industry TEXT,
+    sic_code TEXT,
+    market_cap BIGINT,
+    shares_outstanding BIGINT,
+    avg_volume_30d BIGINT,
+    beta DECIMAL(6,3),
+    pe_ratio DECIMAL(8,2),
+    dividend_yield DECIMAL(6,4),
+    provider_id INTEGER,
+    last_updated DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (asset_id) REFERENCES assets(id),
+    FOREIGN KEY (provider_id) REFERENCES providers(id)
+);
+CREATE INDEX idx_fundamentals_sector ON asset_fundamentals(sector);
+CREATE INDEX idx_fundamentals_industry ON asset_fundamentals(industry);
+CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
 ```
 
-### TTL Patterns
-
-**Pattern 1: Per-Ticker TTL**
-```python
-# Each ticker has its own timestamp
-asset = asset_manager.get(symbol="AAPL")
-if asset and asset.is_stale(ttl_seconds=604800):  # 7 days
-    # Fetch fresh data for AAPL only
+**universes**
+```sql
+CREATE TABLE universes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT UNIQUE NOT NULL,
+    description TEXT,
+    is_active BOOLEAN DEFAULT 1,
+    min_market_cap INTEGER,
+    min_volume INTEGER,
+    max_assets INTEGER,
+    last_updated TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 ```
 
-**Pattern 2: Bulk Operation TTL**
-```python
-# All tickers share one timestamp
-metadata = metadata_manager.get_metadata("market_snapshot")
-if metadata.is_stale(ttl_seconds=300):  # 5 minutes
-    # Fetch fresh data for ALL tickers
+**universe_memberships**
+```sql
+CREATE TABLE universe_memberships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    universe_id INTEGER NOT NULL,
+    asset_id INTEGER NOT NULL,
+    added_at TEXT NOT NULL,
+    FOREIGN KEY (universe_id) REFERENCES universes(id),
+    FOREIGN KEY (asset_id) REFERENCES assets(id),
+    UNIQUE(universe_id, asset_id)
+);
 ```
 
----
-
-## Key Design Patterns
-
-### 1. Immutable Models
-
-**Why:** Thread-safe, predictable, prevents accidental mutations
-
-```python
-@dataclass(frozen=True)
-class Asset:
-    id: int
-    symbol: str
-    # ... fields are immutable after creation
+**data_update_metadata**
+```sql
+CREATE TABLE data_update_metadata (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    operation_type TEXT NOT NULL,
+    operation_subtype TEXT,
+    started_at TEXT,
+    completed_at TEXT,
+    status TEXT DEFAULT 'running',
+    total_items INTEGER,
+    processed_items INTEGER DEFAULT 0,
+    failed_items INTEGER DEFAULT 0,
+    api_calls_made INTEGER DEFAULT 0,
+    stats TEXT,
+    operation_params TEXT,
+    error_message TEXT
+);
 ```
-
-### 2. Separation of Concerns
-
-| Layer | Does | Doesn't Do |
-|-------|------|------------|
-| **Models** | Define structure, business helpers | Database, API, I/O |
-| **Providers** | Fetch from APIs, parse responses | Store to DB, business logic |
-| **Managers** | CRUD, TTL checks | API calls, business logic |
-| **DataService** | Orchestrate, business workflows | Direct SQL, HTTP requests |
-| **CLI** | User interaction, display | Business logic, data access |
-
-### 3. Dependency Injection
-
-**Service Layer:**
-```python
-class DataService:
-    def __init__(self, db_manager: DatabaseManager, api_key: str):
-        # Inject dependencies
-        self.asset_manager = AssetManager(db_manager)
-        self.polygon_provider = PolygonSnapshotProvider(api_key)
-```
-
-**Benefits:**
-- Testable (inject mocks)
-- Flexible (swap implementations)
-- Clear dependencies
-
-### 4. Factory Pattern for Providers
-
-**Why:** Multiple API providers may exist for same data (Polygon, Alpha Vantage, Finnhub)
-
-```python
-def create_snapshot_provider(provider_name: str, api_key: str) -> BaseSnapshotProvider:
-    if provider_name == "polygon":
-        return PolygonSnapshotProvider(api_key)
-    elif provider_name == "alpha_vantage":
-        return AlphaVantageSnapshotProvider(api_key)
-    else:
-        raise ValueError(f"Unknown provider: {provider_name}")
-```
-
-### 5. Bulk Operations
-
-**Why:** API efficiency (1 call for 100 symbols vs 100 calls)
-
-**Example: Market Snapshot**
-```python
-# Fetch all tracked tickers in one API call
-def fetch_market_snapshot() -> List[TickerSnapshot]:
-    # GET /v2/snapshot/locale/us/markets/stocks/tickers
-    # Returns: 100+ ticker snapshots in single response
-```
-
-**TTL Strategy:**
-- Single `data_update_metadata` entry for "market_snapshot"
-- All tickers refreshed together (not individually)
 
 ---
 
@@ -382,226 +1035,166 @@ def fetch_market_snapshot() -> List[TickerSnapshot]:
 
 ```
 src/
-├── models/              # Immutable business entities
-│   ├── snapshot.py      # TickerSnapshot, MarketSnapshot
-│   ├── fundamentals.py  # Fundamentals
-│   ├── price.py         # AssetPrice
-│   ├── market_context.py# MarketContext
-│   ├── gap.py           # GapCandidate
-│   └── fed_data.py      # FedData
+├── models/
+│   ├── dataclass/          # Domain models for business logic
+│   │   ├── asset.py
+│   │   ├── market.py
+│   │   ├── fundamentals.py
+│   │   ├── provider.py
+│   │   ├── universe.py
+│   │   ├── price.py
+│   │   ├── snapshot.py
+│   │   ├── gap.py
+│   │   ├── market_context.py
+│   │   ├── sentiment_event.py
+│   │   ├── fed_data.py
+│   │   └── ...
+│   │
+│   ├── sqlmodel/           # ORM models for database
+│   │   ├── asset_sqlmodel.py
+│   │   ├── market_sqlmodel.py
+│   │   ├── fundamentals_sqlmodel.py
+│   │   ├── provider_sqlmodel.py
+│   │   ├── universe_sqlmodel.py
+│   │   ├── asset_price_sqlmodel.py
+│   │   ├── data_update_metadata_sqlmodel.py
+│   │   └── ...
+│   │
+│   └── __init__.py         # Backward compatibility exports
+│
+├── repositories/           # Business-focused data access
+│   ├── asset_repository.py
+│   ├── market_repository.py
+│   ├── fundamentals_repository.py
+│   ├── provider_repository.py
+│   ├── universe_repository.py
+│   ├── asset_price_repository.py
+│   ├── data_update_metadata_repository.py
+│   └── ...
 │
 ├── api/
-│   ├── config/
-│   │   └── api_keys.py  # API key configuration
-│   └── providers/       # External API clients
+│   └── providers/          # External API clients
 │       ├── base_provider.py
-│       ├── polygon_snapshot_provider.py
 │       ├── polygon_tickers_provider.py
+│       ├── polygon_snapshot_provider.py
 │       ├── polygon_aggregates_provider.py
 │       ├── polygon_news_provider.py
 │       ├── polygon_fed_provider.py
 │       └── ...
 │
-├── database/
-│   ├── database_manager.py         # SQLite connection manager
-│   ├── migrations/                 # SQL migration files
-│   └── managers/                   # Data access layer
-│       ├── base_manager.py
-│       ├── asset_manager.py
-│       ├── asset_price_manager.py
-│       ├── fundamentals_manager.py
-│       ├── ticker_snapshot_manager.py
-│       ├── market_snapshot_manager.py
-│       ├── sentiment_events_manager.py
-│       ├── fed_data_manager.py
-│       ├── data_update_metadata_manager.py
-│       └── ...
-│
 ├── services/
-│   ├── data_service.py            # Main orchestration layer
-│   └── market_context_service.py  # Market state service
+│   ├── data_service_v2.py            # Main orchestration
+│   ├── cache_service.py              # Generic cache-aside
+│   └── market_context_service.py     # Market state
 │
 ├── analysis/
-│   ├── gap_analyzer.py            # Gap trading analysis
-│   └── sentiment_analyzer.py      # Sentiment scoring
+│   ├── gap_analyzer.py
+│   └── sentiment_analyzer.py
 │
 ├── screener/
-│   ├── screener_engine.py         # Screener execution
-│   └── screener_display.py        # Results formatting
+│   ├── screener_engine.py
+│   └── screener_display.py
+│
+├── output/
+│   ├── cli_adapter.py
+│   ├── screener_display.py
+│   └── gap_display.py
 │
 ├── cli/
-│   ├── main.py                    # CLI entry point
+│   ├── main.py
 │   ├── asset_commands.py
 │   ├── market_commands.py
+│   ├── database_commands.py
 │   ├── screener_commands.py
 │   ├── gap_commands.py
-│   ├── fed_commands.py
 │   └── ...
 │
 └── utils/
-    ├── config_loader.py           # YAML config loading
+    ├── config_loader.py
     └── ...
 ```
 
 ---
 
-## Data Flow Examples
+## Key Design Patterns
 
-### Example 1: Get Latest Price for AAPL
+### 1. Dual Model System
 
-```
-1. CLI Command:
-   ./tradescout asset info AAPL
+**Why:** Separate concerns - domain logic vs database persistence
 
-2. CLI Layer (asset_commands.py):
-   data_service.get_latest_price("AAPL")
+**Domain Models (Dataclass):**
+- Lightweight, immutable
+- Used by: Providers, Services, Analysis
+- Import: `from models.dataclass.asset import Asset`
 
-3. DataService:
-   - Check: Is AAPL snapshot fresh? (< 5 min old)
-   - If NO:
-     a. Call: polygon_snapshot_provider.fetch_ticker_snapshot("AAPL")
-     b. Store: ticker_snapshot_manager.upsert(snapshot)
-     c. Update: metadata_manager.record_update("ticker_snapshot")
-   - If YES:
-     a. Get: ticker_snapshot_manager.get("AAPL")
+**ORM Models (SQLModel):**
+- Database-aware, mutable
+- Used by: Repositories only
+- Import: `from models.sqlmodel.asset_sqlmodel import AssetSQLModel`
 
-4. Provider (if needed):
-   - HTTP GET: /v2/snapshot/locale/us/markets/stocks/tickers/AAPL
-   - Parse JSON → TickerSnapshot model
-   - Return to DataService
+### 2. Repository Pattern
 
-5. Manager (if fetch occurred):
-   - INSERT/UPDATE ticker_snapshots table
-   - Return TickerSnapshot to DataService
+**Why:** Business-focused data access, hide database implementation
 
-6. DataService → CLI → User:
-   Display price, change%, volume, etc.
+```python
+# Repository provides business queries
+assets = asset_repository.find_all_active(limit=100)
+
+# Not raw SQL
+cursor.execute("SELECT * FROM assets WHERE is_active = 1 LIMIT 100")
 ```
 
-### Example 2: Run Gap Analysis
+### 3. Cache-Aside Pattern
 
+**Why:** Generic caching with TTL, works for any entity
+
+```python
+# CacheService handles: check freshness, fetch if stale, store, update TTL
+asset = cache.get_or_fetch(
+    key=symbol,
+    fetch_fn=lambda: provider.fetch(symbol)
+)
 ```
-1. CLI Command:
-   ./tradescout gap analyze
 
-2. CLI Layer (gap_commands.py):
-   - Get market context (session, date)
-   - Fetch all ticker snapshots (bulk)
-   - Filter for gap candidates
+### 4. Dependency Injection
 
-3. DataService:
-   - Check: Is market_snapshot fresh? (< 5 min)
-   - If NO:
-     a. Fetch: polygon_snapshot_provider.fetch_all_tickers()
-     b. Store: market_snapshot_manager.bulk_upsert(snapshots)
-   - Return: List[TickerSnapshot]
+**Why:** Testable, flexible, clear dependencies
 
-4. GapAnalyzer:
-   - Calculate gaps (current vs previous close)
-   - Filter by volume, market cap
-   - Score quality (0-100)
-   - Detect exhaustion patterns
-
-5. CLI Display:
-   - Show gap candidates
-   - Show quality scores
-   - Generate report file
+```python
+class DataServiceV2:
+    def __init__(self, session: Session, api_key: str):
+        # Inject session (can mock for tests)
+        self.asset_repository = AssetRepository(session)
 ```
+
+### 5. Separation of Concerns
+
+| Layer | Responsibility | Doesn't Do |
+|-------|---------------|------------|
+| **Domain Models** | Business entities, helpers | Database, API |
+| **SQLModel** | Table definitions, ORM | Business logic, API |
+| **Providers** | Fetch from APIs | Database writes, caching |
+| **Repositories** | Data access queries | API calls, business logic |
+| **CacheService** | TTL-based caching | Entity-specific logic |
+| **DataService** | Orchestrate workflows | Direct SQL, HTTP |
+| **CLI** | User interaction | Business logic, data access |
 
 ---
 
-## Database Schema (Key Tables)
+## Testing Strategy
 
-### assets
-```sql
-CREATE TABLE assets (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    symbol TEXT UNIQUE NOT NULL,
-    name TEXT,
-    asset_type TEXT,  -- 'stock', 'etf', 'index'
-    market_id INTEGER,
-    is_active BOOLEAN DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (market_id) REFERENCES markets(id)
-);
-```
+### Unit Tests
+- **Domain Models:** Validation, helpers, transformations
+- **Providers:** Response parsing (mock HTTP)
+- **Repositories:** CRUD operations (in-memory SQLite)
+- **Services:** Business logic (mock repositories)
 
-### asset_prices
-```sql
-CREATE TABLE asset_prices (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    asset_id INTEGER NOT NULL,
-    timestamp INTEGER NOT NULL,
-    close REAL,
-    high REAL,
-    low REAL,
-    open REAL,
-    volume INTEGER,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (asset_id) REFERENCES assets(id),
-    UNIQUE(asset_id, timestamp)
-);
-```
+### Integration Tests
+- **End-to-end workflows** with real database
+- **Repository queries** with actual SQLModel
+- **CLI commands** with test fixtures
 
-### fundamentals
-```sql
-CREATE TABLE fundamentals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    asset_id INTEGER UNIQUE NOT NULL,
-    market_cap REAL,
-    shares_outstanding REAL,
-    sector TEXT,
-    sic_code TEXT,
-    description TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (asset_id) REFERENCES assets(id)
-);
-```
-
-### sentiment_events
-```sql
-CREATE TABLE sentiment_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    asset_id INTEGER NOT NULL,
-    sentiment_type_id INTEGER NOT NULL,
-    event_timestamp INTEGER NOT NULL,
-    title TEXT,
-    description TEXT,
-    url TEXT,
-    sentiment_score TEXT,  -- 'positive', 'negative', 'neutral', 'mixed'
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    FOREIGN KEY (asset_id) REFERENCES assets(id),
-    FOREIGN KEY (sentiment_type_id) REFERENCES sentiment_types(id)
-);
-```
-
-### fed_data
-```sql
-CREATE TABLE fed_data (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    data_type TEXT NOT NULL,  -- 'inflation', 'inflation_expectations', 'treasury_yields'
-    observation_date TEXT NOT NULL,
-    value REAL NOT NULL,
-    details TEXT NOT NULL,  -- JSON blob
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    UNIQUE(data_type, observation_date)
-);
-```
-
-### data_update_metadata
-```sql
-CREATE TABLE data_update_metadata (
-    operation_type TEXT PRIMARY KEY,
-    last_update TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-```
+**Location:** `tests/`
 
 ---
 
@@ -612,12 +1205,12 @@ CREATE TABLE data_update_metadata (
 **Location:** `configs/`
 
 **Files:**
-- `database_ttl.yaml` - TTL settings for all data types
+- `database_ttl.yaml` - TTL settings for caching
 - `gap_trading.yaml` - Gap analysis configuration
 - `market_context_rules.yaml` - Market session rules
 - `sic_sector_mapping.yaml` - SIC code → sector mapping
 - `universes/*.yaml` - Universe definitions
-- `screeners/*.yaml` - Screener definitions
+- `screeners/*.yaml` - Screener templates
 
 **Loading:**
 ```python
@@ -625,116 +1218,37 @@ from utils.config_loader import get_config_loader
 
 config = get_config_loader()
 ttl_config = config.load_database_ttl_config()
-gap_config = config.load_gap_trading_config()
 ```
-
----
-
-## Testing Strategy
-
-### Unit Tests
-- **Models:** Validation, helpers, transformations
-- **Providers:** Response parsing (mock HTTP)
-- **Managers:** CRUD operations (in-memory SQLite)
-- **Services:** Business logic (mock providers + managers)
-
-### Integration Tests
-- **End-to-end workflows** with real database
-- **API provider** smoke tests (optional, rate limit friendly)
-- **CLI commands** with test fixtures
-
-**Location:** `tests/`
-
----
-
-## Error Handling
-
-### Provider Layer
-```python
-try:
-    response = self._make_request(endpoint, params)
-except requests.exceptions.Timeout:
-    logger.error(f"Timeout fetching {endpoint}")
-    return None
-except requests.exceptions.HTTPError as e:
-    if e.response.status_code == 429:
-        logger.warning("Rate limit hit, implement backoff")
-    raise
-```
-
-### Manager Layer
-```python
-try:
-    with self.db_manager.get_connection() as conn:
-        cursor.execute(query, params)
-except sqlite3.IntegrityError as e:
-    logger.error(f"Duplicate entry: {e}")
-    return None
-```
-
-### Service Layer
-```python
-try:
-    asset = self.get_asset(symbol)
-    if not asset:
-        logger.warning(f"Asset {symbol} not found")
-        return None
-except Exception as e:
-    logger.error(f"Unexpected error fetching {symbol}: {e}")
-    raise
-```
-
----
-
-## Performance Considerations
-
-### 1. Bulk Operations
-- Fetch 100+ tickers in single API call (market snapshot)
-- Bulk INSERT with `executemany()`
-- Single TTL check for entire bulk operation
-
-### 2. Database Indexing
-```sql
-CREATE INDEX idx_asset_prices_symbol ON asset_prices(asset_id, timestamp DESC);
-CREATE INDEX idx_sentiment_events_asset ON sentiment_events(asset_id, event_timestamp DESC);
-```
-
-### 3. Connection Pooling
-- Single `DatabaseManager` instance per CLI command
-- Context manager pattern for connections
-- Automatic cleanup on exit
-
-### 4. Caching Strategy
-- TTL-based caching reduces API calls 90%+
-- In-memory caching in CLI session (e.g., market context)
-- No external cache (Redis, etc.) - keep it simple
 
 ---
 
 ## Summary
 
 **Architecture Philosophy:**
-- **Separation of concerns** - Each layer has one job
-- **Immutability** - Models are frozen dataclasses
+- **Repository pattern** - Business queries, not raw SQL
+- **Dual model system** - Domain logic separate from persistence
+- **Cache-aside pattern** - Generic caching with TTL
+- **Clean layering** - Each layer has one job
+- **Type safety** - Python type hints + SQLModel validation
 - **Dependency injection** - Testable, flexible
-- **TTL-based caching** - Reduce API calls, configurable freshness
-- **Bulk operations** - API efficiency
-- **Type safety** - Python type hints throughout
 
 **Key Strengths:**
-- ✅ Clean layer separation
-- ✅ Easy to test
-- ✅ Easy to add new providers
-- ✅ Easy to add new data types
-- ✅ Configurable TTL system
-- ✅ Type-safe throughout
+- ✅ Clean separation of concerns
+- ✅ Easy to test (mock repositories)
+- ✅ Type-safe throughout (domain + ORM)
+- ✅ Generic caching (any entity type)
+- ✅ Business-meaningful queries
+- ✅ Easy to add new entities
+- ✅ SQLModel benefits (migrations, validation)
 
 **Trade-offs:**
-- More files/classes than monolithic approach
-- Some duplication (managers have similar patterns)
-- Learning curve for new contributors
+- Dual model system requires conversion
+- More boilerplate than direct SQL
+- Learning curve for repository pattern
+- SQLModel adds complexity vs raw SQL
 
 **Next Steps:**
-- See planning docs for upcoming features (indicators, indices)
-- See database migration files for schema evolution
-- See CLI commands for user-facing functionality
+- See `docs/planning/` for upcoming features
+- See `database/migrations/` for schema evolution
+- See `cli/` for user-facing functionality
+- See `GETTING_STARTED.md` for development guide

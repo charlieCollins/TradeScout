@@ -69,11 +69,10 @@ def database_info(config):
 
     # Add recent operations table
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_manager import DatabaseManager
-
-        db_manager = DatabaseManager(config.db_path)
-        with db_manager.get_connection() as conn:
+        import sqlite3
+        conn = sqlite3.connect(config.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
             cursor = conn.cursor()
             cursor.execute("""
                 WITH latest_operations AS (
@@ -96,6 +95,8 @@ def database_info(config):
                 ORDER BY started_at DESC
             """)
             recent_ops = cursor.fetchall()
+        finally:
+            conn.close()
 
         if recent_ops:
             # Create recent operations table
@@ -257,14 +258,17 @@ def bootstrap_providers(config):
         sys.exit(1)
 
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         count = data_service.bootstrap_providers()
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap providers: {e}[/red]")
         sys.exit(1)
 
-    console.print("[green]✅ Provider initialization completed[/green]")
-    console.print(f"  Providers stored: {count}")
+    if count > 0:
+        console.print("[green]✅ Provider initialization completed[/green]")
+        console.print(f"  Providers stored: {count}")
+    else:
+        console.print("[yellow]ℹ️  Provider already exists - skipping[/yellow]")
 
     # Show active provider
     active_provider = data_service.get_active_provider()
@@ -285,7 +289,7 @@ def bootstrap_markets(config):
         sys.exit(1)
 
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
         count = data_service.bootstrap_markets(asset_class="stocks", locale="us")
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap markets: {e}[/red]")
@@ -324,7 +328,7 @@ def bootstrap_tickers(config, limit, force):
         sys.exit(1)
 
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         # Create CLI output adapters
         progress_reporter = CLIProgressReporter(console=console)
@@ -367,7 +371,7 @@ def bootstrap_universes(config, force):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from utils.config_loader import get_config_loader
 
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize DataService: {e}[/red]")
         sys.exit(1)
@@ -443,7 +447,7 @@ def bootstrap_fundamentals(config, symbol, force, limit):
         sys.exit(1)
 
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
 
         if limit:
             console.print(f"[blue]Processing up to {limit:,} assets from database[/blue]")
@@ -482,13 +486,16 @@ def bootstrap_all(config, force):
     # Check if database exists and has data
     if Path(config.db_path).exists() and not force:
         try:
-            from database.database_manager import DatabaseManager
-            db_manager = DatabaseManager(config.db_path)
-
-            # Use data service to get database stats
-            from services.data_service import DataService
+            # Use data service V2 to get database stats
+            from sqlmodel import Session, create_engine
+            from services.data_service_v2 import DataServiceV2
             from api.config.api_keys import POLYGON_API_KEY
-            data_service = DataService(db_manager, POLYGON_API_KEY)
+
+            # Create DataServiceV2
+            engine = create_engine(f"sqlite:///{config.db_path}", echo=False,
+                                  connect_args={"check_same_thread": False})
+            session = Session(engine)
+            data_service = DataServiceV2(session, POLYGON_API_KEY, db_path=config.db_path)
             stats = data_service.get_database_stats()
 
             if not stats:
@@ -529,7 +536,7 @@ def bootstrap_all(config, force):
 
     # Get DataService for remaining operations
     try:
-        data_service = config.get_data_service()
+        data_service = config.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]Failed to initialize DataService: {e}[/red]")
         sys.exit(1)

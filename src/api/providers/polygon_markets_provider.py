@@ -7,7 +7,7 @@ Transforms Polygon's exchange data into our Market models.
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, time
-from models.market import Market
+from models.dataclass.market import Market
 from .base_provider import BaseAPIProvider
 
 logger = logging.getLogger(__name__)

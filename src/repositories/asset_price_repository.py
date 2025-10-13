@@ -1,0 +1,447 @@
+"""AssetPrice Repository - Business-focused data access for price/snapshot data.
+
+This repository provides domain-specific operations for AssetPrice data.
+It wraps the DAO layer (AssetPriceSQLModel) with business queries for gap trading.
+"""
+
+import logging
+from typing import List, Optional
+from datetime import date, datetime, timedelta
+from sqlmodel import Session, select, desc
+from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
+
+logger = logging.getLogger(__name__)
+
+
+class AssetPriceRepository:
+    """Repository for AssetPrice business operations.
+
+    This layer provides business-focused data access for price/snapshot data.
+    Critical for gap trading analysis which compares prev_close to current prices.
+
+    Responsibilities:
+    - Latest price queries (for gap analysis)
+    - Historical price queries (by date range)
+    - Price persistence
+    - Gap calculations
+    """
+
+    def __init__(self, session: Session):
+        """Initialize repository with database session.
+
+        Args:
+            session: SQLModel session for database operations
+        """
+        self.session = session
+
+    # ============================================================================
+    # LATEST PRICE QUERIES (Critical for Gap Trading)
+    # ============================================================================
+
+    def get_latest_by_symbol(self, symbol: str) -> Optional[AssetPriceSQLModel]:
+        """Get most recent price data for a symbol.
+
+        Business query: Used by gap analysis to get current snapshot.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+
+        Returns:
+            Most recent AssetPrice or None
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.symbol == symbol.upper()
+        ).order_by(desc(AssetPriceSQLModel.updated_at)).limit(1)
+
+        return self.session.exec(statement).first()
+
+    def get_latest_by_asset_id(self, asset_id: int) -> Optional[AssetPriceSQLModel]:
+        """Get most recent price data for an asset.
+
+        Args:
+            asset_id: Asset database ID
+
+        Returns:
+            Most recent AssetPrice or None
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.asset_id == asset_id
+        ).order_by(desc(AssetPriceSQLModel.updated_at)).limit(1)
+
+        return self.session.exec(statement).first()
+
+    def get_latest_for_symbols(
+        self,
+        symbols: List[str]
+    ) -> List[AssetPriceSQLModel]:
+        """Get most recent prices for multiple symbols.
+
+        Business query: Batch query for gap screeners.
+
+        Args:
+            symbols: List of stock symbols
+
+        Returns:
+            List of most recent prices (one per symbol)
+        """
+        # For each symbol, get the most recent record
+        # This is a suboptimal query but works for now
+        # TODO: Optimize with window functions
+        results = []
+        for symbol in symbols:
+            price = self.get_latest_by_symbol(symbol)
+            if price:
+                results.append(price)
+
+        return results
+
+    # ============================================================================
+    # HISTORICAL QUERIES
+    # ============================================================================
+
+    def get_by_trade_date(
+        self,
+        symbol: str,
+        trade_date: date
+    ) -> Optional[AssetPriceSQLModel]:
+        """Get price data for a specific trade date.
+
+        Args:
+            symbol: Stock symbol
+            trade_date: Trading date
+
+        Returns:
+            AssetPrice for that date or None
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.symbol == symbol.upper(),
+            AssetPriceSQLModel.trade_date == trade_date
+        ).order_by(desc(AssetPriceSQLModel.updated_at)).limit(1)
+
+        return self.session.exec(statement).first()
+
+    def find_by_date_range(
+        self,
+        symbol: str,
+        start_date: date,
+        end_date: date
+    ) -> List[AssetPriceSQLModel]:
+        """Get price data for a date range.
+
+        Args:
+            symbol: Stock symbol
+            start_date: Start date (inclusive)
+            end_date: End date (inclusive)
+
+        Returns:
+            List of prices ordered by date descending
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.symbol == symbol.upper(),
+            AssetPriceSQLModel.trade_date >= start_date,
+            AssetPriceSQLModel.trade_date <= end_date
+        ).order_by(desc(AssetPriceSQLModel.trade_date))
+
+        return list(self.session.exec(statement).all())
+
+    def find_recent(
+        self,
+        symbol: str,
+        days: int = 30
+    ) -> List[AssetPriceSQLModel]:
+        """Get recent price data for a symbol.
+
+        Args:
+            symbol: Stock symbol
+            days: Number of days to look back (default: 30)
+
+        Returns:
+            List of recent prices ordered by date descending
+        """
+        cutoff_date = date.today() - timedelta(days=days)
+
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.symbol == symbol.upper(),
+            AssetPriceSQLModel.trade_date >= cutoff_date
+        ).order_by(desc(AssetPriceSQLModel.trade_date))
+
+        return list(self.session.exec(statement).all())
+
+    # ============================================================================
+    # GAP ANALYSIS QUERIES
+    # ============================================================================
+
+    def find_with_gaps(
+        self,
+        min_gap_percent: float = 2.0,
+        trade_date: Optional[date] = None
+    ) -> List[AssetPriceSQLModel]:
+        """Find assets with significant gaps.
+
+        Business query: Core gap trading screener.
+
+        Args:
+            min_gap_percent: Minimum gap percentage (default: 2%)
+            trade_date: Specific date to check (default: today)
+
+        Returns:
+            List of assets with gaps meeting criteria
+        """
+        if trade_date is None:
+            trade_date = date.today()
+
+        # Get all prices for the date
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.trade_date == trade_date,
+            AssetPriceSQLModel.prevday_close.is_not(None),  # type: ignore
+            AssetPriceSQLModel.day_open.is_not(None)  # type: ignore
+        )
+
+        all_prices = self.session.exec(statement).all()
+
+        # Filter by gap percent (must calculate in Python for now)
+        # TODO: Move to SQL if performance becomes an issue
+        results = []
+        for price in all_prices:
+            gap_pct = price.gap_percent
+            if gap_pct is not None and abs(gap_pct) >= min_gap_percent:
+                results.append(price)
+
+        return results
+
+    # ============================================================================
+    # PERSISTENCE
+    # ============================================================================
+
+    def save(self, price: AssetPriceSQLModel) -> AssetPriceSQLModel:
+        """Persist price data to database.
+
+        Handles both INSERT (new) and UPDATE (existing) operations.
+
+        Args:
+            price: AssetPrice to persist
+
+        Returns:
+            Persisted price
+        """
+        self.session.add(price)
+        self.session.commit()
+        self.session.refresh(price)
+        logger.debug(f"Saved price for {price.symbol} on {price.trade_date}")
+        return price
+
+    def bulk_save(self, prices: List[AssetPriceSQLModel]) -> int:
+        """Bulk persist multiple prices.
+
+        Optimized for saving many prices at once (e.g., market snapshots).
+
+        Args:
+            prices: List of prices to persist
+
+        Returns:
+            Number of prices saved
+        """
+        self.session.add_all(prices)
+        self.session.commit()
+        count = len(prices)
+        logger.debug(f"Bulk saved {count} prices")
+        return count
+
+    def delete(self, price: AssetPriceSQLModel) -> None:
+        """Delete price from database.
+
+        Args:
+            price: Price to delete
+        """
+        self.session.delete(price)
+        self.session.commit()
+        logger.debug(f"Deleted price for {price.symbol} on {price.trade_date}")
+
+    # ============================================================================
+    # STATISTICS
+    # ============================================================================
+
+    def count_by_symbol(self, symbol: str) -> int:
+        """Count price records for a symbol.
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            Count of price records
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.symbol == symbol.upper()
+        )
+        return len(list(self.session.exec(statement).all()))
+
+    def count_by_date(self, trade_date: date) -> int:
+        """Count price records for a specific date.
+
+        Args:
+            trade_date: Trading date
+
+        Returns:
+            Count of price records
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.trade_date == trade_date
+        )
+        return len(list(self.session.exec(statement).all()))
+
+    def count_all(self) -> int:
+        """Count total number of price records across all symbols.
+
+        Returns:
+            Total count of price records
+        """
+        from sqlmodel import func
+
+        statement = select(func.count(AssetPriceSQLModel.id))
+        return self.session.exec(statement).one()
+
+    def get_date_range(self, symbol: str) -> tuple[Optional[date], Optional[date]]:
+        """Get date range for a symbol's price data.
+
+        Args:
+            symbol: Stock symbol
+
+        Returns:
+            Tuple of (earliest_date, latest_date) or (None, None) if no data
+        """
+        statement = select(
+            AssetPriceSQLModel.trade_date
+        ).where(
+            AssetPriceSQLModel.symbol == symbol.upper()
+        ).order_by(AssetPriceSQLModel.trade_date)
+
+        dates = list(self.session.exec(statement).all())
+
+        if not dates:
+            return None, None
+
+        return dates[0], dates[-1]
+
+    def get_last_update_time(self) -> Optional[datetime]:
+        """Get the timestamp of the most recent price update across all symbols.
+
+        Business query: Used to check data freshness for gap analysis.
+
+        Returns:
+            Most recent updated_at timestamp or None if no price data
+        """
+        statement = select(AssetPriceSQLModel.updated_at).order_by(
+            desc(AssetPriceSQLModel.updated_at)
+        ).limit(1)
+
+        result = self.session.exec(statement).first()
+        return result if result else None
+
+    def get_latest_by_asset_id(self, asset_id: int) -> Optional[AssetPriceSQLModel]:
+        """Get most recent price for an asset.
+
+        Business query: Validation commands need latest price for specific asset.
+
+        Args:
+            asset_id: Asset database ID
+
+        Returns:
+            Most recent AssetPriceSQLModel for this asset, or None
+        """
+        statement = select(AssetPriceSQLModel).where(
+            AssetPriceSQLModel.asset_id == asset_id
+        ).order_by(
+            desc(AssetPriceSQLModel.provider_updated_at),
+            desc(AssetPriceSQLModel.updated_at)
+        ).limit(1)
+
+        return self.session.exec(statement).first()
+
+    def get_random_assets_with_prices(self, limit: int = 10) -> list[tuple[str, int, int]]:
+        """Get random assets that have recent price data.
+
+        Business query: Validation commands need random sample for testing.
+
+        Args:
+            limit: Number of random assets to return (default: 10)
+
+        Returns:
+            List of tuples: (symbol, asset_id, latest_asset_price_id)
+        """
+        from models.sqlmodel.asset_sqlmodel import AssetSQLModel
+        from sqlmodel import func
+
+        # Subquery to get latest price IDs per asset
+        subquery = (
+            select(
+                AssetPriceSQLModel.asset_id,
+                func.max(AssetPriceSQLModel.id).label('max_id')
+            )
+            .group_by(AssetPriceSQLModel.asset_id)
+            .subquery()
+        )
+
+        # Main query joining assets with their latest prices
+        statement = (
+            select(
+                AssetSQLModel.symbol,
+                AssetPriceSQLModel.asset_id,
+                AssetPriceSQLModel.id
+            )
+            .select_from(AssetPriceSQLModel)
+            .join(AssetSQLModel, AssetPriceSQLModel.asset_id == AssetSQLModel.id)
+            .join(subquery, AssetPriceSQLModel.id == subquery.c.max_id)
+            .where(
+                (AssetPriceSQLModel.min_accumulated_volume > 0) |
+                (AssetPriceSQLModel.day_volume > 0) |
+                (AssetPriceSQLModel.prevday_volume > 0)
+            )
+            .order_by(func.random())
+            .limit(limit)
+        )
+
+        results = self.session.exec(statement).all()
+        return [(row[0], row[1], row[2]) for row in results]
+
+    def get_latest_price_ids_for_symbols(self, symbols: list[str]) -> list[tuple[str, int, int]]:
+        """Get latest price IDs for specific symbols.
+
+        Business query: Validation commands need latest prices for test symbols.
+
+        Args:
+            symbols: List of ticker symbols (e.g., ['AAPL', 'NVDA'])
+
+        Returns:
+            List of tuples: (symbol, asset_id, latest_asset_price_id)
+        """
+        if not symbols:
+            return []
+
+        from models.sqlmodel.asset_sqlmodel import AssetSQLModel
+        from sqlmodel import func
+
+        # Subquery to get latest price IDs per asset
+        subquery = (
+            select(
+                AssetPriceSQLModel.asset_id,
+                func.max(AssetPriceSQLModel.id).label('max_id')
+            )
+            .group_by(AssetPriceSQLModel.asset_id)
+            .subquery()
+        )
+
+        # Main query
+        statement = (
+            select(
+                AssetSQLModel.symbol,
+                AssetPriceSQLModel.asset_id,
+                AssetPriceSQLModel.id
+            )
+            .select_from(AssetSQLModel)
+            .join(AssetPriceSQLModel, AssetSQLModel.id == AssetPriceSQLModel.asset_id)
+            .join(subquery, AssetPriceSQLModel.id == subquery.c.max_id)
+            .where(AssetSQLModel.symbol.in_(symbols))
+        )
+
+        results = self.session.exec(statement).all()
+        return [(row[0], row[1], row[2]) for row in results]
