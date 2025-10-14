@@ -56,38 +56,44 @@ class PolygonMarketStatusProvider(BaseAPIProvider):
     # MARKET STATUS API CALLS
     # ============================================================================
 
-    def fetch_market_status(self) -> Optional[Dict[str, Any]]:
+    def fetch_market_status(self) -> Optional["MarketStatusSnapshot"]:
         """Fetch current market status from Polygon API.
 
         Endpoint: GET /v1/marketstatus/now
 
-        Returns raw market status data that can be used to construct MarketContext.
-        The actual MarketContext construction is done in the service layer because
-        it requires Market model data from the database.
-
         Returns:
-            Raw API response dict with market status, or None if error
-
-        Example response:
-        {
-            "market": "open",
-            "serverTime": "2024-01-15T14:30:00-05:00",
-            "exchanges": {
-                "nyse": "open",
-                "nasdaq": "open",
-                "otc": "closed"
-            },
-            "currencies": {
-                "fx": "open",
-                "crypto": "open"
-            }
-        }
+            MarketStatusSnapshot object, or None if error
         """
+        from models.dataclass.market_status import MarketStatusSnapshot
+        from datetime import datetime
+
         try:
             data = self._make_request("/v1/marketstatus/now")
 
-            logger.debug(f"Fetched market status: {data.get('market', 'unknown')}")
-            return data
+            if not data:
+                return None
+
+            # Parse server time
+            server_time_str = data.get("serverTime", "")
+            try:
+                # Polygon format: "2024-01-15T14:30:00-05:00"
+                server_time = datetime.fromisoformat(server_time_str)
+            except Exception:
+                logger.warning(f"Failed to parse serverTime: {server_time_str}, using current time")
+                server_time = datetime.now()
+
+            # Create MarketStatusSnapshot
+            market_status = MarketStatusSnapshot(
+                market=data.get("market", "unknown"),
+                server_time=server_time,
+                exchanges=data.get("exchanges", {}),
+                currencies=data.get("currencies", {}),
+                early_hours=data.get("earlyHours", False),
+                after_hours=data.get("afterHours", False)
+            )
+
+            logger.debug(f"Fetched market status: {market_status.market}")
+            return market_status
 
         except Exception as e:
             logger.error(f"Error fetching market status: {e}")

@@ -212,23 +212,6 @@ class TestPolygonSnapshotProvider:
         assert "MSFT" in result.tickers
 
     @patch('api.providers.base_provider.requests.request')
-    def test_fetch_bulk_snapshot_with_symbols(self, mock_request, provider, sample_polygon_bulk_response):
-        """Test bulk fetch with specific symbols list."""
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = sample_polygon_bulk_response
-        mock_request.return_value = mock_response
-
-        result = provider.fetch_bulk_market_snapshot(symbols=["AAPL", "MSFT"])
-
-        assert result is not None
-        # Verify request included tickers parameter
-        call_args = mock_request.call_args
-        assert "params" in call_args.kwargs
-        assert "tickers" in call_args.kwargs["params"]
-        assert call_args.kwargs["params"]["tickers"] == "AAPL,MSFT"
-
-    @patch('api.providers.base_provider.requests.request')
     def test_fetch_bulk_snapshot_empty_response(self, mock_request, provider):
         """Test bulk fetch with empty response."""
         mock_response = Mock()

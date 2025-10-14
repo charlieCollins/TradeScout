@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 @click.group()
 @pass_config
-def fed(config):
+def fed(app_context):
     """Federal Reserve economic data operations."""
     pass
 
@@ -26,7 +26,7 @@ def fed(config):
 @fed.command()
 @click.option("--limit", default=10, help="Number of observations to fetch for each data type (default: 10)")
 @pass_config
-def update(config, limit: int):
+def update(app_context, limit: int):
     """
     Fetch and store latest Federal Reserve economic data.
 
@@ -42,7 +42,7 @@ def update(config, limit: int):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -56,7 +56,7 @@ def update(config, limit: int):
 
         # Get the polygon fed provider
         from api.providers.polygon_fed_provider import PolygonFedProvider
-        api_key = config.polygon_api_key
+        api_key = app_context.polygon_api_key
         fed_provider = PolygonFedProvider(api_key)
 
         # Fetch all data types
@@ -88,7 +88,7 @@ def update(config, limit: int):
 @fed.command()
 @click.option("--limit", default=5, help="Number of recent observations to display for each data type (default: 5)")
 @pass_config
-def info(config, limit: int):
+def info(app_context, limit: int):
     """
     Display latest Federal Reserve economic data.
 
@@ -104,7 +104,7 @@ def info(config, limit: int):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -133,7 +133,7 @@ def info(config, limit: int):
                 console.print()
 
                 # Get recent history
-                recent = fed_data_manager.get_recent_by_type(data_type_key, limit=limit)
+                recent = data_service.fed_get_recent_by_type(data_type_key, limit=limit)
 
                 if recent:
                     table = Table(box=box.SIMPLE, show_header=True)

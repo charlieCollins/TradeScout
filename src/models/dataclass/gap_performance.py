@@ -1,4 +1,4 @@
-"""Gap performance tracking model objects.
+"""Gap candidate result model objects.
 
 Model objects for tracking actual intraday performance of gap candidates:
 - Performance metrics (entry/exit, high/low, returns)
@@ -20,8 +20,8 @@ class PerformanceOutcome(Enum):
 
 
 @dataclass
-class GapPerformance:
-    """Performance tracking for a gap candidate.
+class GapCandidateResult:
+    """Performance tracking for a gap candidate result.
 
     Tracks actual intraday performance during regular trading hours
     (9:30 AM - 4:00 PM) on the appropriate trading day.
@@ -31,7 +31,7 @@ class GapPerformance:
     - Afterhours gap: Next trading day's regular hours
     """
 
-    # Link to gap result
+    # Link to gap candidate
     gap_result_id: int
 
     # Entry/Exit prices (regular hours)

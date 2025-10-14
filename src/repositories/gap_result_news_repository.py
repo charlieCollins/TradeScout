@@ -83,3 +83,38 @@ class GapResultNewsRepository:
         count = len(news_list)
         logger.debug(f"Bulk saved {count} gap result news articles")
         return count
+
+    def get_all(self) -> List[GapResultNewsSQLModel]:
+        """Get all gap result news articles.
+
+        Business query: Backup operations need all records.
+
+        Returns:
+            List of all gap result news articles
+        """
+        statement = select(GapResultNewsSQLModel).order_by(
+            GapResultNewsSQLModel.id
+        )
+        return list(self.session.exec(statement).all())
+
+    def upsert(self, news: GapResultNewsSQLModel) -> tuple[GapResultNewsSQLModel, bool]:
+        """Insert gap result news if doesn't exist, skip if exists.
+
+        Args:
+            news: News article to insert
+
+        Returns:
+            Tuple of (record, was_inserted) where was_inserted is True if new record inserted
+        """
+        if news.id is not None:
+            existing = self.session.get(GapResultNewsSQLModel, news.id)
+            if existing:
+                logger.debug(f"Gap result news {news.id} already exists, skipping")
+                return (existing, False)
+
+        # Insert new record
+        self.session.add(news)
+        self.session.commit()
+        self.session.refresh(news)
+        logger.debug(f"Inserted gap result news: {news.id}")
+        return (news, True)

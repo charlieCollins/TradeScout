@@ -51,6 +51,7 @@ class GapAnalysisDisplay:
         table.add_column("Name", style="white", width=20)
         table.add_column("Gap %", justify="right", style="yellow", width=8)
         table.add_column("Price", justify="right", style="white", width=9)
+        table.add_column("Volume", justify="right", style="cyan", width=10)
         table.add_column("Vol Ratio", justify="right", style="green", width=9)
         table.add_column("Sentiment", justify="right", style="white", width=10)
         table.add_column("News", justify="center", style="white", width=6)
@@ -62,6 +63,12 @@ class GapAnalysisDisplay:
             # Format gap with color
             gap_style = "bright_green" if candidate.gap_percent > 0 else "bright_red"
             gap_text = Text(f"{candidate.gap_percent:+.1f}%", style=gap_style)
+
+            # Format volume shares
+            if candidate.extended_hours_volume:
+                volume_text = f"{candidate.extended_hours_volume:,}"
+            else:
+                volume_text = "N/A"
 
             # Format volume ratio
             vol_ratio_text = f"{candidate.volume_ratio:.1f}x" if candidate.volume_ratio else "N/A"
@@ -85,16 +92,20 @@ class GapAnalysisDisplay:
                 news_text = Text("0", style="dim")
 
             # Format quality score with color
-            if candidate.quality_score >= 85:
+            if candidate.quality_score is None:
+                quality_text = Text("N/A", style="dim")
+            elif candidate.quality_score >= 85:
                 quality_style = "bright_green bold"
+                quality_text = Text(f"{candidate.quality_score}", style=quality_style)
             elif candidate.quality_score >= 70:
                 quality_style = "green"
+                quality_text = Text(f"{candidate.quality_score}", style=quality_style)
             elif candidate.quality_score >= 60:
                 quality_style = "yellow"
+                quality_text = Text(f"{candidate.quality_score}", style=quality_style)
             else:
                 quality_style = "red"
-
-            quality_text = Text(f"{candidate.quality_score}", style=quality_style)
+                quality_text = Text(f"{candidate.quality_score}", style=quality_style)
 
             # Format risk level
             if candidate.risk_level:
@@ -118,6 +129,7 @@ class GapAnalysisDisplay:
                 candidate.name[:20],  # Truncate long names
                 gap_text,
                 f"${candidate.current_price:.2f}",
+                volume_text,
                 vol_ratio_text,
                 sentiment_text,
                 news_text,
@@ -256,7 +268,7 @@ class GapPerformanceDisplay:
             results: List of performance result dictionaries containing:
                 - status: 'success', 'skipped', or 'failed'
                 - symbol: Stock symbol
-                - performance: GapPerformance object (if status == 'success')
+                - performance: GapCandidateResult object (if status == 'success')
                 - reason: Error/skip reason (if status != 'success')
         """
         if not results:

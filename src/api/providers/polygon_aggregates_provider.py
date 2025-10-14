@@ -51,13 +51,40 @@ class PolygonAggregatesProvider(BaseAPIProvider):
     # AGGREGATES API CALLS
     # ============================================================================
 
+    def _transform_bar(self, raw_bar: Dict[str, Any]) -> "PriceBar":
+        """Transform raw Polygon bar data to PriceBar dataclass.
+
+        Args:
+            raw_bar: Raw bar dict from Polygon API
+
+        Returns:
+            PriceBar domain object
+        """
+        from models.dataclass.price_bar import PriceBar
+        from datetime import datetime
+
+        timestamp_ms = raw_bar.get("t", 0)
+        timestamp = datetime.fromtimestamp(timestamp_ms / 1000) if timestamp_ms else datetime.now()
+
+        return PriceBar(
+            open=raw_bar.get("o", 0.0),
+            high=raw_bar.get("h", 0.0),
+            low=raw_bar.get("l", 0.0),
+            close=raw_bar.get("c", 0.0),
+            volume=raw_bar.get("v", 0),
+            volume_weighted_price=raw_bar.get("vw"),
+            timestamp=timestamp,
+            timestamp_ms=timestamp_ms,
+            num_transactions=raw_bar.get("n")
+        )
+
     def fetch_minute_bars(
         self,
         symbol: str,
         from_datetime: datetime,
         to_datetime: datetime,
         adjusted: bool = True
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[List["PriceBar"]]:
         """Fetch minute-level bars for a symbol within a time range.
 
         Args:
@@ -67,20 +94,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             adjusted: Whether to return adjusted prices (default: True)
 
         Returns:
-            List of bar dictionaries with fields: o, h, l, c, v, vw, t, n
-            Or None if error
-
-        Example response bar:
-            {
-                "o": 178.35,     # Open
-                "h": 178.44,     # High
-                "l": 178.34,     # Low
-                "c": 178.39,     # Close
-                "v": 52438,      # Volume
-                "vw": 178.3817,  # Volume weighted average
-                "t": 1696611600000,  # Timestamp (milliseconds)
-                "n": 445         # Number of transactions
-            }
+            List of PriceBar objects, or None if error
         """
         try:
             # Convert datetimes to Unix timestamps in milliseconds (Polygon requirement)
@@ -107,10 +121,12 @@ class PolygonAggregatesProvider(BaseAPIProvider):
                 logger.debug(f"No results in aggregates response for {symbol}: {raw_data.get('status')}")
                 return None
 
-            results = raw_data["results"]
-            logger.debug(f"Fetched {len(results)} minute bars for {symbol} ({from_datetime} to {to_datetime})")
+            # Transform raw bars to PriceBar objects
+            raw_bars = raw_data["results"]
+            bars = [self._transform_bar(raw_bar) for raw_bar in raw_bars]
 
-            return results
+            logger.debug(f"Fetched {len(bars)} minute bars for {symbol} ({from_datetime} to {to_datetime})")
+            return bars
 
         except Exception as e:
             logger.error(f"Failed to fetch minute bars for {symbol}: {e}")
@@ -122,7 +138,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
         from_date: date,
         to_date: date,
         adjusted: bool = True
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[List["PriceBar"]]:
         """Fetch daily aggregates for a symbol within a date range.
 
         Args:
@@ -132,20 +148,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             adjusted: Whether to return adjusted prices (default: True)
 
         Returns:
-            List of daily bar dictionaries with fields: o, h, l, c, v, vw, t, n
-            Or None if error
-
-        Example response bar:
-            {
-                "o": 178.35,     # Open
-                "h": 180.50,     # High
-                "l": 177.25,     # Low
-                "c": 179.80,     # Close
-                "v": 52438000,   # Volume
-                "vw": 179.1234,  # Volume weighted average
-                "t": 1696611600000,  # Timestamp (milliseconds)
-                "n": 445000      # Number of transactions
-            }
+            List of PriceBar objects, or None if error
         """
         try:
             # Convert dates to timestamps
@@ -175,19 +178,12 @@ class PolygonAggregatesProvider(BaseAPIProvider):
                 logger.debug(f"No results in daily aggregates response for {symbol}: {raw_data.get('status')}")
                 return None
 
-            results = raw_data["results"]
+            # Transform raw bars to PriceBar objects
+            raw_bars = raw_data["results"]
+            bars = [self._transform_bar(raw_bar) for raw_bar in raw_bars]
 
-            # Convert timestamps to more usable format
-            for bar in results:
-                bar['open'] = bar.get('o')
-                bar['high'] = bar.get('h')
-                bar['low'] = bar.get('l')
-                bar['close'] = bar.get('c')
-                bar['volume'] = bar.get('v')
-                bar['timestamp'] = bar.get('t')
-
-            logger.debug(f"Fetched {len(results)} daily bars for {symbol} ({from_date} to {to_date})")
-            return results
+            logger.debug(f"Fetched {len(bars)} daily bars for {symbol} ({from_date} to {to_date})")
+            return bars
 
         except Exception as e:
             logger.error(f"Failed to fetch daily aggregates for {symbol}: {e}")
@@ -200,7 +196,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
         timespan: str = 'minute',
         multiplier: int = 1,
         adjusted: bool = True
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> Optional[List["PriceBar"]]:
         """Fetch intraday aggregates for a symbol on a specific date.
 
         Args:
@@ -211,7 +207,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             adjusted: Whether to return adjusted prices (default: True)
 
         Returns:
-            List of intraday bar dictionaries or None if error
+            List of PriceBar objects, or None if error
         """
         try:
             # Parse date and create time range for regular trading hours (9:30 AM - 4:00 PM ET)
@@ -246,19 +242,12 @@ class PolygonAggregatesProvider(BaseAPIProvider):
                 logger.debug(f"No results in intraday aggregates response for {symbol}: {raw_data.get('status')}")
                 return None
 
-            results = raw_data["results"]
+            # Transform raw bars to PriceBar objects
+            raw_bars = raw_data["results"]
+            bars = [self._transform_bar(raw_bar) for raw_bar in raw_bars]
 
-            # Convert timestamps to more usable format
-            for bar in results:
-                bar['open'] = bar.get('o')
-                bar['high'] = bar.get('h')
-                bar['low'] = bar.get('l')
-                bar['close'] = bar.get('c')
-                bar['volume'] = bar.get('v')
-                bar['timestamp'] = bar.get('t')
-
-            logger.debug(f"Fetched {len(results)} {timespan} bars for {symbol} on {date}")
-            return results
+            logger.debug(f"Fetched {len(bars)} {timespan} bars for {symbol} on {date}")
+            return bars
 
         except Exception as e:
             logger.error(f"Failed to fetch intraday aggregates for {symbol}: {e}")
@@ -315,12 +304,12 @@ class PolygonAggregatesProvider(BaseAPIProvider):
                 return None
 
             # Sum up all volumes
-            total_volume = sum(bar.get("v", 0) for bar in bars)
+            total_volume = sum(bar.volume for bar in bars)
 
             # Get time range of actual bars
             if bars:
-                first_bar_ts = datetime.fromtimestamp(bars[0]['t'] / 1000)
-                last_bar_ts = datetime.fromtimestamp(bars[-1]['t'] / 1000)
+                first_bar_ts = datetime.fromtimestamp(bars[0].timestamp_ms / 1000)
+                last_bar_ts = datetime.fromtimestamp(bars[-1].timestamp_ms / 1000)
                 logger.info(
                     f"{symbol} {session} volume: {total_volume:,} shares "
                     f"({len(bars)} bars from {first_bar_ts.strftime('%H:%M:%S')} to {last_bar_ts.strftime('%H:%M:%S')})"

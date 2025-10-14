@@ -15,17 +15,17 @@ console = Console()
 
 @click.group()
 @pass_config
-def universes(config):
+def universes(app_context):
     """Manage asset universes for trading."""
     pass
 
 
 @universes.command('list')
 @pass_config
-def universe_list(config):
+def universe_list(app_context):
     """List all available universes."""
     try:
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
         universes_list = data_service.get_all_universes()
 
         if not universes_list:
@@ -73,14 +73,14 @@ def universe_list(config):
 @universes.command('info')
 @click.argument('universe_name', required=False)
 @pass_config
-def universe_info(config, universe_name):
+def universe_info(app_context, universe_name):
     """Show detailed information about a universe."""
     # Use active universe if not specified
     if not universe_name:
-        universe_name = config.get_active_universe()
+        universe_name = app_context.get_active_universe()
 
     try:
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
 
         # Get universe details
         universes_list = data_service.get_all_universes()
@@ -162,13 +162,13 @@ def universe_info(config, universe_name):
 @universes.command('activate')
 @click.argument('universe_name')
 @pass_config
-def universe_activate(config, universe_name):
+def universe_activate(app_context, universe_name):
     """Set a universe as the active trading universe."""
-    if config.set_active_universe(universe_name):
+    if app_context.set_active_universe(universe_name):
         console.print(f"[green]✅ Activated universe: {universe_name}[/green]")
 
         # Show brief info about the activated universe
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
         stats = data_service.get_universe_stats(universe_name)
         count = stats.total_members if stats else 0
         console.print(f"[dim]This universe contains {count:,} assets[/dim]")
@@ -180,9 +180,9 @@ def universe_activate(config, universe_name):
 
 @universes.command('current')
 @pass_config
-def universe_current(config):
+def universe_current(app_context):
     """Show the currently active universe."""
-    active = config.get_active_universe()
+    active = app_context.get_active_universe()
     console.print(f"Active universe: [bold cyan]{active}[/bold cyan]")
 
 

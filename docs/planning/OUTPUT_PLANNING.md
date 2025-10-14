@@ -703,7 +703,7 @@ def _display_date_performance(trading_date, results, console)  # Line 1229
 Create `src/output/gap_display.py` (similar to `ScreenerDisplay`) to extract:
 - `GapAnalysisDisplay` class for gap analyze output
 - `GapResultsDisplay` class for gap results query output
-- `GapPerformanceDisplay` class for gap performance output
+- `GapCandidateResultDisplay` class for gap performance output
 
 Benefits:
 - Reduces gap_commands.py from 1,288 → ~400 lines
@@ -779,7 +779,7 @@ class JSONOutputAdapter:
             ]
         }
 
-    def serialize_gap_performance(self, performance: GapPerformance) -> dict:
+    def serialize_gap_performance(self, performance: GapCandidateResult) -> dict:
         """Convert gap performance to JSON."""
         return {
             "entry_price": performance.entry_price,
@@ -816,7 +816,7 @@ from rich.table import Table
 from rich.panel import Panel
 from typing import List
 from models.gap import GapCandidate
-from models.gap_performance import GapPerformance
+from models.gap_performance import GapCandidateResult
 
 class GapAnalysisDisplay:
     """Display formatter for gap analysis results."""
@@ -852,7 +852,7 @@ class GapAnalysisDisplay:
         # Extract from _display_summary
         pass
 
-class GapPerformanceDisplay:
+class GapCandidateResultDisplay:
     """Display formatter for gap performance data."""
 
     def __init__(self):
@@ -885,7 +885,7 @@ class JSONOutputAdapter:
     """Format business objects as JSON for Web API responses."""
 
     def serialize_gap_candidates(self, candidates: List[GapCandidate]) -> dict
-    def serialize_gap_performance(self, performance: GapPerformance) -> dict
+    def serialize_gap_performance(self, performance: GapCandidateResult) -> dict
     def serialize_screener_results(self, results: List) -> dict
     def serialize_bootstrap_result(self, result: BootstrapResult) -> dict
 ```
@@ -936,7 +936,7 @@ class WebSocketProgressReporter(ProgressReporter):
 **Before Web Frontend:**
 1. ✅ **No changes required** - Architecture is solid
 2. **Optional improvement:** Extract `GapAnalysisDisplay` for consistency
-3. **Optional improvement:** Extract `GapPerformanceDisplay` for consistency
+3. **Optional improvement:** Extract `GapCandidateResultDisplay` for consistency
 
 **When Starting Web Frontend:**
 1. Create `src/output/json_adapter.py` with `JSONOutputAdapter`
@@ -1012,7 +1012,7 @@ def startup_checks():
 
 **Analysis Components:**
 - ✅ `src/analysis/gap_analyzer.py` - Returns `List[GapCandidate]`
-- ✅ `src/analysis/gap_performance_calculator.py` - Returns `GapPerformance` objects
+- ✅ `src/analysis/gap_performance_calculator.py` - Returns `GapCandidateResult` objects
 - ✅ `src/analysis/sentiment_analyzer.py` - Returns sentiment scores
 
 **Services:**
@@ -1033,7 +1033,7 @@ def startup_checks():
 
 **Domain Objects:**
 - ✅ `GapCandidate` - Rich dataclass with 40+ fields, computed properties
-- ✅ `GapPerformance` - Trading performance metrics
+- ✅ `GapCandidateResult` - Trading performance metrics
 - ✅ `MarketContext` - Market state and session info
 - ✅ `Asset`, `Fundamentals`, `Snapshot` - Core entities
 
@@ -1072,7 +1072,7 @@ def _display_summary(candidates, min_volume_ratio, market_context): ...
 def _display_date_performance(trading_date, results, console): ...
 ```
 
-**Recommendation:** Extract to `GapAnalysisDisplay` and `GapPerformanceDisplay` classes.
+**Recommendation:** Extract to `GapAnalysisDisplay` and `GapCandidateResultDisplay` classes.
 
 **Deductions:**
 - -10: Gap display logic needs extraction before web frontend
@@ -1243,7 +1243,7 @@ class GapAnalysisDisplay:
     def display_failed_candidates(self, candidates: List[GapCandidate], min_ratio): ...
     def display_summary(self, candidates: List[GapCandidate], market_context): ...
 
-class GapPerformanceDisplay:
+class GapCandidateResultDisplay:
     """CLI display for gap performance results."""
 
     def display_performance_results(self, results: List[dict], trading_date): ...

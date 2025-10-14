@@ -93,6 +93,15 @@ class ProviderRepository:
     # STATISTICS
     # ============================================================================
 
+    def count_all(self) -> int:
+        """Count total number of providers (including inactive).
+
+        Returns:
+            Total provider count
+        """
+        statement = select(ProviderSQLModel)
+        return len(list(self.session.exec(statement).all()))
+
     def count_active(self) -> int:
         """Count active providers."""
         statement = select(ProviderSQLModel).where(ProviderSQLModel.is_active == True)

@@ -2,11 +2,10 @@ name: volume
 description: "High volume stocks (unusual trading activity)"
 enabled: true
 
-# Valid in all sessions - adapts behavior based on current session
+# Valid in most sessions - NOT afterhours (snapshot volume unreliable)
 valid_sessions:
   - "premarket"
   - "regular"
-  - "afterhours"
   - "closed"
 
 # Data source configuration

@@ -19,14 +19,14 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 
-def display_market_context(config):
+def display_market_context(app_context):
     """Display market context at the top of asset commands."""
     try:
         # Initialize data service
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from utils.config_loader import get_config_loader
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
 
         # Get markets from universe config
         config_loader = get_config_loader()
@@ -45,7 +45,7 @@ def display_market_context(config):
             return
 
         # Get context for configured markets
-        service = config.get_market_context_service()
+        service = app_context.get_market_context_service()
 
         # Create markets context table
         context_table = Table(box=box.ROUNDED, show_header=True, title="📊 Markets Context")
@@ -73,7 +73,7 @@ def display_market_context(config):
 
 @click.group()
 @pass_config
-def asset(config):
+def asset(app_context):
     """Single asset data operations and information."""
     pass
 
@@ -81,7 +81,7 @@ def asset(config):
 @asset.command()
 @click.argument("symbol", type=str)
 @pass_config
-def local(config, symbol: str):
+def local(app_context, symbol: str):
     """
     Show asset information from local database only (no API calls).
 
@@ -92,7 +92,7 @@ def local(config, symbol: str):
         tradescout asset local AAPL
     """
     # Display market context at the top
-    display_market_context(config)
+    display_market_context(app_context)
 
     symbol = symbol.upper()
 
@@ -100,7 +100,7 @@ def local(config, symbol: str):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -143,7 +143,7 @@ def local(config, symbol: str):
         console.print(asset_table)
 
         # Get latest price data from database
-        latest_price = data_service.get_latest_asset_price(asset.id)
+        latest_price = data_service.get_latest_asset_price(symbol)
         if latest_price:
             console.print()
 
@@ -229,7 +229,7 @@ def local(config, symbol: str):
 @click.argument("symbol", type=str)
 @click.option("--force", is_flag=True, help="Force refresh, bypass TTL cache")
 @pass_config
-def info(config, symbol: str, force: bool):
+def info(app_context, symbol: str, force: bool):
     """
     Show detailed information about a single asset.
 
@@ -241,7 +241,7 @@ def info(config, symbol: str, force: bool):
         tradescout asset info AAPL --force
     """
     # Display market context at the top
-    display_market_context(config)
+    display_market_context(app_context)
 
     symbol = symbol.upper()
 
@@ -249,7 +249,7 @@ def info(config, symbol: str, force: bool):
     try:
         sys.path.insert(0, str(Path(__file__).parent.parent))
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -391,7 +391,7 @@ def info(config, symbol: str, force: bool):
         else:
             console.print(f"[yellow]⚠️  No price data available for {symbol}[/yellow]")
 
-        # Check if news is stale and fetch if needed
+        # Check if news is stale and fetch if needed (or force refresh if --force flag)
         try:
             # Get news TTL from config (default 30 minutes)
             from utils.config_loader import get_config_loader
@@ -399,10 +399,15 @@ def info(config, symbol: str, force: bool):
             ttl_config = config_loader.load_database_ttl_config()
             news_ttl_minutes = ttl_config.get("news_ttl_minutes", 30)
 
-            # Check if we need to fetch fresh news
-            if data_service.is_news_stale(symbol, hours=news_ttl_minutes / 60):
+            # Check if we need to fetch fresh news (or force flag is set)
+            needs_refresh = force or data_service.is_news_stale(symbol, hours=news_ttl_minutes / 60)
+
+            if needs_refresh:
                 console.print()
-                console.print(f"[dim]News data is stale, fetching fresh articles...[/dim]")
+                if force:
+                    console.print(f"[dim]Force fetching latest news articles...[/dim]")
+                else:
+                    console.print(f"[dim]News data is stale, fetching fresh articles...[/dim]")
                 try:
                     # Fetch fresh news (silently - we'll show the results below)
                     data_service.fetch_news_and_sentiment(symbol, limit=10)
@@ -462,7 +467,11 @@ def info(config, symbol: str, force: bool):
 
                 # Calculate and add overall sentiment score as footer
                 try:
-                    sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=5)
+                    # Load sentiment config for time window
+                    sentiment_config = config_loader.load_sentiment_config()
+                    time_window_days = sentiment_config["time_window_days"]
+
+                    sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=time_window_days)
                     if sentiment_score is not None:
                         score_value = sentiment_score.overall_score
 
@@ -477,7 +486,7 @@ def info(config, symbol: str, force: bool):
                         sentiment_table.columns[0].footer = "[bold]Overall:[/bold]"
                         sentiment_table.columns[1].footer = ""
                         sentiment_table.columns[2].footer = f"[bold]{score_str} ({sentiment_score.sentiment_label})[/bold]"
-                        sentiment_table.columns[3].footer = f"[dim]{sentiment_score.articles_analyzed} articles, {sentiment_score.confidence_level} confidence[/dim]"
+                        sentiment_table.columns[3].footer = f"[dim]{sentiment_score.articles_analyzed} articles within {time_window_days}-day window, {sentiment_score.confidence_level} confidence[/dim]"
                 except Exception as e:
                     logger.warning(f"Could not calculate overall sentiment: {e}")
 
@@ -499,7 +508,7 @@ def info(config, symbol: str, force: bool):
 @click.argument("symbol", type=str)
 @click.option("--limit", default=10, help="Maximum number of articles to fetch (default: 10)")
 @pass_config
-def news(config, symbol: str, limit: int):
+def news(app_context, symbol: str, limit: int):
     """
     Fetch recent news and sentiment analysis for a symbol.
 
@@ -511,7 +520,7 @@ def news(config, symbol: str, limit: int):
         tradescout asset news AAPL --limit 5
     """
     # Display market context at the top
-    display_market_context(config)
+    display_market_context(app_context)
 
     symbol = symbol.upper()
 
@@ -520,7 +529,7 @@ def news(config, symbol: str, limit: int):
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from output.cli_adapter import CLIOutputAdapter
 
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize data service: {e}[/red]")
         sys.exit(1)
@@ -534,6 +543,37 @@ def news(config, symbol: str, limit: int):
 
         # Calculate overall sentiment score from database events
         sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=5)
+
+        # Fetch recent sentiment events to display in table
+        # Get asset from database
+        asset = data_service.asset_repository.get_by_symbol(symbol)
+        if asset:
+            recent_events = data_service.sentiment_event_repository.find_recent_by_asset(
+                asset.id, days=5, limit=10
+            )
+            # Convert SQLModel events to dataclass events for display
+            from models.dataclass.sentiment_event import SentimentEvent
+            from decimal import Decimal
+            import json
+
+            display_events = []
+            for event_sql in recent_events:
+                event = SentimentEvent(
+                    id=event_sql.id,
+                    asset_id=event_sql.asset_id,
+                    sentiment_type_id=event_sql.sentiment_type_id,
+                    event_date=event_sql.event_date,
+                    event_time=event_sql.event_time,
+                    session=event_sql.session,
+                    value=event_sql.value or Decimal('0'),
+                    magnitude=event_sql.magnitude or 'medium',
+                    details=json.loads(event_sql.details) if event_sql.details else {},
+                    created_at=event_sql.created_at
+                )
+                display_events.append(event)
+
+            # Add events to result for display
+            result.sentiment_events = display_events
 
         # Use CLI adapter to format and display the result
         CLIOutputAdapter.format_news_result(result, sentiment_score=sentiment_score)

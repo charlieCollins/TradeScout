@@ -159,7 +159,8 @@ class FedDataRepository:
     def bulk_upsert(self, fed_data_list: List[FedDataSQLModel]) -> int:
         """Bulk upsert multiple FedData records.
 
-        Uses SQLModel's merge functionality to handle INSERT OR REPLACE behavior.
+        Queries for existing records by unique constraint (data_type, observation_date)
+        and updates them, or inserts new records if they don't exist.
 
         Args:
             fed_data_list: List of FedData to upsert
@@ -167,8 +168,25 @@ class FedDataRepository:
         Returns:
             Number of records upserted
         """
+        from datetime import datetime
+
         for fed_data in fed_data_list:
-            self.session.merge(fed_data)
+            # Query for existing record by unique constraint
+            statement = select(FedDataSQLModel).where(
+                FedDataSQLModel.data_type == fed_data.data_type,
+                FedDataSQLModel.observation_date == fed_data.observation_date
+            )
+            existing = self.session.exec(statement).first()
+
+            if existing:
+                # Update existing record
+                existing.value = fed_data.value
+                existing.details = fed_data.details
+                existing.updated_at = datetime.utcnow()
+                self.session.add(existing)
+            else:
+                # Insert new record
+                self.session.add(fed_data)
 
         self.session.commit()
         count = len(fed_data_list)

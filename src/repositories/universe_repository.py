@@ -391,31 +391,39 @@ class UniverseRepository:
 
     def get_market_breakdown(
         self,
-        universe_id: int
+        universe_name: str
     ) -> List[Tuple[str, str, int]]:
         """Get market breakdown for a universe.
 
         Business query: Shows distribution of assets across markets.
 
         Args:
-            universe_id: Universe database ID
+            universe_name: Universe name
 
         Returns:
             List of tuples (market_code, market_name, asset_count)
         """
+        from sqlalchemy import text
+
+        # Look up universe by name first
+        universe = self.get_by_name(universe_name)
+        if not universe:
+            return []
+
         # This requires GROUP BY which SQLModel doesn't handle well
         # Use raw SQL for this complex query
-        query = """
+        query = text("""
             SELECT m.code, m.name, COUNT(um.asset_id) as count
             FROM universe_memberships um
             JOIN assets a ON um.asset_id = a.id
             JOIN markets m ON a.market_id = m.id
-            WHERE um.universe_id = ?
+            WHERE um.universe_id = :universe_id
             GROUP BY m.id
             ORDER BY count DESC
-        """
+        """)
 
-        result = self.session.exec(select(query), (universe_id,))
+        # Use execute() for raw SQL, not exec()
+        result = self.session.execute(query, {"universe_id": universe.id})
         return result.fetchall()
 
     def get_assets_with_fundamentals(self) -> List[Dict[str, Any]]:

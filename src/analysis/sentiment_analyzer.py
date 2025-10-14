@@ -24,29 +24,49 @@ class SentimentScore:
     time_window_days: int
     oldest_article_date: Optional[datetime]
     newest_article_date: Optional[datetime]
+    score_thresholds: dict  # Thresholds for sentiment labels
+    confidence_thresholds: dict  # Thresholds for confidence levels
 
     @property
     def sentiment_label(self) -> str:
-        """Get human-readable sentiment label."""
-        if self.overall_score >= 0.6:
+        """Get human-readable sentiment label.
+
+        Uses thresholds passed at initialization (from configs/sentiment.yaml)
+        """
+        score = self.overall_score
+        thresholds = self.score_thresholds
+
+        if score >= thresholds["very_positive"]:
             return "Very Positive"
-        elif self.overall_score >= 0.2:
+        elif score >= thresholds["positive"]:
             return "Positive"
-        elif self.overall_score >= -0.2:
+        elif score >= thresholds["neutral_high"]:
             return "Neutral"
-        elif self.overall_score >= -0.6:
+        elif score > thresholds["neutral_low"]:
+            return "Neutral"
+        elif score > thresholds["negative"]:
+            return "Negative"
+        elif score > thresholds["very_negative"]:
             return "Negative"
         else:
             return "Very Negative"
 
     @property
     def confidence_level(self) -> str:
-        """Get confidence level based on number of articles."""
-        if self.articles_analyzed >= 8:
+        """Get confidence level based on number of articles.
+
+        Uses thresholds passed at initialization (from configs/sentiment.yaml)
+        """
+        count = self.articles_analyzed
+        thresholds = self.confidence_thresholds
+
+        if count >= thresholds["very_high"]:
+            return "Very High"
+        elif count >= thresholds["high"]:
             return "High"
-        elif self.articles_analyzed >= 5:
+        elif count >= thresholds["medium"]:
             return "Medium"
-        elif self.articles_analyzed >= 3:
+        elif count >= thresholds["low"]:
             return "Low"
         else:
             return "Very Low"
@@ -69,10 +89,25 @@ class SentimentAnalyzer:
     def __init__(self, time_window_days: int = 5):
         """Initialize sentiment analyzer.
 
+        Loads and validates sentiment config at initialization time.
+
         Args:
             time_window_days: Only analyze articles within this many days (default: 5)
+
+        Raises:
+            ConfigValidationError: If sentiment config is invalid
         """
+        from utils.config_loader import get_config_loader
+
         self.time_window_days = time_window_days
+
+        # Load and validate config once at initialization
+        config_loader = get_config_loader()
+        sentiment_config = config_loader.load_sentiment_config()
+
+        # Store thresholds for use in SentimentScore objects
+        self.score_thresholds = sentiment_config["score_thresholds"]
+        self.confidence_thresholds = sentiment_config["confidence_thresholds"]
 
     def calculate_sentiment_score(
         self, symbol: str, sentiment_events: List[SentimentEvent]
@@ -95,6 +130,8 @@ class SentimentAnalyzer:
                 time_window_days=self.time_window_days,
                 oldest_article_date=None,
                 newest_article_date=None,
+                score_thresholds=self.score_thresholds,
+                confidence_thresholds=self.confidence_thresholds,
             )
 
         # Filter sentiment events by time window
@@ -117,6 +154,8 @@ class SentimentAnalyzer:
                 time_window_days=self.time_window_days,
                 oldest_article_date=None,
                 newest_article_date=None,
+                score_thresholds=self.score_thresholds,
+                confidence_thresholds=self.confidence_thresholds,
             )
 
         # Calculate sentiment breakdown and scores
@@ -164,6 +203,8 @@ class SentimentAnalyzer:
             time_window_days=self.time_window_days,
             oldest_article_date=oldest,
             newest_article_date=newest,
+            score_thresholds=self.score_thresholds,
+            confidence_thresholds=self.confidence_thresholds,
         )
 
     def calculate_weighted_sentiment_score(
@@ -245,4 +286,6 @@ class SentimentAnalyzer:
             time_window_days=self.time_window_days,
             oldest_article_date=oldest,
             newest_article_date=newest,
+            score_thresholds=self.score_thresholds,
+            confidence_thresholds=self.confidence_thresholds,
         )

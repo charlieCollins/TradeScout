@@ -121,7 +121,7 @@ class MarketSnapshot:
                     num_trades=min_data.get("n"),
                 )
 
-            # Parse last quote/trade (legacy - kept for compatibility)
+            # Parse last quote/trade (deprecated - use min_bar instead)
             last_quote = ticker_data.get("lastQuote", {})
             last_trade = ticker_data.get("lastTrade", {})
 

@@ -1,21 +1,21 @@
-"""GapPerformanceTracking Repository - Business-focused data access for gap performance tracking.
+"""GapCandidateResult Repository - Business-focused data access for gap candidate results.
 
-This repository provides domain-specific operations for GapPerformanceTracking data.
+This repository provides domain-specific operations for GapCandidateResult data.
 """
 
 import logging
 from typing import List, Optional
 from sqlmodel import Session, select, func
-from models.sqlmodel.gap_performance_tracking_sqlmodel import GapPerformanceTrackingSQLModel
+from models.sqlmodel.gap_candidate_result_sqlmodel import GapCandidateResultSQLModel
 
 logger = logging.getLogger(__name__)
 
 
-class GapPerformanceTrackingRepository:
-    """Repository for GapPerformanceTracking business operations.
+class GapCandidateResultRepository:
+    """Repository for GapCandidateResult business operations.
 
     Responsibilities:
-    - Business queries (by gap_result_id, incomplete records)
+    - Business queries (by gap_candidate_id, incomplete records)
     - Persistence (save, update, upsert, delete)
     - Performance statistics
     """
@@ -32,24 +32,24 @@ class GapPerformanceTrackingRepository:
     # BUSINESS QUERIES
     # =========================================================================
 
-    def get_by_gap_result_id(
+    def get_by_gap_candidate_id(
         self,
-        gap_result_id: int
-    ) -> Optional[GapPerformanceTrackingSQLModel]:
+        gap_candidate_id: int
+    ) -> Optional[GapCandidateResultSQLModel]:
         """Get performance tracking for a gap result.
 
         Args:
-            gap_result_id: Gap result ID to query
+            gap_candidate_id: Gap result ID to query
 
         Returns:
             Performance tracking if exists, None otherwise
         """
-        statement = select(GapPerformanceTrackingSQLModel).where(
-            GapPerformanceTrackingSQLModel.gap_result_id == gap_result_id
+        statement = select(GapCandidateResultSQLModel).where(
+            GapCandidateResultSQLModel.gap_result_id == gap_candidate_id
         )
         return self.session.exec(statement).first()
 
-    def find_incomplete_records(self) -> List[GapPerformanceTrackingSQLModel]:
+    def find_incomplete_records(self) -> List[GapCandidateResultSQLModel]:
         """Get performance records that need updates.
 
         Business query: Backtest command needs incomplete records to update.
@@ -57,9 +57,9 @@ class GapPerformanceTrackingRepository:
         Returns:
             List of incomplete performance tracking records
         """
-        statement = select(GapPerformanceTrackingSQLModel).where(
-            (GapPerformanceTrackingSQLModel.exit_price.is_(None)) |  # type: ignore
-            (GapPerformanceTrackingSQLModel.gap_filled.is_(None))    # type: ignore
+        statement = select(GapCandidateResultSQLModel).where(
+            (GapCandidateResultSQLModel.exit_price.is_(None)) |  # type: ignore
+            (GapCandidateResultSQLModel.gap_filled.is_(None))    # type: ignore
         )
         return list(self.session.exec(statement).all())
 
@@ -69,8 +69,8 @@ class GapPerformanceTrackingRepository:
 
     def save(
         self,
-        performance: GapPerformanceTrackingSQLModel
-    ) -> GapPerformanceTrackingSQLModel:
+        performance: GapCandidateResultSQLModel
+    ) -> GapCandidateResultSQLModel:
         """Persist performance tracking to database.
 
         Args:
@@ -87,8 +87,8 @@ class GapPerformanceTrackingRepository:
 
     def update(
         self,
-        performance: GapPerformanceTrackingSQLModel
-    ) -> GapPerformanceTrackingSQLModel:
+        performance: GapCandidateResultSQLModel
+    ) -> GapCandidateResultSQLModel:
         """Update existing performance tracking.
 
         Args:
@@ -105,8 +105,8 @@ class GapPerformanceTrackingRepository:
 
     def upsert(
         self,
-        performance: GapPerformanceTrackingSQLModel
-    ) -> GapPerformanceTrackingSQLModel:
+        performance: GapCandidateResultSQLModel
+    ) -> GapCandidateResultSQLModel:
         """Insert or update performance tracking.
 
         Args:
@@ -115,7 +115,7 @@ class GapPerformanceTrackingRepository:
         Returns:
             Saved/updated performance tracking
         """
-        existing = self.get_by_gap_result_id(performance.gap_result_id)
+        existing = self.get_by_gap_candidate_id(performance.gap_result_id)
 
         if existing:
             # Update existing record
@@ -138,22 +138,57 @@ class GapPerformanceTrackingRepository:
             # Insert new record
             return self.save(performance)
 
-    def delete_by_gap_result_id(self, gap_result_id: int) -> bool:
+    def delete_by_gap_candidate_id(self, gap_candidate_id: int) -> bool:
         """Delete performance tracking for a gap result.
 
         Args:
-            gap_result_id: Gap result ID
+            gap_candidate_id: Gap result ID
 
         Returns:
             True if deleted, False if not found
         """
-        performance = self.get_by_gap_result_id(gap_result_id)
+        performance = self.get_by_gap_candidate_id(gap_candidate_id)
         if performance:
             self.session.delete(performance)
             self.session.commit()
-            logger.debug(f"Deleted gap performance for gap_result_id: {gap_result_id}")
+            logger.debug(f"Deleted gap performance for gap_candidate_id: {gap_candidate_id}")
             return True
         return False
+
+    def get_all(self) -> List[GapCandidateResultSQLModel]:
+        """Get all gap candidate results.
+
+        Business query: Backup operations need all records.
+
+        Returns:
+            List of all gap candidate results
+        """
+        statement = select(GapCandidateResultSQLModel).order_by(
+            GapCandidateResultSQLModel.id
+        )
+        return list(self.session.exec(statement).all())
+
+    def upsert_by_id(self, result: GapCandidateResultSQLModel) -> tuple[GapCandidateResultSQLModel, bool]:
+        """Insert gap candidate result if doesn't exist, skip if exists (by ID).
+
+        Args:
+            result: Gap candidate result to insert
+
+        Returns:
+            Tuple of (record, was_inserted) where was_inserted is True if new record inserted
+        """
+        if result.id is not None:
+            existing = self.session.get(GapCandidateResultSQLModel, result.id)
+            if existing:
+                logger.debug(f"Gap candidate result {result.id} already exists, skipping")
+                return (existing, False)
+
+        # Insert new record
+        self.session.add(result)
+        self.session.commit()
+        self.session.refresh(result)
+        logger.debug(f"Inserted gap candidate result: {result.id}")
+        return (result, True)
 
     # =========================================================================
     # STATISTICS
@@ -166,15 +201,15 @@ class GapPerformanceTrackingRepository:
             Dictionary with statistics
         """
         total_count = self.session.exec(
-            select(func.count(GapPerformanceTrackingSQLModel.id))
+            select(func.count(GapCandidateResultSQLModel.id))
         ).one()
 
         # Count by outcome
         outcome_counts = {}
         for outcome in ['winner', 'loser', 'breakeven', 'not_traded']:
             count = self.session.exec(
-                select(func.count(GapPerformanceTrackingSQLModel.id)).where(
-                    GapPerformanceTrackingSQLModel.outcome == outcome
+                select(func.count(GapCandidateResultSQLModel.id)).where(
+                    GapCandidateResultSQLModel.outcome == outcome
                 )
             ).one()
             if count > 0:
@@ -182,9 +217,9 @@ class GapPerformanceTrackingRepository:
 
         # Count incomplete
         incomplete_count = self.session.exec(
-            select(func.count(GapPerformanceTrackingSQLModel.id)).where(
-                (GapPerformanceTrackingSQLModel.exit_price.is_(None)) |  # type: ignore
-                (GapPerformanceTrackingSQLModel.gap_filled.is_(None))    # type: ignore
+            select(func.count(GapCandidateResultSQLModel.id)).where(
+                (GapCandidateResultSQLModel.exit_price.is_(None)) |  # type: ignore
+                (GapCandidateResultSQLModel.gap_filled.is_(None))    # type: ignore
             )
         ).one()
 

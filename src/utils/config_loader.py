@@ -88,32 +88,174 @@ class ConfigLoader:
 
         Returns:
             Market context rules dictionary
+
+        Raises:
+            ConfigValidationError: If required config keys are missing
         """
-        return self.load_yaml("market_context_rules.yaml")
+        from utils.config_validator import validate_required_keys
+
+        config = self.load_yaml("market_context_rules.yaml")
+
+        # Validate top-level structure
+        validate_required_keys(
+            config,
+            required_keys=["field_mappings", "required_fields"],
+            config_name="configs/market_context_rules.yaml"
+        )
+
+        return config
 
     def load_sic_sector_mapping(self) -> Dict[str, str]:
         """Load SIC sector mapping configuration.
 
         Returns:
             Dictionary mapping SIC codes (str) to sector names
+
+        Raises:
+            ConfigValidationError: If config is not a dictionary
         """
-        return self.load_yaml("sic_sector_mapping.yaml")
+        from utils.config_validator import ConfigValidationError
+
+        config = self.load_yaml("sic_sector_mapping.yaml")
+
+        # Validate that it's a dictionary (can be empty)
+        if not isinstance(config, dict):
+            raise ConfigValidationError(
+                f"configs/sic_sector_mapping.yaml must be a dictionary, got {type(config).__name__}"
+            )
+
+        return config
 
     def load_database_ttl_config(self) -> Dict[str, Any]:
         """Load database TTL configuration.
 
         Returns:
             Database TTL configuration dictionary
+
+        Raises:
+            ConfigValidationError: If required config keys are missing
         """
-        return self.load_yaml("database_ttl.yaml")
+        from utils.config_validator import validate_required_keys
+
+        config = self.load_yaml("database_ttl.yaml")
+
+        # Validate all required TTL keys
+        validate_required_keys(
+            config,
+            required_keys=[
+                "asset_price_ttl_minutes",
+                "ticker_snapshot_ttl_minutes",
+                "market_snapshot_ttl_minutes",
+                "fundamentals_ttl_hours",
+                "tickers_ttl_hours",
+                "assets_ttl_hours",
+                "universes_ttl_hours",
+                "markets_ttl_hours",
+                "news_ttl_minutes",
+                "fed_data_ttl_hours",
+                "market_context_ttl_minutes",
+                "market_holidays_ttl_days",
+                "max_fundamentals_age_days",
+                "max_tickers_age_days",
+                "market_data_stale_hours",
+            ],
+            config_name="configs/database_ttl.yaml"
+        )
+
+        return config
 
     def load_gap_trading_config(self) -> Dict[str, Any]:
         """Load gap trading strategy configuration.
 
         Returns:
             Gap trading configuration dictionary
+
+        Raises:
+            ConfigValidationError: If required config keys are missing
         """
-        return self.load_yaml("gap_trading.yaml")
+        from utils.config_validator import validate_required_keys, validate_nested_keys
+
+        config = self.load_yaml("gap_trading.yaml")
+
+        # Validate top-level structure
+        validate_required_keys(
+            config,
+            required_keys=[
+                "minimum_criteria",
+                "session_hours",
+                "quality_scoring",
+                "risk_levels",
+                "gap_significance",
+                "exhaustion_gap",
+                "weekend_risk",
+            ],
+            config_name="configs/gap_trading.yaml"
+        )
+
+        # Validate minimum_criteria structure
+        validate_nested_keys(
+            config,
+            parent_key="minimum_criteria",
+            required_nested_keys=["gap_percent", "market_cap", "volume_ratio"],
+            config_name="configs/gap_trading.yaml"
+        )
+
+        # Validate session_hours structure
+        validate_nested_keys(
+            config,
+            parent_key="session_hours",
+            required_nested_keys=["premarket", "afterhours", "regular"],
+            config_name="configs/gap_trading.yaml"
+        )
+
+        # Validate risk_levels structure
+        validate_nested_keys(
+            config,
+            parent_key="risk_levels",
+            required_nested_keys=["low", "medium", "high"],
+            config_name="configs/gap_trading.yaml"
+        )
+
+        return config
+
+    def load_sentiment_config(self) -> Dict[str, Any]:
+        """Load sentiment analysis configuration.
+
+        Returns:
+            Sentiment configuration dictionary
+
+        Raises:
+            ConfigValidationError: If required config keys are missing
+            FileNotFoundError: If config file doesn't exist
+        """
+        from utils.config_validator import validate_required_keys, validate_nested_keys
+
+        config = self.load_yaml("sentiment.yaml")
+
+        # Validate top-level structure
+        validate_required_keys(
+            config,
+            required_keys=["time_window_days", "confidence_thresholds", "score_thresholds"],
+            config_name="configs/sentiment.yaml"
+        )
+
+        # Validate confidence_thresholds structure
+        validate_nested_keys(
+            config,
+            parent_key="confidence_thresholds",
+            required_nested_keys=["very_high", "high", "medium", "low", "very_low"],
+            config_name="configs/sentiment.yaml"
+        )
+
+        # Validate score_thresholds structure
+        validate_nested_keys(
+            config,
+            parent_key="score_thresholds",
+            required_nested_keys=["very_positive", "positive", "neutral_high", "neutral_low", "negative", "very_negative"],
+            config_name="configs/sentiment.yaml"
+        )
+
+        return config
 
 
 # Singleton instance for easy access

@@ -79,8 +79,8 @@ class DatabaseInitializer:
         from models.sqlmodel.provider_sqlmodel import ProviderSQLModel
         from models.sqlmodel.universe_sqlmodel import UniverseSQLModel, UniverseMembershipSQLModel
         from models.sqlmodel.fed_data_sqlmodel import FedDataSQLModel
-        from models.sqlmodel.gap_result_sqlmodel import GapResultSQLModel
-        from models.sqlmodel.gap_performance_tracking_sqlmodel import GapPerformanceTrackingSQLModel
+        from models.sqlmodel.gap_candidate_sqlmodel import GapCandidateSQLModel
+        from models.sqlmodel.gap_candidate_result_sqlmodel import GapCandidateResultSQLModel
         from models.sqlmodel.gap_result_news_sqlmodel import GapResultNewsSQLModel
         from models.sqlmodel.market_holiday_sqlmodel import MarketHolidaySQLModel
         from models.sqlmodel.sentiment_event_sqlmodel import SentimentEventSQLModel
@@ -117,7 +117,7 @@ class DatabaseInitializer:
                 "asset_fundamentals", "asset_prices", "assets", "data_update_metadata",
                 "markets", "providers", "schema_versions", "sentiment_events",
                 "sentiment_types", "universe_memberships", "universes", "fed_data",
-                "gap_results", "gap_performance_tracking", "gap_result_news",
+                "gap_candidate", "gap_candidate_result", "gap_result_news",
                 "market_holidays"
             ]
 

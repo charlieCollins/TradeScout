@@ -36,7 +36,7 @@ def validate():
     help="Specific symbols to test (comma-separated, e.g., 'AAPL,NVDA,TSLA')",
 )
 @pass_config
-def volume(config, count: int, symbols: Optional[str]):
+def volume(app_context, count: int, symbols: Optional[str]):
     """Validate volume calculation rules against Aggregates API.
 
     Tests our simple volume rules used by screeners:
@@ -54,8 +54,8 @@ def volume(config, count: int, symbols: Optional[str]):
     """
     try:
         # Initialize services
-        data_service = config.get_data_service_v2()
-        market_service = config.get_market_context_service()
+        data_service = app_context.get_data_service_v2()
+        market_service = app_context.get_market_context_service()
 
         # Get current market context (default to XNYS)
         market_context = market_service.get_context("XNYS")

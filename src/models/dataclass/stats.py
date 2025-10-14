@@ -57,3 +57,17 @@ class OperationStats:
         if self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
         return None
+
+
+@dataclass(frozen=True)
+class MarketSnapshotUpdateStats:
+    """Statistics for market snapshot update operations."""
+
+    total_tickers: int  # Total tickers received from API
+    matched_symbols: int  # Symbols we have in our database
+    unmatched_symbols: int  # Symbols from Polygon we don't have
+    transformed: int  # Successfully transformed to AssetPrice
+    invalid: int  # Rejected due to invalid data
+    saved: int  # New records saved to database
+    duplicates: int  # Records skipped (already in database)
+    data_was_fresh: bool = False  # True if TTL check passed and no API call was made

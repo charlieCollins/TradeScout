@@ -95,8 +95,6 @@ class GapAnalyzer:
         # - Premarket: (min.c - prevDay.c) / prevDay.c
         # - After-hours: (min.c - day.c) / day.c
 
-        db = self.data_service.db_manager
-
         if session == "premarket":
             # Premarket gap: current vs yesterday's close
             query = """
@@ -118,6 +116,7 @@ class GapAnalyzer:
                     AND ap.prevday_close IS NOT NULL
                     AND ap.prevday_close > 0
                     AND ap.min_close IS NOT NULL
+                    AND ap.min_close > 0
                     AND ap.prevday_volume IS NOT NULL
                     AND ap.prevday_volume > 0
                     AND af.market_cap >= ?
@@ -153,6 +152,7 @@ class GapAnalyzer:
                     AND ap.day_close IS NOT NULL
                     AND ap.day_close > 0
                     AND ap.min_close IS NOT NULL
+                    AND ap.min_close > 0
                     AND ap.prevday_volume IS NOT NULL
                     AND ap.prevday_volume > 0
                     AND af.market_cap >= ?
@@ -167,7 +167,7 @@ class GapAnalyzer:
 
             params = universe_symbols + [min_market_cap, min_gap_pct]
 
-        rows = db.execute_query(query, params)
+        rows = self.data_service.execute_query(query, params)
 
         # Convert rows to GapCandidate objects
         candidates = []

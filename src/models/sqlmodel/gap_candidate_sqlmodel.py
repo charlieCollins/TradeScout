@@ -1,6 +1,6 @@
-"""GapResult SQLModel for database operations.
+"""GapCandidate SQLModel for database operations.
 
-This model represents gap analysis results in the database using SQLModel ORM.
+This model represents gap candidate analysis in the database using SQLModel ORM.
 """
 
 from datetime import date, datetime
@@ -8,13 +8,13 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 
-class GapResultSQLModel(SQLModel, table=True):
-    """SQLModel for gap_results table.
+class GapCandidateSQLModel(SQLModel, table=True):
+    """SQLModel for gap_candidate table.
 
-    Represents gap trading analysis results with quality scoring and filtering.
+    Represents gap trading candidates with quality scoring and filtering.
     """
 
-    __tablename__ = "gap_results"
+    __tablename__ = "gap_candidate"
 
     # Primary identification
     id: Optional[int] = Field(default=None, primary_key=True)

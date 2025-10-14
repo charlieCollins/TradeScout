@@ -1,8 +1,7 @@
 """SQLModel version of Market - Repository/DAO pattern implementation.
 
-This file contains the SQLModel version of Market for the new architecture.
-The original dataclass version (market.py) remains for backward compatibility
-during the strangler fig migration.
+This file contains the SQLModel version used by repositories for database operations.
+The dataclass version (market.py) is used by providers and business logic.
 """
 
 from datetime import datetime, time

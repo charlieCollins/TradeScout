@@ -63,7 +63,8 @@ class PolygonFedProvider(BaseAPIProvider):
             List of FedData objects with inflation data
         """
         try:
-            params = {"limit": limit, "sort": "date.desc"}
+            # Fetch more data to ensure we have 12-month-old data for YoY calculation
+            params = {"limit": max(limit, 50), "sort": "date.desc"}
 
             response = self._make_request("/fed/v1/inflation", params)
 
@@ -72,19 +73,37 @@ class PolygonFedProvider(BaseAPIProvider):
                 return []
 
             results = response["results"]
+
+            # Build a lookup of date -> CPI for year-over-year calculation
+            cpi_by_date = {}
+            for item in results:
+                obs_date = self._parse_date(item.get("date"))
+                if obs_date and "cpi" in item:
+                    cpi_by_date[obs_date] = item["cpi"]
+
             fed_data_list = []
 
-            for item in results:
+            for item in results[:limit]:  # Only return requested limit
                 try:
                     obs_date = self._parse_date(item.get("date"))
                     if not obs_date:
                         logger.warning(f"Invalid date in inflation data: {item}")
                         continue
 
+                    # Look up CPI from 12 months ago
+                    # Calculate date 12 months prior (same day, previous year)
+                    if obs_date.month == 2 and obs_date.day == 29:
+                        # Handle leap year edge case
+                        prior_year_date = date(obs_date.year - 1, 2, 28)
+                    else:
+                        prior_year_date = date(obs_date.year - 1, obs_date.month, obs_date.day)
+                    prior_year_cpi = cpi_by_date.get(prior_year_date)
+
                     fed_data = FedData.from_polygon_data(
                         data_type="inflation",
                         polygon_data=item,
                         observation_date=obs_date,
+                        prior_year_cpi=prior_year_cpi,
                     )
                     fed_data_list.append(fed_data)
 

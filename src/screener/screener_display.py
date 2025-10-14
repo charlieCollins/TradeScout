@@ -25,8 +25,7 @@ class ScreenerDisplay:
         session: str,
         snapshot_time: Optional[str] = None,
         sessions_text: Optional[str] = None,
-        warnings: Optional[List[str]] = None,
-        snapshot_warning: Optional[str] = None
+        warnings: Optional[List[str]] = None
     ):
         """Display screener results in a formatted table.
 
@@ -37,7 +36,6 @@ class ScreenerDisplay:
             snapshot_time: Optional snapshot time string to display
             sessions_text: Optional sessions info to display
             warnings: Optional list of warning messages to display
-            snapshot_warning: Deprecated - use warnings instead
         """
         # Show last snapshot time first
         if snapshot_time:
@@ -45,12 +43,10 @@ class ScreenerDisplay:
         if sessions_text:
             self.console.print(f"[dim]{sessions_text}[/dim]")
 
-        # Display warnings - support both new warnings list and legacy snapshot_warning
+        # Display warnings
         if warnings:
             for warning in warnings:
                 self.console.print(f"[yellow]{warning}[/yellow]")
-        elif snapshot_warning:
-            self.console.print(f"[yellow]{snapshot_warning}[/yellow]")
 
         if not results:
             self.console.print("[yellow]No stocks match the screener criteria.[/yellow]")

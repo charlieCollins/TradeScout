@@ -1,8 +1,7 @@
 """SQLModel version of AssetFundamentals - Repository/DAO pattern implementation.
 
-This file contains the SQLModel version of AssetFundamentals for the new architecture.
-The original dataclass version (fundamentals.py) remains for backward compatibility
-during the strangler fig migration.
+This file contains the SQLModel version used by repositories for database operations.
+The dataclass version (fundamentals.py) is used by providers and business logic.
 """
 
 from datetime import datetime

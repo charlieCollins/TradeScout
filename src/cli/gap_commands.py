@@ -50,7 +50,7 @@ def gap():
 @click.option('--min-volume-ratio', default=1.5, help='Minimum volume ratio for entry (default: 1.5x)')
 @click.option('--limit', default=50, help='Maximum candidates to analyze (default: 50)')
 @pass_config
-def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
+def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
     """Analyze gap candidates (premarket/after-hours only).
 
     Automated gap analysis following the manual workflow:
@@ -75,7 +75,7 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
     try:
         # Step 1: Get market context and validate session
         console.print("\n[bold cyan]📊 Gap Analysis - Market Context[/bold cyan]")
-        market_context = config.market_context
+        market_context = app_context.market_context
 
         console.print(f"  Session: [yellow]{market_context.session_name}[/yellow]")
         console.print(f"  Market: [yellow]{market_context.market.name}[/yellow]")
@@ -94,7 +94,13 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
 
         # Check data freshness and update if needed
         console.print("[bold cyan]⏰ Checking Data Freshness...[/bold cyan]")
-        data_service = config.get_data_service_v2()
+        data_service = app_context.get_data_service_v2()
+
+        # Get TTL for market snapshots from config
+        from services.cache_service import CacheConfig
+        from models.dataclass.data_update_metadata import DataUpdateMetadataType
+        ttl_seconds = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS)
+        ttl_minutes = ttl_seconds / 60
 
         # Get most recent snapshot time
         last_update = data_service.get_last_price_update_time()
@@ -106,17 +112,16 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
 
             console.print(f"  Last snapshot: {age_minutes:.1f} minutes ago")
 
-            if age_minutes > 5:
-                console.print(f"  [yellow]⚠ Data is stale (>{age_minutes:.0f} min), running market update...[/yellow]")
+            if age_minutes > ttl_minutes:
+                console.print(f"  [yellow]⚠ Data is {age_minutes:.1f} min old (TTL: {ttl_minutes:.0f} min), running market update...[/yellow]")
 
                 # Force refresh market snapshot (triggers new API call)
-                bulk_snapshot = data_service.get_market_snapshot(
-                    symbols=None,  # Get all tickers
-                    force_refresh=True
-                )
+                stats = data_service.update_market_snapshot(force_refresh=True)
 
-                if bulk_snapshot and bulk_snapshot.tickers:
-                    console.print(f"  [green]✓ Market data updated ({len(bulk_snapshot.tickers):,} tickers)[/green]\n")
+                if stats and stats.saved > 0:
+                    console.print(f"  [green]✓ Market data updated ({stats.total_tickers:,} tickers, {stats.saved:,} new records)[/green]\n")
+                elif stats and stats.duplicates > 0:
+                    console.print(f"  [green]✓ Market data refreshed ({stats.total_tickers:,} tickers, all current)[/green]\n")
                 else:
                     console.print(f"  [yellow]⚠ Market update returned no data, continuing with stale data[/yellow]\n")
             else:
@@ -125,13 +130,10 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
             console.print(f"  [yellow]⚠ No market data found, running update...[/yellow]")
 
             # Force refresh market snapshot
-            bulk_snapshot = data_service.get_market_snapshot(
-                symbols=None,
-                force_refresh=True
-            )
+            stats = data_service.update_market_snapshot(force_refresh=True)
 
-            if bulk_snapshot and bulk_snapshot.tickers:
-                console.print(f"  [green]✓ Market data updated ({len(bulk_snapshot.tickers):,} tickers)[/green]\n")
+            if stats and stats.total_tickers > 0:
+                console.print(f"  [green]✓ Market data updated ({stats.total_tickers:,} tickers, {stats.saved:,} new records)[/green]\n")
             else:
                 console.print(f"  [red]❌ Failed to fetch market data[/red]")
                 return
@@ -193,6 +195,15 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
             console.print(f"[bold cyan]📰 Fetching News & Sentiment...[/bold cyan]")
             console.print(f"  [dim]⊘ Skipped (no volume-validated candidates)[/dim]\n")
 
+            # Display results BEFORE asking to save
+            console.print("[yellow]📭 No candidates met volume requirements[/yellow]")
+            console.print(f"   All {len(candidates)} candidates had volume ratio <{min_volume_ratio}x")
+            console.print(f"   Consider lowering --min-volume-ratio threshold\n")
+
+            # Show the candidates table so user can see what was found and why rejected
+            gap_display = GapAnalysisDisplay()
+            gap_display.display_candidates_table(candidates, market_context)
+
             # Ask if user wants to save to database
             if click.confirm("\nSave results to database?", default=True):
                 console.print("[bold cyan]💾 Saving Results to Database...[/bold cyan]")
@@ -210,10 +221,6 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
             else:
                 console.print("  [dim]Skipped database save[/dim]\n")
 
-            console.print("[yellow]📭 No candidates met volume requirements[/yellow]")
-            console.print(f"   All candidates had volume ratio <{min_volume_ratio}x")
-            console.print(f"   Consider lowering --min-volume-ratio threshold\n")
-            _display_failed_volume_table(candidates, min_volume_ratio)
             return
 
         # Step 5: Fetch news/sentiment for validated candidates
@@ -280,6 +287,10 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
             console.print("[yellow]📭 All candidates were exhaustion gaps (gap≥5% + vol≥3x)[/yellow]")
             console.print("   Exhaustion gaps have high reversal risk\n")
 
+            # Display the exhaustion gaps BEFORE asking to save
+            gap_display = GapAnalysisDisplay()
+            gap_display.display_candidates_table(validated_candidates, market_context)
+
             # Ask if user wants to save to database
             if click.confirm("\nSave results to database?", default=True):
                 console.print("[bold cyan]💾 Saving Results to Database...[/bold cyan]")
@@ -328,7 +339,14 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
 
         console.print(f"  [green]✓ Quality scores calculated[/green]\n")
 
-        # Step 7.5: Save results to database
+        # Step 8: Display results BEFORE asking to save
+        gap_display = GapAnalysisDisplay()
+        gap_display.display_candidates_table(filtered_candidates, market_context)
+
+        # Display summary and recommendations
+        gap_display.display_summary(filtered_candidates, min_volume_ratio, market_context)
+
+        # Step 9: Save results to database
         if click.confirm("\nSave results to database?", default=True):
             console.print("[bold cyan]💾 Saving Results to Database...[/bold cyan]")
 
@@ -349,14 +367,7 @@ def analyze(config, min_gap, min_market_cap, min_volume_ratio, limit):
         else:
             console.print("  [dim]Skipped database save[/dim]\n")
 
-        # Step 8: Display results
-        gap_display = GapAnalysisDisplay()
-        gap_display.display_candidates_table(filtered_candidates, market_context)
-
-        # Display summary and recommendations
-        gap_display.display_summary(filtered_candidates, min_volume_ratio, market_context)
-
-        # Step 9: Generate text report
+        # Step 10: Generate text report
         report_path = _generate_text_report(
             candidates=candidates,
             validated_candidates=validated_candidates,
@@ -401,7 +412,7 @@ def _prepare_and_save_candidates(
         Number of candidates saved to database
     """
     try:
-        from models.sqlmodel.gap_result_sqlmodel import GapResultSQLModel
+        from models.sqlmodel.gap_candidate_sqlmodel import GapCandidateSQLModel
 
         trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
         is_friday = trading_date.weekday() == 4
@@ -471,8 +482,8 @@ def _prepare_and_save_candidates(
             if candidate.catalyst_score is not None:
                 candidate.has_tier1_catalyst = candidate.catalyst_score >= 80
 
-            # Convert GapCandidate to GapResultSQLModel
-            gap_result_sql = GapResultSQLModel(
+            # Convert GapCandidate to GapCandidateSQLModel
+            gap_result_sql = GapCandidateSQLModel(
                 asset_id=candidate.asset_id,
                 analysis_timestamp=analysis_timestamp,
                 session_type=candidate.session_type,
@@ -518,7 +529,7 @@ def _prepare_and_save_candidates(
             )
 
             # Save to database using new repository
-            gap_result = data_service.gap_result_repository.save(gap_result_sql)
+            gap_result = data_service.gap_candidate_repository.save(gap_result_sql)
             gap_result_id = gap_result.id
 
             if gap_result_id:
@@ -696,7 +707,7 @@ def _generate_text_report(candidates, validated_candidates, filtered_candidates,
 @click.option('--session', type=click.Choice(['premarket', 'afterhours', 'all']), default='all', help='Filter by session type')
 @click.option('--status', type=click.Choice(['passed', 'rejected', 'warning', 'all']), default='all', help='Filter by status')
 @pass_config
-def results_command(config, num_days, num_results_per_day, session, status):
+def results_command(app_context, num_days, num_results_per_day, session, status):
     """Query historical gap analysis results from database.
 
     Shows gap candidates from recent analysis runs, grouped by trading date.
@@ -711,7 +722,7 @@ def results_command(config, num_days, num_results_per_day, session, status):
     ))
 
     # Get DataServiceV2
-    data_service = config.get_data_service_v2()
+    data_service = app_context.get_data_service_v2()
 
     # Calculate date range
     end_date = date.today()
@@ -720,7 +731,7 @@ def results_command(config, num_days, num_results_per_day, session, status):
     # Query database using repository
     try:
         # Use repository method with filters
-        results = data_service.gap_result_repository.find_by_date_range_with_symbols(
+        results = data_service.gap_candidate_repository.find_by_date_range_with_symbols(
             start_date=start_date,
             end_date=end_date,
             session_type=session if session != 'all' else None,
@@ -841,8 +852,8 @@ def results_command(config, num_days, num_results_per_day, session, status):
     
     # Statistics
     total_count = len(all_results)
-    passed_count = sum(1 for r in all_results if dict(zip(columns, r))['status'] == 'passed')
-    rejected_count = sum(1 for r in all_results if dict(zip(columns, r))['status'] == 'rejected')
+    passed_count = sum(1 for r in all_results if r['status'] == 'passed')
+    rejected_count = sum(1 for r in all_results if r['status'] == 'rejected')
     
     console.print(f"\n[bold]Database Statistics ({start_date} to {end_date}):[/bold]")
     console.print(f"  Total results: {total_count}")
@@ -856,7 +867,7 @@ def results_command(config, num_days, num_results_per_day, session, status):
 @click.option('--force', is_flag=True, help='Force refresh existing backtest data')
 @click.option('--dry-run', is_flag=True, help='Show what would be updated without saving')
 @pass_config
-def backtest_command(config, date, num_days, force, dry_run):
+def backtest_command(app_context, date, num_days, force, dry_run):
     """Backtest gap candidates against actual market data.
 
     Validates gap trading strategy by fetching historical intraday data and
@@ -875,7 +886,7 @@ def backtest_command(config, date, num_days, force, dry_run):
         ./tradescout gap backtest --date 2025-10-09
         ./tradescout gap backtest --dry-run       # Preview updates
     """
-    from analysis.gap_performance_calculator import GapPerformanceCalculator
+    from analysis.gap_performance_calculator import GapCandidateResultCalculator
     from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
     from api.config.api_keys import POLYGON_API_KEY
     from datetime import date as date_type, datetime
@@ -888,13 +899,13 @@ def backtest_command(config, date, num_days, force, dry_run):
     console.print("\n[bold]Backtesting gap candidates against actual market data...[/bold]\n")
 
     # Get DataServiceV2
-    data_service = config.get_data_service_v2()
+    data_service = app_context.get_data_service_v2()
 
     aggregates_provider = PolygonAggregatesProvider(POLYGON_API_KEY)
 
-    # Note: GapPerformanceCalculator still uses old MarketHolidaysManager temporarily
+    # Note: GapCandidateResultCalculator still uses old MarketHolidaysManager temporarily
     # We pass data_service.market_holiday_repository which has compatible methods
-    calculator = GapPerformanceCalculator(aggregates_provider, data_service.market_holiday_repository)
+    calculator = GapCandidateResultCalculator(aggregates_provider, data_service.market_holiday_repository)
 
     # Get gap results to process
     try:
@@ -902,13 +913,13 @@ def backtest_command(config, date, num_days, force, dry_run):
         if date:
             # Specific date
             target_date = date_type.fromisoformat(date)
-            results = data_service.gap_result_repository.find_recent_with_symbols(
+            results = data_service.gap_candidate_repository.find_recent_with_symbols(
                 num_days=1,
                 specific_date=target_date
             )
         else:
             # Most recent N days (all candidates per day)
-            results = data_service.gap_result_repository.find_recent_with_symbols(
+            results = data_service.gap_candidate_repository.find_recent_with_symbols(
                 num_days=num_days
             )
 
@@ -940,7 +951,7 @@ def backtest_command(config, date, num_days, force, dry_run):
         # Collect all performance data for statistics
         all_performance_data = []
         for gr in gap_results:
-            existing = data_service.gap_performance_repository.get_by_gap_result_id(gr['id'])
+            existing = data_service.gap_candidate_result_repository.get_by_gap_candidate_id(gr['id'])
             if existing:
                 existing_dict = existing.model_dump()
                 all_performance_data.append({
@@ -986,7 +997,7 @@ def backtest_command(config, date, num_days, force, dry_run):
         should_update = force
 
         if not should_update:
-            existing = data_service.gap_performance_repository.get_by_gap_result_id(gap_result['id'])
+            existing = data_service.gap_candidate_result_repository.get_by_gap_candidate_id(gap_result['id'])
             if not existing:
                 should_update = True
             elif existing.entry_price is None or existing.exit_price is None:
@@ -994,21 +1005,21 @@ def backtest_command(config, date, num_days, force, dry_run):
 
         if not should_update:
             # Already has performance data - read and display it
-            existing_sql = data_service.gap_performance_repository.get_by_gap_result_id(gap_result['id'])
+            existing_sql = data_service.gap_candidate_result_repository.get_by_gap_candidate_id(gap_result['id'])
             if existing_sql:
                 existing_dict = existing_sql.model_dump()
                 # Convert dict to GapPerformance object for display
-                from models.dataclass.gap_performance import GapPerformance, PerformanceOutcome
+                from models.dataclass.gap_performance import GapCandidateResult, PerformanceOutcome
                 from datetime import datetime as dt
 
-                existing_perf = GapPerformance(
+                existing_perf = GapCandidateResult(
                     gap_result_id=existing_dict['gap_result_id'],
                     entry_price=existing_dict['entry_price'],
                     exit_price=existing_dict['exit_price'],
                     max_intraday_price=existing_dict['max_intraday_price'],
                     min_intraday_price=existing_dict['min_intraday_price'],
                     gap_filled=bool(existing_dict['gap_filled']),
-                    gap_fill_timestamp=dt.fromisoformat(existing_dict['gap_fill_timestamp']) if existing_dict.get('gap_fill_timestamp') else None
+                    gap_fill_timestamp=existing_dict.get('gap_fill_timestamp')
                 )
 
                 result_info = {
@@ -1072,10 +1083,10 @@ def backtest_command(config, date, num_days, force, dry_run):
             # Save to database (unless dry-run)
             if not dry_run:
                 # Convert GapPerformance domain model to SQLModel
-                from models.sqlmodel.gap_performance_tracking_sqlmodel import GapPerformanceTrackingSQLModel
+                from models.sqlmodel.gap_candidate_result_sqlmodel import GapCandidateResultSQLModel
                 from datetime import datetime
 
-                performance_sql = GapPerformanceTrackingSQLModel(
+                performance_sql = GapCandidateResultSQLModel(
                     gap_result_id=performance.gap_result_id,
                     entry_price=performance.entry_price,
                     exit_price=performance.exit_price,
@@ -1092,7 +1103,7 @@ def backtest_command(config, date, num_days, force, dry_run):
                 )
 
                 try:
-                    perf_result = data_service.gap_performance_repository.upsert(performance_sql)
+                    perf_result = data_service.gap_candidate_result_repository.upsert(performance_sql)
                     if not perf_result:
                         console.print("[red]✗ Failed to save[/red]")
                         failed_count += 1
@@ -1158,7 +1169,7 @@ def backtest_command(config, date, num_days, force, dry_run):
 
     # Performance statistics
     if updated_count > 0 and not dry_run:
-        stats = data_service.gap_performance_repository.get_statistics()
+        stats = data_service.gap_candidate_result_repository.get_statistics()
         if stats:
             console.print(f"\n[bold]Performance Statistics ({stats['total_records']} gaps):[/bold]")
 

@@ -67,11 +67,11 @@ class MarketContext:
     next_trading_date: Optional[date] = None   # Next trading day (if known)
 
     # API response data (for debugging/logging)
-    raw_market_status: Optional[Dict[str, Any]] = None
+    raw_market_status: Optional["MarketStatusSnapshot"] = None
 
     @property
     def session_name(self) -> str:
-        """Get simplified session name for legacy compatibility."""
+        """Get simplified session name (premarket/regular/afterhours/closed)."""
         return self.current_session.to_screener_session()
 
     @property

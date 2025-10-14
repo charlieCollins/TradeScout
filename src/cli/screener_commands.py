@@ -24,7 +24,7 @@ console = Console()
 @click.argument("screener_name", required=False)
 @click.option("--list", "list_screeners", is_flag=True, help="List available screeners")
 @pass_config
-def screener(config, screener_name: str, list_screeners: bool):
+def screener(app_context, screener_name: str, list_screeners: bool):
     """
     Run market screeners to find trading opportunities.
 
@@ -36,7 +36,7 @@ def screener(config, screener_name: str, list_screeners: bool):
     """
 
     # Display market context at the top
-    display_market_context(config)
+    display_market_context(app_context)
 
     # Handle list flag
     if list_screeners:
@@ -69,8 +69,8 @@ def screener(config, screener_name: str, list_screeners: bool):
         # Initialize components
 
         screener_config = ScreenerConfig()
-        data_service = config.get_data_service_v2()
-        screener_engine = ScreenerEngine(data_service, config)
+        data_service = app_context.get_data_service_v2()
+        screener_engine = ScreenerEngine(data_service, app_context)
         screener_display = ScreenerDisplay()
 
         # Get screener definition
@@ -101,8 +101,11 @@ def screener(config, screener_name: str, list_screeners: bool):
         valid_sessions = screener_def.get('valid_sessions', [])
         sessions_text = f"Valid sessions: {', '.join(valid_sessions)}" if valid_sessions else ""
 
+        # Get market context from app_context (not data_service)
+        market_context = app_context.market_context
+        current_session = market_context.current_session.value
+
         # Add session-specific warnings
-        current_session = data_service.get_current_market_session()
         session_warnings = []
 
         if current_session == "closed":
@@ -117,9 +120,6 @@ def screener(config, screener_name: str, list_screeners: bool):
         if snapshot_warning:
             all_warnings.append(snapshot_warning)
         all_warnings.extend(session_warnings)
-
-        # Get market context for context-aware screeners
-        market_context = data_service.get_market_context()
 
         # Execute screener
         console.print(f"[yellow]📊 Running '{screener_name}' screener...[/yellow]")

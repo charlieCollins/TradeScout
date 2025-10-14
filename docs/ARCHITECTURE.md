@@ -730,7 +730,7 @@ def count_active(self) -> int
 ```python
 def bootstrap_assets(self, market: str, active: bool)
 def calculate_asset_sentiment(self, symbol: str)
-def get_market_snapshot(self, symbols: List[str])
+def update_market_snapshot(self, force_refresh: bool = False)
 ```
 
 **Does NOT Belong Here:**

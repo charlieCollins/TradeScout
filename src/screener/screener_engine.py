@@ -54,7 +54,7 @@ class ScreenerEngine:
             ValueError: If screener is not valid for current session or missing field_mapping
         """
         # Check if screener is valid for current session
-        self._validate_session(screener_def)
+        self._validate_session(screener_def, market_context)
 
         # All screeners must be context-aware
         if 'field_mapping' not in screener_def:
@@ -94,11 +94,12 @@ class ScreenerEngine:
 
         return enhanced_results
 
-    def _validate_session(self, screener_def: Dict):
+    def _validate_session(self, screener_def: Dict, market_context: MarketContext):
         """Validate that screener can run during current session.
 
         Args:
             screener_def: Screener configuration
+            market_context: Market context with session information
 
         Raises:
             ValueError: If screener is not valid for current session or missing session config
@@ -117,24 +118,12 @@ class ScreenerEngine:
                 f"Screener '{screener_name}' has invalid 'valid_sessions' - must be a non-empty list"
             )
 
-        current_session = self._get_current_session()
+        current_session = market_context.current_session.value
         if current_session not in valid_sessions:
             raise ValueError(
                 f"Screener '{screener_name}' is not available during {current_session} session. "
                 f"Valid sessions: {', '.join(valid_sessions)}"
             )
-
-    def _get_current_session(self) -> str:
-        """Get current market session from data provider.
-
-        Returns:
-            Session name: 'premarket', 'regular', 'afterhours', or 'closed'
-
-        Raises:
-            RuntimeError: If market status API call fails
-        """
-        # Use the data provider to get current session
-        return self.data_provider.get_current_market_session()
 
     def _build_query(self, screener_def: Dict) -> str:
         """Build SQL query from screener definition.

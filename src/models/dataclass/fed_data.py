@@ -53,7 +53,7 @@ class FedData:
     @property
     def display_value(self) -> str:
         """Format value for display (typically as percentage)."""
-        if self.is_treasury_yield or self.is_inflation:
+        if self.is_treasury_yield or self.is_inflation or self.is_inflation_expectation:
             return f"{float(self.value):.2f}%"
         else:
             return f"{float(self.value):.2f}"
@@ -64,6 +64,7 @@ class FedData:
         data_type: str,
         polygon_data: Dict[str, Any],
         observation_date: date,
+        prior_year_cpi: Optional[float] = None,
     ) -> "FedData":
         """Create FedData from Polygon API response.
 
@@ -71,6 +72,7 @@ class FedData:
             data_type: Type of fed data
             polygon_data: Raw data from Polygon API
             observation_date: Date of observation
+            prior_year_cpi: CPI value from 12 months ago (for calculating year-over-year)
 
         Returns:
             FedData instance
@@ -79,8 +81,23 @@ class FedData:
         if data_type == "treasury_yields":
             # Use 10-year yield as representative value
             value = polygon_data.get("yield_10_year", 0)
+        elif data_type == "inflation":
+            # Use year-over-year CPI if provided by API
+            yoy = polygon_data.get("cpi_year_over_year")
+            if yoy:
+                value = yoy
+            elif prior_year_cpi and polygon_data.get("cpi"):
+                # Calculate year-over-year ourselves
+                current_cpi = polygon_data.get("cpi")
+                value = ((current_cpi - prior_year_cpi) / prior_year_cpi) * 100
+            else:
+                # No year-over-year data available
+                value = 0
+        elif data_type == "inflation_expectations":
+            # Use 5-year market expectation as representative value
+            value = polygon_data.get("market_5_year", 0)
         else:
-            # For inflation and inflation_expectations, use direct value
+            # Fallback
             value = polygon_data.get("value", 0)
 
         return cls(

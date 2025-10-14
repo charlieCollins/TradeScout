@@ -1,6 +1,6 @@
-"""GapPerformanceTracking SQLModel for database operations.
+"""GapCandidateResult SQLModel for database operations.
 
-This model represents gap performance tracking data in the database using SQLModel ORM.
+This model represents gap candidate results (performance outcomes) in the database using SQLModel ORM.
 """
 
 from datetime import datetime
@@ -8,13 +8,13 @@ from typing import Optional
 from sqlmodel import Field, SQLModel
 
 
-class GapPerformanceTrackingSQLModel(SQLModel, table=True):
-    """SQLModel for gap_performance_tracking table.
+class GapCandidateResultSQLModel(SQLModel, table=True):
+    """SQLModel for gap_candidate_result table.
 
-    Tracks actual performance metrics for gap trade opportunities.
+    Tracks actual performance metrics for gap candidate opportunities.
     """
 
-    __tablename__ = "gap_performance_tracking"
+    __tablename__ = "gap_candidate_result"
 
     id: Optional[int] = Field(default=None, primary_key=True)
     gap_result_id: int = Field(unique=True, index=True)

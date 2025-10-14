@@ -104,21 +104,21 @@ class TestDataServiceV2Integration:
                 repository=service.asset_repository,
                 metadata_manager=mock_metadata_manager,
                 metadata_type=DataUpdateMetadataType.TICKERS,
-                ttl_seconds=CacheConfig.ASSETS_TTL
+                ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.TICKERS)
             )
 
             service.market_cache = CacheService[MarketSQLModel](
                 repository=service.market_repository,
                 metadata_manager=mock_metadata_manager,
                 metadata_type=DataUpdateMetadataType.MARKETS,
-                ttl_seconds=CacheConfig.MARKETS_TTL
+                ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.MARKETS)
             )
 
             service.fundamentals_cache = CacheService[FundamentalsSQLModel](
                 repository=service.fundamentals_repository,
                 metadata_manager=mock_metadata_manager,
                 metadata_type=DataUpdateMetadataType.FUNDAMENTALS,
-                ttl_seconds=CacheConfig.FUNDAMENTALS_TTL
+                ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.FUNDAMENTALS)
             )
 
             yield service

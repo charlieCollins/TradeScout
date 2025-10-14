@@ -69,6 +69,23 @@ class MarketRepository:
         """
         return self.session.get(MarketSQLModel, market_id)
 
+    def get_all(self, active_only: bool = True) -> List[MarketSQLModel]:
+        """Get all markets with optional active filtering.
+
+        Args:
+            active_only: If True, only return active markets (default: True)
+
+        Returns:
+            List of markets, ordered by name
+        """
+        statement = select(MarketSQLModel)
+
+        if active_only:
+            statement = statement.where(MarketSQLModel.is_active == True)
+
+        statement = statement.order_by(MarketSQLModel.name)
+        return list(self.session.exec(statement).all())
+
     def find_all_active(self) -> List[MarketSQLModel]:
         """Get all active markets.
 
@@ -77,11 +94,7 @@ class MarketRepository:
         Returns:
             List of active markets, ordered by name
         """
-        statement = select(MarketSQLModel).where(
-            MarketSQLModel.is_active == True
-        ).order_by(MarketSQLModel.name)
-
-        return list(self.session.exec(statement).all())
+        return self.get_all(active_only=True)
 
     def find_by_country(self, country: str) -> List[MarketSQLModel]:
         """Get all active markets for a specific country.

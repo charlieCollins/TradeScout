@@ -95,11 +95,8 @@ class PolygonSnapshotProvider(BaseAPIProvider):
             logger.error(f"Error fetching ticker snapshot for {symbol}: {e}")
             return None
 
-    def fetch_bulk_market_snapshot(self, symbols: Optional[list] = None) -> Optional[MarketSnapshot]:
-        """Fetch snapshots for all tickers or specified symbols.
-
-        Args:
-            symbols: Optional list of symbols to fetch (None = all tickers)
+    def fetch_bulk_market_snapshot(self) -> Optional[MarketSnapshot]:
+        """Fetch snapshots for ALL tickers (bulk market snapshot).
 
         Returns:
             MarketSnapshot object containing all ticker snapshots, or None if error
@@ -107,10 +104,6 @@ class PolygonSnapshotProvider(BaseAPIProvider):
         try:
             endpoint = "/v2/snapshot/locale/us/markets/stocks/tickers"
             params = {}
-
-            if symbols:
-                # Polygon accepts comma-separated tickers
-                params["tickers"] = ",".join(symbols)
 
             raw_data = self._make_request(endpoint, params)
 

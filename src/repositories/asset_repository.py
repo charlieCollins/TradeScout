@@ -210,21 +210,60 @@ class AssetRepository:
         return asset
 
     def bulk_save(self, assets: List[AssetSQLModel]) -> int:
-        """Bulk persist multiple assets.
+        """Bulk persist multiple assets - non-destructive upsert.
 
-        Optimized for inserting/updating many assets at once.
+        This method is non-destructive:
+        - Updates existing assets (matched by symbol)
+        - Inserts new assets (symbols not in database)
+        - Does not delete any existing data
 
         Args:
             assets: List of assets to persist
 
         Returns:
-            Number of assets saved
+            Total number of assets successfully processed (inserts + updates)
         """
-        self.session.add_all(assets)
+        if not assets:
+            return 0
+
+        # Get all existing symbols in one query
+        symbols = [asset.symbol for asset in assets]
+        statement = select(AssetSQLModel).where(AssetSQLModel.symbol.in_(symbols))
+        existing_assets = {asset.symbol: asset for asset in self.session.exec(statement).all()}
+
+        inserted_count = 0
+        updated_count = 0
+
+        for incoming_asset in assets:
+            existing = existing_assets.get(incoming_asset.symbol)
+
+            if existing:
+                # Update existing asset (convert enums to strings if needed)
+                existing.name = incoming_asset.name
+                existing.asset_type = (
+                    incoming_asset.asset_type.value
+                    if hasattr(incoming_asset.asset_type, 'value')
+                    else incoming_asset.asset_type
+                )
+                existing.asset_class = (
+                    incoming_asset.asset_class.value
+                    if hasattr(incoming_asset.asset_class, 'value')
+                    else incoming_asset.asset_class
+                )
+                existing.is_active = incoming_asset.is_active
+                existing.market_id = incoming_asset.market_id
+                existing.provider_id = incoming_asset.provider_id
+                existing.updated_at = incoming_asset.updated_at
+                updated_count += 1
+            else:
+                # Insert new asset
+                self.session.add(incoming_asset)
+                inserted_count += 1
+
         self.session.commit()
-        count = len(assets)
-        logger.debug(f"Bulk saved {count} assets")
-        return count
+        total_processed = inserted_count + updated_count
+        logger.debug(f"Bulk saved: {inserted_count} new, {updated_count} updated, {total_processed} total")
+        return total_processed
 
     def delete(self, asset: AssetSQLModel) -> None:
         """Delete asset from database.

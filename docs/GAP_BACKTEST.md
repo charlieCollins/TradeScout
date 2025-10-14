@@ -235,12 +235,12 @@ else:
 
 ## 🗄️ Database Schema
 
-### Table: `gap_performance_tracking`
+### Table: `gap_candidate_result`
 
 ```sql
-CREATE TABLE gap_performance_tracking (
+CREATE TABLE gap_candidate_result (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gap_result_id INTEGER NOT NULL UNIQUE,
+    gap_candidate_id INTEGER NOT NULL UNIQUE,
 
     -- Entry/Exit (regular hours only)
     entry_price REAL,              -- Open at 9:30 AM
@@ -265,16 +265,16 @@ CREATE TABLE gap_performance_tracking (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
+    FOREIGN KEY (gap_candidate_id) REFERENCES gap_candidate(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_gap_performance_outcome ON gap_performance_tracking(outcome);
-CREATE INDEX idx_gap_performance_return ON gap_performance_tracking(realized_return_pct);
+CREATE INDEX idx_gap_performance_outcome ON gap_candidate_result(outcome);
+CREATE INDEX idx_gap_performance_return ON gap_candidate_result(realized_return_pct);
 ```
 
 **Relationship:**
-- One-to-one with `gap_results` (each gap has at most one performance record)
-- Foreign key on `gap_result_id` with CASCADE delete
+- One-to-one with `gap_candidate` (each gap has at most one performance record)
+- Foreign key on `gap_candidate_id` with CASCADE delete
 - Performance is immutable once recorded (single trading day snapshot)
 
 ---
@@ -289,11 +289,11 @@ def update_gap_performance(date_filter=None, force=False):
 
     # Get gap results to process
     if date_filter:
-        gap_results = get_gap_results_by_date(date_filter)
+        gap_candidate = get_gap_candidate_by_date(date_filter)
     else:
-        gap_results = get_all_gap_results()
+        gap_candidate = get_all_gap_candidate()
 
-    for gap in gap_results:
+    for gap in gap_candidate:
         # Check if performance already exists
         existing = get_performance_tracking(gap.id)
 
@@ -363,14 +363,14 @@ def update_gap_performance(date_filter=None, force=False):
 
 1. **Missing performance:** Gap result exists but no performance record
    ```sql
-   SELECT * FROM gap_results gr
-   LEFT JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+   SELECT * FROM gap_candidate gr
+   LEFT JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
    WHERE gpt.id IS NULL
    ```
 
 2. **Incomplete performance:** Record exists but missing fields
    ```sql
-   SELECT * FROM gap_performance_tracking
+   SELECT * FROM gap_candidate_result
    WHERE entry_price IS NULL OR exit_price IS NULL
    ```
 
@@ -475,8 +475,8 @@ SELECT
     AVG(gpt.realized_return_pct) as avg_return,
     SUM(CASE WHEN gpt.outcome = 'winner' THEN 1 ELSE 0 END) as winners,
     ROUND(100.0 * SUM(CASE WHEN gpt.outcome = 'winner' THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate_pct
-FROM gap_results gr
-JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+FROM gap_candidate gr
+JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
 WHERE gr.trading_date >= date('now', '-90 days')
 GROUP BY gr.quality_tier
 ORDER BY avg_return DESC;
@@ -506,8 +506,8 @@ SELECT
     COUNT(*) as total,
     AVG(gpt.realized_return_pct) as avg_return,
     SUM(CASE WHEN gpt.outcome = 'winner' THEN 1 ELSE 0 END) as winners
-FROM gap_results gr
-JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+FROM gap_candidate gr
+JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
 WHERE gr.trading_date >= date('now', '-90 days')
 GROUP BY gr.passed_exhaustion_filter;
 ```
@@ -536,8 +536,8 @@ SELECT
     AVG(gpt.max_drawdown_pct) as avg_drawdown,
     SUM(CASE WHEN gpt.gap_filled THEN 1 ELSE 0 END) as gaps_filled,
     ROUND(100.0 * SUM(CASE WHEN gpt.gap_filled THEN 1 ELSE 0 END) / COUNT(*), 1) as fill_rate_pct
-FROM gap_results gr
-JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+FROM gap_candidate gr
+JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
 WHERE gr.status IN ('passed', 'warning')
 GROUP BY gr.is_friday_gap;
 ```
@@ -570,8 +570,8 @@ SELECT
     AVG(gpt.realized_return_pct) as avg_return,
     SUM(CASE WHEN gpt.outcome = 'winner' THEN 1 ELSE 0 END) as winners,
     ROUND(100.0 * SUM(CASE WHEN gpt.outcome = 'winner' THEN 1 ELSE 0 END) / COUNT(*), 1) as win_rate_pct
-FROM gap_results gr
-JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+FROM gap_candidate gr
+JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
 GROUP BY volume_bucket
 ORDER BY gr.volume_ratio DESC;
 ```
@@ -607,8 +607,8 @@ SELECT
     AVG(CASE WHEN NOT gpt.gap_filled
         THEN gpt.realized_return_pct
         ELSE NULL END) as avg_return_if_not_filled
-FROM gap_results gr
-JOIN gap_performance_tracking gpt ON gpt.gap_result_id = gr.id
+FROM gap_candidate gr
+JOIN gap_candidate_result gpt ON gpt.gap_candidate_id = gr.id
 WHERE gr.status = 'passed'
 GROUP BY gr.gap_direction, gr.session_type;
 ```
@@ -673,8 +673,8 @@ else:
 ## 🚀 Implementation Status
 
 ### ✅ Phase 1: Database & Manager (COMPLETE)
-- [x] Update migration to include `gap_performance_tracking` table
-- [x] Create `GapPerformanceManager` class
+- [x] Update migration to include `gap_candidate_result` table
+- [x] Create `GapCandidateResultManager` class
 - [x] Implement gap fill detection algorithm
 - [x] Add performance metric calculations
 
@@ -772,8 +772,8 @@ else:
 
 - **Gap Results Documentation:** docs/GAP_RESULTS.md
 - **Gap Strategy Documentation:** docs/GAP_TRADING_STRATEGY.md
-- **Database Schema:** src/database/migrations/004_add_gap_results_tables.sql
-- **Gap Results Manager:** src/database/managers/gap_results_manager.py
+- **Database Schema:** src/database/migrations/004_add_gap_candidate_tables.sql
+- **Gap Results Manager:** src/database/managers/gap_candidate_manager.py
 - **Gap Performance Manager:** src/database/managers/gap_performance_manager.py
 - **Gap Performance Calculator:** src/analysis/gap_performance_calculator.py
 - **Gap Analysis Command:** src/cli/gap_commands.py (analyze subcommand)

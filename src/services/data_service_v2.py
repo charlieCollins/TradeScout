@@ -10,6 +10,7 @@ Architecture:
 """
 
 import logging
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session
 from repositories.asset_repository import AssetRepository
@@ -69,15 +70,15 @@ class DataServiceV2:
         self.metadata_repository = DataUpdateMetadataRepository(session)
 
         # Initialize gap-related repositories
-        from repositories.gap_result_repository import GapResultRepository
-        from repositories.gap_performance_tracking_repository import GapPerformanceTrackingRepository
+        from repositories.gap_candidate_repository import GapCandidateRepository
+        from repositories.gap_candidate_result_repository import GapCandidateResultRepository
         from repositories.market_holiday_repository import MarketHolidayRepository
         from repositories.gap_result_news_repository import GapResultNewsRepository
         from repositories.sentiment_type_repository import SentimentTypeRepository
         from repositories.sentiment_event_repository import SentimentEventRepository
 
-        self.gap_result_repository = GapResultRepository(session)
-        self.gap_performance_repository = GapPerformanceTrackingRepository(session)
+        self.gap_candidate_repository = GapCandidateRepository(session)
+        self.gap_candidate_result_repository = GapCandidateResultRepository(session)
         self.market_holiday_repository = MarketHolidayRepository(session)
         self.gap_result_news_repository = GapResultNewsRepository(session)
         self.sentiment_type_repository = SentimentTypeRepository(session)
@@ -103,21 +104,21 @@ class DataServiceV2:
             repository=self.asset_repository,
             metadata_repository=self.metadata_repository,
             metadata_type=DataUpdateMetadataType.TICKERS,
-            ttl_seconds=CacheConfig.ASSETS_TTL
+            ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.TICKERS)
         )
 
         self.market_cache = CacheService[MarketSQLModel](
             repository=self.market_repository,
             metadata_repository=self.metadata_repository,
             metadata_type=DataUpdateMetadataType.MARKETS,
-            ttl_seconds=CacheConfig.MARKETS_TTL
+            ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.MARKETS)
         )
 
         self.fundamentals_cache = CacheService[FundamentalsSQLModel](
             repository=self.fundamentals_repository,
             metadata_repository=self.metadata_repository,
             metadata_type=DataUpdateMetadataType.FUNDAMENTALS,
-            ttl_seconds=CacheConfig.FUNDAMENTALS_TTL
+            ttl_seconds=CacheConfig.get_ttl(DataUpdateMetadataType.FUNDAMENTALS)
         )
 
         logger.debug("DataServiceV2 initialized with new architecture")
@@ -502,25 +503,126 @@ class DataServiceV2:
         return self.asset_price_repository.get_last_update_time()
 
     # ============================================================================
-    # ADDITIONAL METHODS (Temporary delegations during migration)
+    # BULK UPDATE METHODS
     # ============================================================================
-    #
-    # These methods temporarily delegate to old architecture during strangler fig migration.
-    # TODO: Properly migrate these to use repositories + new architecture
 
-    def get_market_snapshot(
-        self, symbols: Optional[List[str]] = None, force_refresh: bool = False
-    ):
-        """Get market snapshot using new architecture.
+    def update_market_snapshot(self, force_refresh: bool = False):
+        """Update asset prices from bulk market snapshot with TTL caching.
+
+        Checks if data is fresh based on TTL. If fresh and not forced, returns stats
+        showing data was fresh. If stale or forced, fetches from Polygon API and saves
+        new records to database.
+
+        Only saves new tuples of (asset_id, provider_id, provider_updated_at) that
+        don't already exist in the database.
 
         Args:
-            symbols: Optional list of symbols to fetch
-            force_refresh: If True, bypass cache and fetch fresh
+            force_refresh: If True, bypass cache and fetch fresh data
 
         Returns:
-            MarketSnapshot from PolygonSnapshotProvider
+            MarketSnapshotUpdateStats with operation statistics
         """
-        return self.polygon_snapshot_provider.fetch_bulk_market_snapshot(symbols=symbols)
+        from datetime import datetime, timedelta
+        from models.dataclass.stats import MarketSnapshotUpdateStats
+
+        # Check metadata to see if data is fresh (using configured TTL)
+        if not force_refresh:
+            ttl_seconds = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS)
+            metadata = self.metadata_repository.get_latest_by_operation(
+                operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS.value
+            )
+
+            if metadata and metadata.completed_at:
+                age = datetime.now() - metadata.completed_at
+
+                if age < timedelta(seconds=ttl_seconds):
+                    logger.debug(f"Market snapshot data is fresh ({age.total_seconds():.1f}s old, TTL: {ttl_seconds}s), skipping API call")
+                    return MarketSnapshotUpdateStats(
+                        total_tickers=0,
+                        matched_symbols=0,
+                        unmatched_symbols=0,
+                        transformed=0,
+                        invalid=0,
+                        saved=0,
+                        duplicates=0,
+                        data_was_fresh=True
+                    )
+
+        # Data is stale or force_refresh=True, fetch from API
+        start_time = datetime.now()
+        market_snapshot = self.polygon_snapshot_provider.fetch_bulk_market_snapshot()
+
+        if not market_snapshot or not market_snapshot.tickers:
+            logger.warning("No market snapshot data received from API")
+            return MarketSnapshotUpdateStats(
+                total_tickers=0,
+                matched_symbols=0,
+                unmatched_symbols=0,
+                transformed=0,
+                invalid=0,
+                saved=0,
+                duplicates=0,
+                data_was_fresh=False
+            )
+
+        # Transform to AssetPrice objects
+        asset_prices = []
+        stats_matched = 0
+        stats_unmatched = 0
+        stats_invalid = 0
+
+        # market_snapshot.tickers is a dict[symbol -> TickerSnapshot]
+        for symbol, ticker_snapshot in market_snapshot.tickers.items():
+            symbol = symbol.upper()  # Normalize symbol
+
+            # Look up asset_id
+            asset = self.asset_repository.get_by_symbol(symbol)
+            if not asset:
+                stats_unmatched += 1
+                continue
+
+            stats_matched += 1
+
+            # Transform to AssetPrice
+            asset_price = self.transform_ticker_snapshot_to_asset_price(
+                symbol=symbol,
+                asset_id=asset.id,
+                ticker_snapshot=ticker_snapshot
+            )
+
+            if asset_price:
+                asset_prices.append(asset_price)
+            else:
+                stats_invalid += 1
+
+        # Batch save to database (only saves new tuples)
+        saved_count = 0
+        if asset_prices:
+            saved_count = self.batch_save_asset_prices(asset_prices)
+            logger.info(f"Saved {saved_count} new asset prices to database (skipped {len(asset_prices) - saved_count} duplicates, {stats_invalid} invalid)")
+
+            # Record metadata
+            self.record_bulk_operation_metadata(
+                operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS,
+                operation_subtype="refresh",
+                start_time=start_time,
+                total_items=len(market_snapshot.tickers),
+                processed_items=saved_count,
+                failed_items=stats_invalid
+            )
+        else:
+            logger.warning(f"No valid asset prices to save ({stats_invalid} invalid)")
+
+        return MarketSnapshotUpdateStats(
+            total_tickers=len(market_snapshot.tickers),
+            matched_symbols=stats_matched,
+            unmatched_symbols=stats_unmatched,
+            transformed=len(asset_prices),
+            invalid=stats_invalid,
+            saved=saved_count,
+            duplicates=len(asset_prices) - saved_count,
+            data_was_fresh=False
+        )
 
     def fetch_news_and_sentiment(self, symbol: str, limit: int = 10):
         """Fetch news and sentiment using new architecture.
@@ -928,7 +1030,8 @@ class DataServiceV2:
                 id=asset.id if asset.id != 0 else None,
                 symbol=asset.symbol,
                 name=asset.name,
-                asset_type=asset.asset_type,
+                asset_type=asset.asset_type.value if hasattr(asset.asset_type, 'value') else asset.asset_type,
+                asset_class=asset.asset_class.value if hasattr(asset.asset_class, 'value') else asset.asset_class,
                 is_active=asset.is_active,
                 provider_id=asset.provider_id,
                 market_id=asset.market_id,
@@ -942,6 +1045,18 @@ class DataServiceV2:
 
         duration = time.time() - start_time
         logger.info(f"Bootstrapped {stored_count} assets in {duration:.1f}s")
+
+        # Record metadata for bulk ticker operation
+        from datetime import datetime
+        self.record_bulk_operation_metadata(
+            operation_type=DataUpdateMetadataType.TICKERS,
+            operation_subtype="bootstrap",
+            start_time=datetime.fromtimestamp(start_time),
+            total_items=len(assets),
+            processed_items=stored_count,
+            failed_items=len(assets) - stored_count,
+            api_calls_made=1
+        )
 
         return BootstrapResult(
             operation="assets",
@@ -1067,6 +1182,18 @@ class DataServiceV2:
         duration = time.time() - start_time
         logger.info(
             f"Bootstrapped {successful_count}/{total_assets} fundamentals in {duration:.1f}s"
+        )
+
+        # Record metadata for bulk fundamentals operation
+        from datetime import datetime
+        self.record_bulk_operation_metadata(
+            operation_type=DataUpdateMetadataType.FUNDAMENTALS,
+            operation_subtype="bootstrap",
+            start_time=datetime.fromtimestamp(start_time),
+            total_items=total_assets,
+            processed_items=successful_count,
+            failed_items=total_assets - successful_count,
+            api_calls_made=total_assets
         )
 
         return BootstrapResult(
@@ -1446,12 +1573,49 @@ class DataServiceV2:
         """Batch save asset prices using new architecture.
 
         Args:
-            prices: List of AssetPriceSQLModel objects
+            prices: List of AssetPrice dataclass objects
 
         Returns:
             Number of prices saved
         """
-        return self.asset_price_repository.bulk_save(prices)
+        from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
+
+        # Convert AssetPrice dataclass objects to AssetPriceSQLModel
+        sql_models = []
+        for price in prices:
+            sql_model = AssetPriceSQLModel(
+                id=None,  # Will be auto-assigned
+                asset_id=price.asset_id,
+                symbol=price.symbol,
+                provider_id=price.provider_id,
+                provider_updated_at=price.provider_updated_at,
+                trade_date=price.trade_date,
+                updated_at=price.updated_at,
+                prevday_open=price.prevday_open,
+                prevday_high=price.prevday_high,
+                prevday_low=price.prevday_low,
+                prevday_close=price.prevday_close,
+                prevday_volume=price.prevday_volume,
+                prevday_vwap=price.prevday_vwap,
+                day_open=price.day_open,
+                day_high=price.day_high,
+                day_low=price.day_low,
+                day_close=price.day_close,
+                day_volume=price.day_volume,
+                day_vwap=price.day_vwap,
+                min_timestamp=price.min_timestamp,
+                min_open=price.min_open,
+                min_high=price.min_high,
+                min_low=price.min_low,
+                min_close=price.min_close,
+                min_volume=price.min_volume,
+                min_vwap=price.min_vwap,
+                min_accumulated_volume=price.min_accumulated_volume,
+                min_num_trades=price.min_num_trades,
+            )
+            sql_models.append(sql_model)
+
+        return self.asset_price_repository.bulk_save(sql_models)
 
     def transform_ticker_snapshot_to_asset_price(self, symbol: str, asset_id: int, ticker_snapshot):
         """Transform TickerSnapshot to AssetPrice using new architecture.
@@ -1470,8 +1634,11 @@ class DataServiceV2:
             # Get provider ID (default to 1 = Polygon)
             provider_id = 1
 
-            # Use Polygon's updated timestamp or default to 0
-            provider_updated_at = ticker_snapshot.updated_ns or 0
+            # Use Polygon's updated timestamp - REQUIRED, reject if missing
+            provider_updated_at = ticker_snapshot.updated_ns
+            if not provider_updated_at or provider_updated_at == 0:
+                logger.debug(f"Rejecting {symbol} - provider_updated_at is 0 or None")
+                return None
 
             # Determine trade date
             if provider_updated_at and provider_updated_at != 0:
@@ -1757,17 +1924,7 @@ class DataServiceV2:
         )
 
     # ============================================================================
-    # SPECIALIZED MANAGER ACCESS (Kept for backwards compatibility)
-    # ============================================================================
-    #
-    # These properties provide access to specialized managers that are outside
-    # the core migration scope (FED data, etc.). They delegate to old architecture
-    # but are low-usage specialized operations.
-    #
-    # TODO: Migrate these to new architecture in future phases
-
-    # ============================================================================
-    # FED DATA OPERATIONS (New architecture)
+    # FED DATA OPERATIONS
     # ============================================================================
 
     def fed_bulk_upsert(self, fed_data_list):
@@ -2019,13 +2176,27 @@ class DataServiceV2:
                     MarketHolidaySQLModel(
                         date=h.date,
                         name=h.name,
-                        status=h.status
+                        status=h.status.value  # Convert enum to string
                     )
                     for h in holidays_data
                 ]
                 self.market_holiday_repository.bulk_save(holidays_sql)
 
                 # Record metadata timestamp
+                from models.sqlmodel.data_update_metadata_sqlmodel import DataUpdateMetadataSQLModel
+                from models.dataclass.data_update_metadata import OperationStatus
+
+                metadata = DataUpdateMetadataSQLModel(
+                    operation_type=DataUpdateMetadataType.MARKET_HOLIDAYS.value,
+                    operation_subtype="fetch",
+                    started_at=datetime.now(),
+                    completed_at=datetime.now(),
+                    status=OperationStatus.COMPLETED.value,
+                    total_items=len(holidays_data),
+                    processed_items=len(holidays_data),
+                    api_calls_made=1
+                )
+                self.metadata_repository.save(metadata)
 
                 logger.info(f"Stored {len(holidays_data)} holidays")
                 return holidays_data
@@ -2063,3 +2234,119 @@ class DataServiceV2:
         age_seconds = (datetime.utcnow() - metadata.completed_at).total_seconds()
 
         return age_seconds > ttl_seconds
+
+    # ============================================================================
+    # METADATA TRACKING UTILITIES
+    # ============================================================================
+
+    def record_bulk_operation_metadata(
+        self,
+        operation_type: DataUpdateMetadataType,
+        operation_subtype: str,
+        start_time: datetime,
+        total_items: int,
+        processed_items: int,
+        failed_items: int = 0,
+        api_calls_made: int = 1
+    ) -> None:
+        """Record metadata for bulk operations - ONLY for market_snapshots, tickers, fundamentals.
+
+        IMPORTANT: This method should ONLY be called by three bulk operations:
+        1. Market snapshots (market update command)
+        2. Tickers (bootstrap_assets)
+        3. Fundamentals (bootstrap_fundamentals)
+
+        All other operations (providers, markets, holidays, universes) should NOT use this.
+
+        This utility standardizes metadata tracking across the three bulk operations.
+        Automatically handles timing, status determination, and metadata persistence.
+
+        Args:
+            operation_type: MUST be MARKET_SNAPSHOTS, TICKERS, or FUNDAMENTALS
+            operation_subtype: Subtype (e.g., "bootstrap", "bulk_update", "fetch")
+            start_time: When the operation started
+            total_items: Total number of items processed
+            processed_items: Number of items successfully processed
+            failed_items: Number of items that failed (default: 0)
+            api_calls_made: Number of API calls made (default: 1)
+        """
+        from models.sqlmodel.data_update_metadata_sqlmodel import DataUpdateMetadataSQLModel
+        from models.dataclass.data_update_metadata import OperationStatus
+
+        # Determine status based on failures
+        if failed_items == 0:
+            status = OperationStatus.COMPLETED
+        elif processed_items > 0:
+            status = OperationStatus.PARTIAL
+        else:
+            status = OperationStatus.FAILED
+
+        metadata = DataUpdateMetadataSQLModel(
+            operation_type=operation_type.value,
+            operation_subtype=operation_subtype,
+            started_at=start_time,
+            completed_at=datetime.now(),
+            status=status.value,
+            total_items=total_items,
+            processed_items=processed_items,
+            failed_items=failed_items,
+            api_calls_made=api_calls_made
+        )
+        self.metadata_repository.save(metadata)
+        logger.debug(
+            f"Recorded metadata: {operation_type.value}.{operation_subtype} "
+            f"({processed_items}/{total_items} items, {api_calls_made} API calls)"
+        )
+
+    # ============================================================================
+    # SCREENER SUPPORT
+    # ============================================================================
+
+    def execute_screener_query(self, query: str) -> List[Dict]:
+        """Execute a raw SQL screener query and return results as list of dicts.
+
+        Args:
+            query: SQL query string to execute
+
+        Returns:
+            List of dictionaries, one per row
+        """
+        from sqlalchemy import text
+
+        result = self.session.execute(text(query))
+
+        # Convert rows to dicts
+        rows = []
+        for row in result:
+            rows.append(dict(row._mapping))
+
+        return rows
+
+    def execute_query(self, query: str, params: tuple = None) -> List[tuple]:
+        """Execute parameterized SQL query and return raw rows as tuples.
+
+        Args:
+            query: SQL query with ? placeholders
+            params: Tuple of parameter values
+
+        Returns:
+            List of row tuples
+        """
+        from sqlalchemy import text
+
+        # SQLAlchemy uses :param1, :param2 not ? placeholders
+        # Convert ? to named parameters
+        converted_query = query
+        param_count = query.count('?')
+        for i in range(param_count):
+            param_name = f'param{i}'
+            converted_query = converted_query.replace('?', f':{param_name}', 1)
+
+        # Build params dict
+        params_dict = {}
+        if params:
+            for i, value in enumerate(params):
+                params_dict[f'param{i}'] = value
+
+        result = self.session.execute(text(converted_query), params_dict)
+        return [tuple(row) for row in result]

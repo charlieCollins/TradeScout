@@ -273,7 +273,7 @@ class CLIOutputAdapter:
                 title = event.get_detail("title", "No title")
                 if len(title) > 57:
                     title = title[:57] + "..."
-                publisher_name = event.get_detail("publisher_name", "Unknown")
+                publisher_name = event.get_detail("publisher", "Unknown")
 
                 news_table.add_row(pub_str, sentiment_display, title, publisher_name)
 

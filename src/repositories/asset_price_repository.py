@@ -231,21 +231,76 @@ class AssetPriceRepository:
         return price
 
     def bulk_save(self, prices: List[AssetPriceSQLModel]) -> int:
-        """Bulk persist multiple prices.
+        """Bulk persist multiple prices - only insert new provider_updated_at values.
 
-        Optimized for saving many prices at once (e.g., market snapshots).
+        Checks for existing records by (asset_id, provider_id, provider_updated_at).
+        If a record with that exact provider_updated_at exists, skip it (data hasn't changed).
+        Only insert records with new provider_updated_at values.
 
         Args:
             prices: List of prices to persist
 
         Returns:
-            Number of prices saved
+            Number of prices actually inserted (skips existing)
         """
-        self.session.add_all(prices)
-        self.session.commit()
-        count = len(prices)
-        logger.debug(f"Bulk saved {count} prices")
-        return count
+        if not prices:
+            return 0
+
+        # Filter out any records with provider_updated_at = 0 (invalid/missing data)
+        valid_prices = [p for p in prices if p.provider_updated_at and p.provider_updated_at != 0]
+        rejected_count = len(prices) - len(valid_prices)
+        if rejected_count > 0:
+            logger.warning(f"Rejected {rejected_count} prices with provider_updated_at=0")
+
+        if not valid_prices:
+            return 0
+
+        # Deduplicate incoming batch - keep only the last occurrence of each unique key
+        # This handles cases where the same asset appears multiple times in the batch
+        unique_prices = {}
+        for price in valid_prices:
+            key = (price.asset_id, price.provider_id, price.provider_updated_at)
+            unique_prices[key] = price  # Last one wins if duplicates exist
+
+        prices_to_check = list(unique_prices.values())
+        logger.debug(f"Deduped {len(valid_prices)} prices to {len(prices_to_check)} unique records")
+
+        # Get all existing (asset_id, provider_id, provider_updated_at) tuples for these assets
+        # Query using IN clauses to avoid SQLite expression tree limits
+        asset_ids = list(set(p.asset_id for p in prices_to_check))
+        provider_ids = list(set(p.provider_id for p in prices_to_check))
+
+        statement = select(
+            AssetPriceSQLModel.asset_id,
+            AssetPriceSQLModel.provider_id,
+            AssetPriceSQLModel.provider_updated_at
+        ).where(
+            AssetPriceSQLModel.asset_id.in_(asset_ids),
+            AssetPriceSQLModel.provider_id.in_(provider_ids)
+        )
+
+        existing_records = self.session.exec(statement).all()
+
+        # Build set of (asset_id, provider_id, provider_updated_at) tuples that already exist
+        existing_keys = {
+            (rec[0], rec[1], rec[2]) for rec in existing_records
+        }
+
+        # Only insert prices that don't already exist
+        inserted_count = 0
+        for price in prices_to_check:
+            key = (price.asset_id, price.provider_id, price.provider_updated_at)
+            if key not in existing_keys:
+                # This exact record doesn't exist yet, insert it
+                self.session.add(price)
+                inserted_count += 1
+
+        if inserted_count > 0:
+            self.session.commit()
+            logger.debug(f"Bulk saved {inserted_count} new prices (skipped {len(prices_to_check) - inserted_count} existing)")
+        else:
+            logger.debug(f"No new prices to save (all {len(prices_to_check)} records already exist)")
+        return inserted_count
 
     def delete(self, price: AssetPriceSQLModel) -> None:
         """Delete price from database.

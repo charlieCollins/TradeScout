@@ -1,0 +1,22 @@
+# Sentiment analysis configuration
+
+# Time window for sentiment calculations (in days)
+# Articles older than this window will not be included in sentiment score calculations
+time_window_days: 30
+
+# Confidence thresholds based on number of articles
+confidence_thresholds:
+  very_high: 10
+  high: 5
+  medium: 3
+  low: 2
+  very_low: 1
+
+# Sentiment score thresholds for classification
+score_thresholds:
+  very_positive: 0.6
+  positive: 0.3
+  neutral_high: 0.1
+  neutral_low: -0.1
+  negative: -0.3
+  very_negative: -0.6

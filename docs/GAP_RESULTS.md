@@ -179,10 +179,10 @@ Based on quality score (0-100):
 
 ## 🔗 Integration with Performance Tracking
 
-Gap results link to performance tracking via the `gap_performance_tracking` table:
+Gap results link to performance tracking via the `gap_candidate_result` table:
 
 ```bash
-# Analyze gaps (saves to gap_results)
+# Analyze gaps (saves to gap_candidate)
 ./tradescout gap analyze
 
 # Later: Update performance data
@@ -278,12 +278,12 @@ Database Statistics (2025-09-11 to 2025-10-11):
 
 ## 🗄️ Database Schema
 
-### Primary Table: `gap_results`
+### Primary Table: `gap_candidate`
 
 Stores every gap candidate evaluation. Key fields:
 
 ```sql
-CREATE TABLE gap_results (
+CREATE TABLE gap_candidate (
     id INTEGER PRIMARY KEY,
     asset_id INTEGER NOT NULL,
     analysis_timestamp TIMESTAMP NOT NULL,
@@ -320,7 +320,7 @@ CREATE TABLE gap_results (
 );
 ```
 
-See database migration file `src/database/migrations/004_add_gap_results_tables.sql` for complete schema.
+See database migration file `src/database/migrations/004_add_gap_candidate_tables.sql` for complete schema.
 
 ---
 
@@ -340,7 +340,7 @@ For each candidate:
   ↓
 User confirms: Save results to database? [Y/n]
   ↓
-All candidates saved to gap_results table
+All candidates saved to gap_candidate table
 ```
 
 ### 2. Query Phase (Read Records)
@@ -348,7 +348,7 @@ All candidates saved to gap_results table
 ```
 User runs: ./tradescout gap results --num-days=7
   ↓
-Query gap_results table
+Query gap_candidate table
   ↓
 Filter by date range, session, status
   ↓
@@ -369,7 +369,7 @@ For each gap:
   - Calculate returns
   - Detect gap fills
   ↓
-Save to gap_performance_tracking table
+Save to gap_candidate_result table
   ↓
 Query results now show performance metrics
 ```
@@ -409,7 +409,7 @@ Save results to database? [Y/n]
 **Rejection reason frequency:**
 ```sql
 SELECT rejection_reason, COUNT(*) as frequency
-FROM gap_results
+FROM gap_candidate
 WHERE status = 'rejected'
 GROUP BY rejection_reason
 ORDER BY frequency DESC;
@@ -418,14 +418,14 @@ ORDER BY frequency DESC;
 **Average gap size by session:**
 ```sql
 SELECT session_type, AVG(gap_percentage) as avg_gap
-FROM gap_results
+FROM gap_candidate
 GROUP BY session_type;
 ```
 
 **Quality tier distribution:**
 ```sql
 SELECT quality_tier, COUNT(*) as count
-FROM gap_results
+FROM gap_candidate
 WHERE quality_tier IS NOT NULL
 GROUP BY quality_tier;
 ```
@@ -433,7 +433,7 @@ GROUP BY quality_tier;
 **Friday gap frequency:**
 ```sql
 SELECT is_friday_gap, COUNT(*) as count
-FROM gap_results
+FROM gap_candidate
 GROUP BY is_friday_gap;
 ```
 
@@ -470,7 +470,7 @@ GROUP BY is_friday_gap;
 - **[GAP_TRADING_STRATEGY.md](GAP_TRADING_STRATEGY.md)** - Gap trading strategy overview
 - **[GAP_TRADING_STRATEGY_RULES.md](GAP_TRADING_STRATEGY_RULES.md)** - Detailed rules and filters
 - **[GAP_PERFORMANCE.md](GAP_PERFORMANCE.md)** - Performance tracking system
-- **Migration:** `src/database/migrations/004_add_gap_results_tables.sql` - Database schema
+- **Migration:** `src/database/migrations/004_add_gap_candidate_tables.sql` - Database schema
 
 ---
 

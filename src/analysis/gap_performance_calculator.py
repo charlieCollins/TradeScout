@@ -10,12 +10,12 @@ Calculates actual intraday performance for gap candidates by:
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional, Tuple, List
-from models.dataclass.gap_performance import GapPerformance
+from models.dataclass.gap_performance import GapCandidateResult
 
 logger = logging.getLogger(__name__)
 
 
-class GapPerformanceCalculator:
+class GapCandidateResultCalculator:
     """Calculate gap performance metrics from market data."""
 
     def __init__(self, aggregates_provider, market_holidays_repository):
@@ -121,7 +121,7 @@ class GapPerformanceCalculator:
         gap_result: dict,
         symbol: str,
         performance_date: date
-    ) -> Optional[GapPerformance]:
+    ) -> Optional[GapCandidateResult]:
         """Calculate performance metrics for a gap candidate.
 
         Args:
@@ -130,7 +130,7 @@ class GapPerformanceCalculator:
             performance_date: Trading date to use for performance
 
         Returns:
-            GapPerformance object or None if data unavailable
+            GapCandidateResult object or None if data unavailable
         """
         try:
             # Fetch daily bar for entry/exit and high/low
@@ -154,12 +154,12 @@ class GapPerformanceCalculator:
             )
 
             # Create performance object (calculations happen in __post_init__)
-            performance = GapPerformance(
+            performance = GapCandidateResult(
                 gap_result_id=gap_result['id'],
-                entry_price=bar['open'],
-                exit_price=bar['close'],
-                max_intraday_price=bar['high'],
-                min_intraday_price=bar['low'],
+                entry_price=bar.open,
+                exit_price=bar.close,
+                max_intraday_price=bar.high,
+                min_intraday_price=bar.low,
                 gap_filled=gap_filled,
                 gap_fill_timestamp=fill_timestamp
             )
@@ -207,9 +207,9 @@ class GapPerformanceCalculator:
             # Check each bar for gap fill
             for bar in minute_bars:
                 # Gap is filled if reference price is within bar's range
-                if bar['low'] <= reference_price <= bar['high']:
+                if bar.low <= reference_price <= bar.high:
                     # Convert timestamp to datetime
-                    timestamp = datetime.fromtimestamp(bar['timestamp'] / 1000)
+                    timestamp = datetime.fromtimestamp(bar.timestamp / 1000)
                     return True, timestamp
 
             return False, None

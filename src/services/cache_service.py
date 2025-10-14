@@ -1,6 +1,5 @@
 """Cache Service - Generic cache-aside pattern implementation.
 
-This service extracts the cache logic from BaseManager into a reusable component.
 It implements the cache-aside pattern: check local store → fetch if stale → update → return.
 """
 
@@ -196,27 +195,22 @@ class CacheService(Generic[T]):
 
 
 class CacheConfig:
-    """Configuration for cache TTLs.
+    """Configuration for cache TTLs loaded from configs/database_ttl.yaml."""
 
-    Centralizes TTL configuration for all entity types.
-    """
+    _config = None
 
-    # Asset TTLs (in seconds)
-    ASSETS_TTL = 259200  # 3 days (reference data changes infrequently)
-    FUNDAMENTALS_TTL = 86400  # 1 day (fundamentals update daily)
-    PRICES_TTL = 300  # 5 minutes (price data is real-time)
-    SNAPSHOTS_TTL = 60  # 1 minute (snapshot data is very real-time)
-
-    # Market/Universe TTLs
-    MARKETS_TTL = 604800  # 7 days (markets rarely change)
-    UNIVERSES_TTL = 86400  # 1 day (universe membership can change)
-
-    # News/Sentiment TTLs
-    NEWS_TTL = 1800  # 30 minutes (news is time-sensitive)
+    @classmethod
+    def _load_config(cls):
+        """Load TTL config from YAML file."""
+        if cls._config is None:
+            from utils.config_loader import ConfigLoader
+            loader = ConfigLoader()
+            cls._config = loader.load_database_ttl_config()
+        return cls._config
 
     @classmethod
     def get_ttl(cls, metadata_type: DataUpdateMetadataType) -> int:
-        """Get TTL for a specific metadata type.
+        """Get TTL for a specific metadata type from YAML config.
 
         Args:
             metadata_type: Type of metadata
@@ -224,14 +218,28 @@ class CacheConfig:
         Returns:
             TTL in seconds
         """
-        ttl_map = {
-            DataUpdateMetadataType.TICKERS: cls.ASSETS_TTL,
-            DataUpdateMetadataType.FUNDAMENTALS: cls.FUNDAMENTALS_TTL,
-            DataUpdateMetadataType.PRICES: cls.PRICES_TTL,
-            DataUpdateMetadataType.TICKER_SNAPSHOT: cls.SNAPSHOTS_TTL,
-            DataUpdateMetadataType.MARKET_SNAPSHOT: cls.SNAPSHOTS_TTL,
-            DataUpdateMetadataType.MARKETS: cls.MARKETS_TTL,
-            DataUpdateMetadataType.UNIVERSES: cls.UNIVERSES_TTL,
-        }
+        config = cls._load_config()
 
-        return ttl_map.get(metadata_type, 3600)  # Default: 1 hour
+        # Map metadata types to config keys and convert to seconds
+        if metadata_type == DataUpdateMetadataType.TICKERS:
+            return config["tickers_ttl_hours"] * 3600
+        elif metadata_type == DataUpdateMetadataType.FUNDAMENTALS:
+            return config["fundamentals_ttl_hours"] * 3600
+        elif metadata_type == DataUpdateMetadataType.ASSET_PRICES:
+            return config["asset_price_ttl_minutes"] * 60
+        elif metadata_type == DataUpdateMetadataType.TICKER_SNAPSHOTS:
+            return config["ticker_snapshot_ttl_minutes"] * 60
+        elif metadata_type == DataUpdateMetadataType.MARKET_SNAPSHOTS:
+            return config["market_snapshot_ttl_minutes"] * 60
+        elif metadata_type == DataUpdateMetadataType.MARKETS:
+            return config["markets_ttl_hours"] * 3600
+        elif metadata_type == DataUpdateMetadataType.UNIVERSES:
+            return config["universes_ttl_hours"] * 3600
+        elif metadata_type == DataUpdateMetadataType.MARKET_CONTEXT:
+            return config["market_context_ttl_minutes"] * 60
+        elif metadata_type == DataUpdateMetadataType.MARKET_HOLIDAYS:
+            return config["market_holidays_ttl_days"] * 86400
+        elif metadata_type == DataUpdateMetadataType.PROVIDERS:
+            return config["markets_ttl_hours"] * 3600  # Providers change rarely like markets
+        else:
+            return 3600  # Default: 1 hour

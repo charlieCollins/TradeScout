@@ -42,8 +42,8 @@ All data uses **dual model system**:
 | `sentiment_types`          | Event type definitions | ✅ SentimentTypeRepository | - | ✅ Active |
 | `sentiment_events`         | Detected events | ✅ SentimentEventRepository | ✅ PolygonNewsProvider | ✅ Active |
 | **Gap Analysis**           |||||
-| `gap_results`              | Gap candidate results | ✅ GapResultRepository | - | ✅ Active |
-| `gap_performance_tracking` | Gap performance metrics | ✅ GapPerformanceTrackingRepository | ✅ PolygonAggregatesProvider | ✅ Active |
+| `gap_candidate`              | Gap candidate results | ✅ GapCandidateRepository | - | ✅ Active |
+| `gap_candidate_result` | Gap performance metrics | ✅ GapCandidateResultRepository | ✅ PolygonAggregatesProvider | ✅ Active |
 | `gap_result_news`          | Gap-related news | ✅ GapResultNewsRepository | ✅ PolygonNewsProvider | ✅ Active |
 | **Economic Data**          |||||
 | `fed_data`                 | Federal Reserve data | ✅ FedDataRepository | ✅ PolygonFedProvider | ✅ Active |
@@ -529,12 +529,12 @@ CREATE UNIQUE INDEX idx_sentiment_events_unique_external
 
 ### Gap Analysis
 
-#### `gap_results`
+#### `gap_candidate`
 
 Gap candidate analysis results with quality scores and filtering.
 
 ```sql
-CREATE TABLE gap_results (
+CREATE TABLE gap_candidate (
     -- Primary identification
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     asset_id INTEGER NOT NULL,
@@ -602,17 +602,17 @@ CREATE TABLE gap_results (
     FOREIGN KEY (asset_id) REFERENCES assets(id)
 );
 
-CREATE INDEX idx_gap_results_analysis_timestamp ON gap_results(analysis_timestamp);
-CREATE INDEX idx_gap_results_trading_date ON gap_results(trading_date);
-CREATE INDEX idx_gap_results_session ON gap_results(session_type);
-CREATE INDEX idx_gap_results_status ON gap_results(status);
-CREATE INDEX idx_gap_results_quality ON gap_results(quality_tier);
-CREATE INDEX idx_gap_results_asset_id ON gap_results(asset_id);
+CREATE INDEX idx_gap_candidate_analysis_timestamp ON gap_candidate(analysis_timestamp);
+CREATE INDEX idx_gap_candidate_trading_date ON gap_candidate(trading_date);
+CREATE INDEX idx_gap_candidate_session ON gap_candidate(session_type);
+CREATE INDEX idx_gap_candidate_status ON gap_candidate(status);
+CREATE INDEX idx_gap_candidate_quality ON gap_candidate(quality_tier);
+CREATE INDEX idx_gap_candidate_asset_id ON gap_candidate(asset_id);
 ```
 
 **Domain Model**: `GapCandidate` (dataclass)
 **SQLModel**: `GapResultSQLModel`
-**Repository**: `GapResultRepository`
+**Repository**: `GapCandidateRepository`
 
 **Key Methods**:
 - `find_by_session(session_type: str, trading_date: date)` - Get gaps for session
@@ -624,14 +624,14 @@ CREATE INDEX idx_gap_results_asset_id ON gap_results(asset_id);
 
 ---
 
-#### `gap_performance_tracking`
+#### `gap_candidate_result`
 
 Performance tracking for gap trades (intraday and multi-day).
 
 ```sql
-CREATE TABLE gap_performance_tracking (
+CREATE TABLE gap_candidate_result (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gap_result_id INTEGER NOT NULL UNIQUE,
+    gap_candidate_id INTEGER NOT NULL UNIQUE,
 
     -- Intraday performance (same day)
     entry_price REAL,
@@ -655,16 +655,16 @@ CREATE TABLE gap_performance_tracking (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
+    FOREIGN KEY (gap_candidate_id) REFERENCES gap_candidate(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_gap_performance_tracking_gap_result_id ON gap_performance_tracking(gap_result_id);
-CREATE INDEX idx_gap_performance_tracking_outcome ON gap_performance_tracking(outcome);
+CREATE INDEX idx_gap_candidate_result_gap_candidate_id ON gap_candidate_result(gap_candidate_id);
+CREATE INDEX idx_gap_candidate_result_outcome ON gap_candidate_result(outcome);
 ```
 
 **Domain Model**: `GapPerformance` (dataclass)
 **SQLModel**: `GapPerformanceTrackingSQLModel`
-**Repository**: `GapPerformanceTrackingRepository`
+**Repository**: `GapCandidateResultRepository`
 **Provider**: `PolygonAggregatesProvider` (for performance data)
 
 ---
@@ -676,17 +676,17 @@ News articles associated with gap results.
 ```sql
 CREATE TABLE gap_result_news (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    gap_result_id INTEGER NOT NULL,
+    gap_candidate_id INTEGER NOT NULL,
     news_headline TEXT NOT NULL,
     news_source TEXT,
     news_published_at TIMESTAMP,
     news_sentiment REAL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (gap_result_id) REFERENCES gap_results(id) ON DELETE CASCADE
+    FOREIGN KEY (gap_candidate_id) REFERENCES gap_candidate(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_gap_result_news_gap_result_id ON gap_result_news(gap_result_id);
+CREATE INDEX idx_gap_result_news_gap_candidate_id ON gap_result_news(gap_candidate_id);
 ```
 
 **SQLModel**: `GapResultNewsSQLModel`
@@ -833,9 +833,9 @@ assets (1) ──── (1) asset_fundamentals
 assets (many) >──< (many) universes  [via universe_memberships]
 assets (1) ──< (many) sentiment_events
 sentiment_types (1) ──< (many) sentiment_events
-assets (1) ──< (many) gap_results
-gap_results (1) ──── (1) gap_performance_tracking
-gap_results (1) ──< (many) gap_result_news
+assets (1) ──< (many) gap_candidate
+gap_candidate (1) ──── (1) gap_candidate_result
+gap_candidate (1) ──< (many) gap_result_news
 ```
 
 ---
@@ -854,7 +854,7 @@ gap_results (1) ──< (many) gap_result_news
    - Score quality
    - Apply filters
 
-4. **Save results**: `GapResultRepository.bulk_save()`
+4. **Save results**: `GapCandidateRepository.bulk_save()`
 
 5. **Display**: CLI shows gap candidates with quality scores
 
@@ -868,7 +868,7 @@ All key query paths have indexes:
 - Symbol lookups: `idx_assets_symbol`
 - Active asset filtering: `idx_assets_active`
 - Date range queries: `idx_asset_prices_date`
-- Gap analysis: `idx_gap_results_trading_date`, `idx_gap_results_session`
+- Gap analysis: `idx_gap_candidate_trading_date`, `idx_gap_candidate_session`
 
 ### Bulk Operations
 

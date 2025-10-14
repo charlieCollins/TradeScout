@@ -1,7 +1,7 @@
 """SQLModel version of Provider - Repository/DAO pattern implementation.
 
-This file contains the SQLModel version of Provider for the new architecture.
-The original dataclass version (provider.py) remains for backward compatibility.
+This file contains the SQLModel version used by repositories for database operations.
+The dataclass version (provider.py) is used by providers and business logic.
 """
 
 from datetime import datetime

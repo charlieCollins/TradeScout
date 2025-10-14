@@ -1,7 +1,7 @@
 """SQLModel version of Universe - Repository/DAO pattern implementation.
 
-This file contains the SQLModel versions for the new architecture.
-The original dataclass version (universe.py) remains for backward compatibility.
+This file contains the SQLModel version used by repositories for database operations.
+The dataclass version (universe.py) is used by business logic.
 
 IMPORTANT: Universes are INTERNAL-ONLY entities. They are NOT fetched from external APIs.
 Universes are created, updated, and managed entirely within TradeScout's database

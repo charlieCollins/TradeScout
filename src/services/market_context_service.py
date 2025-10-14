@@ -32,8 +32,7 @@ class MarketContextService:
         """
         self.data_provider = data_provider
 
-    def get_context(self, market_code: str = "XNYS",
-                   force_refresh: bool = False) -> MarketContext:
+    def get_context(self, market_code: str = "XNYS") -> MarketContext:
         """
         Get current market context for a specific market.
 
@@ -43,7 +42,6 @@ class MarketContextService:
 
         Args:
             market_code: Market code (e.g., 'XNYS', 'XNAS')
-            force_refresh: Ignored (kept for API compatibility)
 
         Returns:
             MarketContext with all required information
@@ -111,7 +109,7 @@ class MarketContextService:
         """Fetch Market using data provider."""
         return self.data_provider.get_market_by_code(market_code)
 
-    def _determine_day_type(self, market_status: dict, today: date) -> TradingDayType:
+    def _determine_day_type(self, market_status: "MarketStatusSnapshot", today: date) -> TradingDayType:
         """Determine what type of day today is using Polygon holiday API."""
         # Check if it's a weekend
         if today.weekday() >= 5:  # Saturday = 5, Sunday = 6
@@ -131,7 +129,7 @@ class MarketContextService:
         # If not a weekend or holiday, it's a regular trading day
         return TradingDayType.REGULAR_TRADING
 
-    def _find_previous_trading_day(self, today: date, market_status: dict) -> date:
+    def _find_previous_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> date:
         """Find the most recent trading day before today using Polygon holiday API."""
         holidays = self.data_provider.get_market_holidays()
         holiday_dates = {h.date for h in holidays if h.status == 'closed'}
@@ -152,7 +150,7 @@ class MarketContextService:
         # Fallback - shouldn't happen unless there's a very long holiday period
         return today - timedelta(days=1)
 
-    def _determine_session(self, market: Market, market_status: dict,
+    def _determine_session(self, market: Market, market_status: "MarketStatusSnapshot",
                           is_trading_day: bool,
                           current_time: datetime) -> MarketSession:
         """
@@ -160,12 +158,12 @@ class MarketContextService:
         Raises exception if API data is not available.
         """
         # Require API market status - no fallbacks
-        if not market_status or 'market' not in market_status:
+        if not market_status or not market_status.market:
             raise RuntimeError("Market status API data is required but not available")
 
-        api_market = market_status.get('market', '').lower()
-        early_hours = market_status.get('earlyHours', False)
-        after_hours = market_status.get('afterHours', False)
+        api_market = market_status.market.lower()
+        early_hours = market_status.early_hours
+        after_hours = market_status.after_hours
 
         # Use API status to determine session
         if api_market == 'open':
@@ -188,7 +186,7 @@ class MarketContextService:
             raise RuntimeError(f"Unknown market status from Polygon API: {api_market}")
 
     # TODO not sure this will actually get the next market day, it's just adding 1 day after skipping weekdays, need to validate
-    def _find_next_trading_day(self, today: date, market_status: dict) -> Optional[date]:
+    def _find_next_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> Optional[date]:
         """Find the next trading day after today using Polygon holiday API."""
         holidays = self.data_provider.get_market_holidays()
         holiday_dates = {h.date for h in holidays if h.status == 'closed'}
