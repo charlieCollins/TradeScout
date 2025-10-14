@@ -2,10 +2,14 @@
 
 import pytest
 from unittest.mock import Mock, patch
-from datetime import date
+from datetime import date, datetime
+
+import sys
+sys.path.insert(0, '/home/ccollins/projects/TradeScout/src')
 
 from api.providers.polygon_market_status_provider import PolygonMarketStatusProvider
-from models.market_holiday import MarketHoliday, HolidayStatus
+from models.dataclass.market_holiday import MarketHoliday, HolidayStatus
+from models.dataclass.market_status import MarketStatusSnapshot
 
 
 class TestPolygonMarketStatusProvider:
@@ -113,9 +117,12 @@ class TestPolygonMarketStatusProvider:
         result = provider.fetch_market_status()
 
         assert result is not None
-        assert result["market"] == "open"
-        assert "exchanges" in result
-        assert result["exchanges"]["nyse"] == "open"
+        assert isinstance(result, MarketStatusSnapshot)
+        assert result.market == "open"
+        assert result.exchanges["nyse"] == "open"
+        assert result.exchanges["nasdaq"] == "open"
+        assert result.exchanges["otc"] == "closed"
+        assert isinstance(result.server_time, datetime)
         mock_request.assert_called_once_with("/v1/marketstatus/now")
 
     @patch.object(PolygonMarketStatusProvider, "_make_request")
@@ -128,16 +135,44 @@ class TestPolygonMarketStatusProvider:
         assert result is None
 
     @patch.object(PolygonMarketStatusProvider, "_make_request")
-    def test_fetch_market_status_returns_raw_data(self, mock_request, provider, sample_market_status_response):
-        """Test that fetch_market_status returns raw API response."""
+    def test_fetch_market_status_dataclass_methods(self, mock_request, provider, sample_market_status_response):
+        """Test MarketStatusSnapshot dataclass helper methods."""
         mock_request.return_value = sample_market_status_response
 
         result = provider.fetch_market_status()
 
-        # Should return the raw response, not a MarketContext object
-        assert isinstance(result, dict)
-        assert "market" in result
-        assert "serverTime" in result
+        assert result.is_market_open() is True
+        assert result.is_exchange_open("nyse") is True
+        assert result.is_exchange_open("nasdaq") is True
+        assert result.is_exchange_open("otc") is False
+
+    @patch.object(PolygonMarketStatusProvider, "_make_request")
+    def test_fetch_market_status_extended_hours(self, mock_request, provider):
+        """Test detection of extended hours trading."""
+        extended_hours_response = {
+            "market": "extended-hours",
+            "serverTime": "2024-01-15T07:00:00-05:00",
+            "exchanges": {
+                "nyse": "extended-hours",
+                "nasdaq": "extended-hours"
+            },
+            "currencies": {
+                "fx": "open",
+                "crypto": "open"
+            },
+            "earlyHours": True,
+            "afterHours": False
+        }
+        mock_request.return_value = extended_hours_response
+
+        result = provider.fetch_market_status()
+
+        assert result is not None
+        assert result.market == "extended-hours"
+        assert result.early_hours is True
+        assert result.after_hours is False
+        assert result.is_extended_hours() is True
+        assert result.is_market_open() is False
 
     # ============================================================================
     # FETCH UPCOMING HOLIDAYS TESTS

@@ -3,7 +3,7 @@
 import logging
 import sqlite3
 from pathlib import Path
-from sqlmodel import SQLModel, create_engine, Session
+from sqlmodel import SQLModel, create_engine
 
 logger = logging.getLogger(__name__)
 
@@ -41,27 +41,6 @@ class DatabaseInitializer:
             # Create all tables
             SQLModel.metadata.create_all(engine)
 
-            logger.info("Database schema created successfully using SQLModel")
-
-            # Insert initial schema version record
-            with Session(engine) as session:
-                # Check if schema_versions table exists and has records
-                result = session.exec(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='schema_versions'"
-                ).first()
-
-                if result and result > 0:
-                    # Check if we have any version records
-                    version_count = session.exec("SELECT COUNT(*) FROM schema_versions").first()
-                    if version_count == 0:
-                        # Insert initial version
-                        session.exec("""
-                            INSERT INTO schema_versions (version, description, applied_at)
-                            VALUES ('001', 'Initial SQLModel schema', datetime('now'))
-                        """)
-                        session.commit()
-                        logger.info("Inserted initial schema version record")
-
             logger.info("Database initialization completed successfully")
             return True
 
@@ -95,19 +74,8 @@ class DatabaseInitializer:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # Get schema version
-            try:
-                cursor.execute(
-                    "SELECT version FROM schema_versions ORDER BY applied_at DESC LIMIT 1"
-                )
-                result = cursor.fetchone()
-                schema_version = result[0] if result else "unknown"
-            except Exception:
-                schema_version = "unknown"
-
             info = {
                 "database_path": self.db_path,
-                "schema_version": schema_version,
                 "tables": {},
                 "status": "healthy"
             }
@@ -115,7 +83,7 @@ class DatabaseInitializer:
             # Count records in each table
             tables = [
                 "asset_fundamentals", "asset_prices", "assets", "data_update_metadata",
-                "markets", "providers", "schema_versions", "sentiment_events",
+                "markets", "providers", "sentiment_events",
                 "sentiment_types", "universe_memberships", "universes", "fed_data",
                 "gap_candidate", "gap_candidate_result", "gap_result_news",
                 "market_holidays"

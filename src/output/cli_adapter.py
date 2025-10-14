@@ -123,6 +123,14 @@ class CLIOutputAdapter:
 
         self.console.print(f"  • Total Errors: {result.total_errors}")
 
+        # Display cache statistics if available (fundamentals bootstrap)
+        if result.from_database > 0 or result.from_cache > 0 or result.from_api > 0:
+            self.console.print(f"\n[cyan]Data Sources:[/cyan]")
+            self.console.print(f"  • From database (fresh): {result.from_database:,}")
+            self.console.print(f"  • From cache files: {result.from_cache:,}")
+            self.console.print(f"  • From Polygon API: {result.from_api:,}")
+            self.console.print(f"  • Cache hit rate: {result.cache_hit_rate:.1f}%")
+
         # Display fetch errors if any
         if result.fetch_errors:
             self.console.print(

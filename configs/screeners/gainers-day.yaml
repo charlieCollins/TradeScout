@@ -1,0 +1,149 @@
+name: gainers-day
+description: "Top gaining stocks for the trading day (regular session + afterhours view of day's performance)"
+enabled: true
+
+# Valid ONLY during regular session and after hours (not premarket/extended)
+# This shows the trading day's full performance from open to current/close
+valid_sessions:
+  - "regular"      # Show intraday gainers during market hours
+  - "afterhours"   # Show the day's gainers after market close
+  - "closed"       # Show previous trading day's gainers when market closed
+
+# Data source configuration
+data_source:
+  universe: "default_universe"
+  require_recent_trading: true
+
+# Field mappings - always compare to the TRADING DAY's open
+field_mapping:
+  reference_price:
+    # Always use the trading day's open price as reference
+    regular: "ap.day_open"              # Today's 9:30 AM open
+    afterhours: "ap.day_open"           # Today's 9:30 AM open (showing full day performance)
+    closed: "ap.day_open"               # Previous trading day's open
+
+  current_price:
+    # What price represents "now" or end-of-day
+    regular: "ap.min_close"             # Current price during trading
+    afterhours: "ap.day_close"          # 4PM close (locked in for the day)
+    closed: "ap.day_close"              # Previous trading day's 4PM close
+
+  volume_field:
+    # Always show the full trading day's volume
+    regular: "ap.day_volume"            # Accumulated regular session volume
+    afterhours: "ap.day_volume"         # Final regular session volume (doesn't include AH)
+    closed: "ap.day_volume"             # Previous day's volume
+
+# Thresholds - can be session-specific
+thresholds:
+  min_gain_percent:
+    regular: 2.0
+    afterhours: 2.0
+    closed: 2.0
+
+  min_price:
+    regular: 1.0
+    afterhours: 1.0
+    closed: 1.0
+
+# Filters - use template variables that get resolved per session
+filters:
+  # Day open must exist (trading day must have started)
+  - field: "{{reference_price}}"
+    operator: "IS NOT NULL"
+    value: null
+
+  # Gain percentage filter (relative to day's open)
+  - field: "(({{current_price}} - {{reference_price}}) / {{reference_price}} * 100)"
+    operator: ">="
+    value: "{{thresholds.min_gain_percent}}"
+
+  # Minimum price filter
+  - field: "{{current_price}}"
+    operator: ">="
+    value: "{{thresholds.min_price}}"
+
+# Sorting - highest gainers first
+sort:
+  - field: "(({{current_price}} - {{reference_price}}) / {{reference_price}} * 100)"
+    direction: "desc"
+
+# Display configuration - context-specific columns
+display:
+  limit: 50
+  columns:
+    base:
+      # Always shown
+      - name: "Symbol"
+        field: "symbol"
+        width: 8
+
+    context_specific:
+      regular:
+        - name: "Day Open"
+          field: "day_open"
+          format: "price"
+          width: 10
+        - name: "Current"
+          field: "min_close"
+          format: "price"
+          width: 10
+        - name: "Change"
+          field: "min_close - day_open"
+          format: "price_change"
+          width: 12
+        - name: "Day Gain %"
+          field: "((min_close - day_open) / day_open * 100)"
+          format: "percent"
+          width: 12
+        - name: "Day Volume"
+          field: "day_volume"
+          format: "volume"
+          width: 12
+        - name: "Time"
+          field: "min_timestamp_formatted"
+          width: 12
+
+      afterhours:
+        - name: "Day Open"
+          field: "day_open"
+          format: "price"
+          width: 10
+        - name: "4PM Close"
+          field: "day_close"
+          format: "price"
+          width: 10
+        - name: "Day Change"
+          field: "day_close - day_open"
+          format: "price_change"
+          width: 12
+        - name: "Day Gain %"
+          field: "((day_close - day_open) / day_open * 100)"
+          format: "percent"
+          width: 12
+        - name: "Day Volume"
+          field: "day_volume"
+          format: "volume"
+          width: 12
+
+      closed:
+        - name: "Day Open"
+          field: "day_open"
+          format: "price"
+          width: 10
+        - name: "Day Close"
+          field: "day_close"
+          format: "price"
+          width: 10
+        - name: "Day Change"
+          field: "day_close - day_open"
+          format: "price_change"
+          width: 12
+        - name: "Day Gain %"
+          field: "((day_close - day_open) / day_open * 100)"
+          format: "percent"
+          width: 12
+        - name: "Day Volume"
+          field: "day_volume"
+          format: "volume"
+          width: 12

@@ -348,13 +348,13 @@ class FundamentalsRepository:
         # Count by sector (top 10)
         statement = select(
             FundamentalsSQLModel.sector,
-            func.count(FundamentalsSQLModel.id).label('count')
+            func.count(FundamentalsSQLModel.asset_id).label('count')
         ).where(
             FundamentalsSQLModel.sector.is_not(None)  # type: ignore
         ).group_by(
             FundamentalsSQLModel.sector
         ).order_by(
-            func.count(FundamentalsSQLModel.id).desc()
+            func.count(FundamentalsSQLModel.asset_id).desc()
         ).limit(10)
 
         results = self.session.exec(statement).all()

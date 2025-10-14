@@ -2,9 +2,13 @@
 
 import pytest
 from unittest.mock import Mock, patch
-from datetime import date
+from datetime import date, datetime
+
+import sys
+sys.path.insert(0, '/home/ccollins/projects/TradeScout/src')
 
 from api.providers.polygon_news_provider import PolygonNewsProvider
+from models.dataclass.news_article import NewsArticle, SentimentInsight
 
 
 class TestPolygonNewsProvider:
@@ -104,9 +108,11 @@ class TestPolygonNewsProvider:
 
         assert result is not None
         assert len(result) == 2
-        assert all(isinstance(article, dict) for article in result)
-        assert result[0]["title"] == "Apple announces record earnings"
-        assert result[1]["title"] == "Apple faces regulatory challenges"
+        assert all(isinstance(article, NewsArticle) for article in result)
+        assert result[0].title == "Apple announces record earnings"
+        assert result[1].title == "Apple faces regulatory challenges"
+        assert result[0].publisher_name == "MarketWatch"
+        assert result[1].publisher_name == "Bloomberg"
 
     @patch.object(PolygonNewsProvider, "_make_request")
     def test_fetch_news_for_ticker_with_limit(self, mock_request, provider, sample_news_response):
@@ -164,115 +170,121 @@ class TestPolygonNewsProvider:
         assert result is None
 
     # ============================================================================
-    # SENTIMENT EXTRACTION TESTS
+    # NEWSARTICLE DATACLASS TESTS
     # ============================================================================
 
-    def test_extract_sentiment_from_article_with_insights(self, provider):
-        """Test extracting sentiment from article with insights."""
-        article = {
-            "id": "article1",
-            "title": "Test Article",
-            "published_utc": "2024-01-15T14:30:00Z",
-            "insights": [
+    @patch.object(PolygonNewsProvider, "_make_request")
+    def test_newsarticle_attributes(self, mock_request, provider, sample_news_response):
+        """Test NewsArticle dataclass has correct attributes."""
+        mock_request.return_value = sample_news_response
+
+        articles = provider.fetch_news_for_ticker("AAPL")
+
+        article = articles[0]
+        assert article.id == "article1"
+        assert article.title == "Apple announces record earnings"
+        assert article.article_url == "https://example.com/article1"
+        assert article.publisher_name == "MarketWatch"
+        assert article.author == "John Doe"
+        assert article.description == "Apple Inc. reported record earnings..."
+        assert "AAPL" in article.tickers
+        assert "earnings" in article.keywords
+        assert isinstance(article.published_utc, datetime)
+
+    @patch.object(PolygonNewsProvider, "_make_request")
+    def test_sentiment_insights_transformation(self, mock_request, provider, sample_news_response):
+        """Test sentiment insights are properly transformed to dataclass."""
+        mock_request.return_value = sample_news_response
+
+        articles = provider.fetch_news_for_ticker("AAPL")
+
+        article = articles[0]
+        assert len(article.insights) == 1
+
+        insight = article.insights[0]
+        assert isinstance(insight, SentimentInsight)
+        assert insight.ticker == "AAPL"
+        assert insight.sentiment == "positive"
+        assert insight.sentiment_score == 0.75
+        assert insight.sentiment_reasoning == "Strong earnings beat expectations"
+
+    @patch.object(PolygonNewsProvider, "_make_request")
+    def test_get_insight_for_ticker_method(self, mock_request, provider, sample_news_response):
+        """Test NewsArticle.get_insight_for_ticker() helper method."""
+        mock_request.return_value = sample_news_response
+
+        articles = provider.fetch_news_for_ticker("AAPL")
+
+        article = articles[0]
+        insight = article.get_insight_for_ticker("AAPL")
+
+        assert insight is not None
+        assert insight.sentiment == "positive"
+        assert insight.sentiment_score == 0.75
+
+    @patch.object(PolygonNewsProvider, "_make_request")
+    def test_get_insight_for_ticker_not_found(self, mock_request, provider, sample_news_response):
+        """Test get_insight_for_ticker returns None for missing ticker."""
+        mock_request.return_value = sample_news_response
+
+        articles = provider.fetch_news_for_ticker("AAPL")
+
+        article = articles[0]
+        insight = article.get_insight_for_ticker("MSFT")  # Not in this article
+
+        assert insight is None
+
+    @patch.object(PolygonNewsProvider, "_make_request")
+    def test_multiple_insights_per_article(self, mock_request, provider):
+        """Test article with multiple ticker insights."""
+        multi_ticker_response = {
+            "status": "OK",
+            "results": [
                 {
-                    "ticker": "AAPL",
-                    "sentiment": "positive",
-                    "sentiment_reasoning": "Good news",
-                    "sentiment_score": 0.8
-                },
-                {
-                    "ticker": "MSFT",
-                    "sentiment": "neutral",
-                    "sentiment_reasoning": "Mixed signals",
-                    "sentiment_score": 0.0
+                    "id": "multi1",
+                    "publisher": {"name": "Reuters"},
+                    "title": "Tech giants rally",
+                    "author": "Test Author",
+                    "published_utc": "2024-01-15T14:30:00Z",
+                    "article_url": "https://example.com/multi1",
+                    "tickers": ["AAPL", "MSFT", "GOOGL"],
+                    "description": "Tech stocks surge...",
+                    "keywords": ["tech", "rally"],
+                    "insights": [
+                        {
+                            "ticker": "AAPL",
+                            "sentiment": "positive",
+                            "sentiment_reasoning": "Strong guidance",
+                            "sentiment_score": 0.8
+                        },
+                        {
+                            "ticker": "MSFT",
+                            "sentiment": "positive",
+                            "sentiment_reasoning": "Cloud growth",
+                            "sentiment_score": 0.7
+                        },
+                        {
+                            "ticker": "GOOGL",
+                            "sentiment": "neutral",
+                            "sentiment_reasoning": "Mixed results",
+                            "sentiment_score": 0.1
+                        }
+                    ]
                 }
             ]
         }
+        mock_request.return_value = multi_ticker_response
 
-        result = provider.extract_sentiment_from_article(article, "AAPL")
+        articles = provider.fetch_news_for_ticker("AAPL")
 
-        assert result is not None
-        assert result["sentiment"] == "positive"
-        assert result["sentiment_score"] == 0.8
-        assert result["reasoning"] == "Good news"
+        article = articles[0]
+        assert len(article.insights) == 3
 
-    def test_extract_sentiment_from_article_no_insights(self, provider):
-        """Test extracting sentiment when article has no insights."""
-        article = {
-            "id": "article1",
-            "title": "Test Article",
-            "published_utc": "2024-01-15T14:30:00Z"
-        }
+        aapl_insight = article.get_insight_for_ticker("AAPL")
+        assert aapl_insight.sentiment_score == 0.8
 
-        result = provider.extract_sentiment_from_article(article, "AAPL")
-
-        assert result is None
-
-    def test_extract_sentiment_from_article_ticker_not_found(self, provider):
-        """Test extracting sentiment when ticker not in insights."""
-        article = {
-            "id": "article1",
-            "title": "Test Article",
-            "insights": [
-                {
-                    "ticker": "MSFT",
-                    "sentiment": "positive",
-                    "sentiment_score": 0.5
-                }
-            ]
-        }
-
-        result = provider.extract_sentiment_from_article(article, "AAPL")
-
-        assert result is None
-
-    def test_extract_sentiment_from_article_multiple_tickers(self, provider):
-        """Test extracting sentiment finds correct ticker in multi-ticker article."""
-        article = {
-            "id": "article1",
-            "title": "Tech stocks rally",
-            "insights": [
-                {
-                    "ticker": "AAPL",
-                    "sentiment": "positive",
-                    "sentiment_score": 0.7
-                },
-                {
-                    "ticker": "MSFT",
-                    "sentiment": "positive",
-                    "sentiment_score": 0.6
-                },
-                {
-                    "ticker": "GOOGL",
-                    "sentiment": "neutral",
-                    "sentiment_score": 0.1
-                }
-            ]
-        }
-
-        result = provider.extract_sentiment_from_article(article, "MSFT")
-
-        assert result is not None
-        assert result["sentiment"] == "positive"
-        assert result["sentiment_score"] == 0.6
-
-    def test_extract_sentiment_handles_missing_fields(self, provider):
-        """Test sentiment extraction handles missing optional fields."""
-        article = {
-            "id": "article1",
-            "insights": [
-                {
-                    "ticker": "AAPL",
-                    "sentiment": "positive"
-                    # Missing sentiment_score and reasoning
-                }
-            ]
-        }
-
-        result = provider.extract_sentiment_from_article(article, "AAPL")
-
-        # Should return None or handle gracefully
-        assert result is None or (result["sentiment"] == "positive" and "sentiment_score" in result)
+        msft_insight = article.get_insight_for_ticker("MSFT")
+        assert msft_insight.sentiment_score == 0.7
 
     # ============================================================================
     # HEALTH CHECK TESTS

@@ -1,6 +1,156 @@
 # Claude Session Context
 **Purpose:** Session continuity and context preservation between Claude sessions (last 3 sessions only)
 
+## Session Entry - 2025-10-13 23:00
+
+### Work Completed
+- ✅ **Cache-aware fundamentals bootstrap**: Implemented 3-tier caching system (DB → File Cache → API)
+  - Created FundamentalsCacheHelper utility to manage file-based cache (data/cache/fundamentals/)
+  - Added get_active_universe_assets() method to UniverseRepository
+  - Updated bootstrap_fundamentals() with tier 1 (DB fresh check), tier 2 (file cache), tier 3 (API fetch)
+  - Added cache statistics tracking (from_database, from_cache, from_api counts)
+  - Updated BootstrapResult dataclass with cache_hit_rate property
+  - Updated CLI to display cache statistics (cache hit rate: 99.2% achieved!)
+  - Results: 6,793 assets processed in 21s (100 from DB, 6,640 from cache, 53 from API)
+- ✅ **Sentiment types bootstrap**: Created bootstrap-sentiment-types command
+  - Seeds 4 standard sentiment types (news_positive, news_negative, news_neutral, news_mixed)
+  - Stored in parameters field as JSON (weight values)
+  - Added to bootstrap-all sequence as Step 6
+  - Fixed news/sentiment system (was broken - no sentiment types in database)
+- ✅ **Bootstrap Service refactoring**: Massive architectural cleanup
+  - Created src/services/bootstrap_service.py (780 lines) - handles all initialization/seeding
+  - Moved 6 bootstrap methods from DataServiceV2: sentiment_types, providers, markets, assets, fundamentals, universes
+  - Moved 4 universe filtering helper methods (_apply_universe_filters, _should_include_asset, _meets_inclusion_criteria, _meets_exclusion_criteria)
+  - Updated all CLI commands to use BootstrapService instead of DataServiceV2
+  - Removed 734 lines (29%) from DataServiceV2: 2,494 → 1,760 lines
+  - Clear separation: DataServiceV2 (runtime operations) vs BootstrapService (initialization/seeding)
+- ✅ **FastAPI web server documentation**: Created docs/planning/WEB_PLANNING.md
+  - Quick start guide with 3 methods to run server
+  - Complete endpoint listing (14 endpoints)
+  - Example curl and Python requests code
+  - Architecture notes, troubleshooting, environment setup
+  - Web API already implemented and working (src/api/web_app.py, 756 lines)
+
+### Current State
+- **Fundamentals bootstrap optimized**: 99.2% cache hit rate, 21s for 6,793 assets (vs 30-60 min without cache)
+- **Bootstrap logic properly separated**: BootstrapService handles all seeding, DataServiceV2 focuses on runtime
+- **Sentiment/news system working**: All 4 sentiment types seeded, news analysis functional
+- **Web API documented and running**: FastAPI server with 14 endpoints, Swagger UI at /docs
+- **Architecture clean**: Single Responsibility Principle enforced across services
+
+### In-Progress Tasks
+- None - all requested work completed
+
+### Blockers/Issues
+- None identified
+
+### Next Session Priorities
+1. **Manual testing after refactoring** - Test all bootstrap commands to verify BootstrapService works correctly
+2. **Web API exploration** - Try out endpoints at http://localhost:8000/docs
+3. Consider adding POST endpoints for bootstrap operations to Web API
+4. Test gap analyze during premarket/afterhours (from previous session TODO)
+
+### Conversation Context
+Session started with fundamentals bootstrap planning from docs/planning/FUND_PLANNING.md. User asked to implement cache-aware bootstrap using 3-tier system. Created FundamentalsCacheHelper utility to manage file cache. Added get_active_universe_assets() to UniverseRepository to scope to tradable assets only. Updated bootstrap_fundamentals() with 3-tier checking: (1) DB fresh check (<30 days), (2) file cache check (7,564 existing files), (3) API fetch only when needed. Added cache statistics to BootstrapResult (from_database, from_cache, from_api counts, cache_hit_rate property). Updated CLI to display cache stats. Fixed several bugs: wrong import path, wrong method name, incorrect success counting (was treating DB-fresh items as failed). Tested successfully: 6,793 assets in 21s with 99.2% cache hit rate (100 from DB, 6,640 from cache, 53 from API). User noted news/sentiment not working - no sentiment_types in database. Created bootstrap_sentiment_types() method to seed 4 types. Added bootstrap-sentiment-types CLI command. Added to bootstrap-all as Step 6. Fixed schema mismatch (no weight field, using parameters JSON instead). Tested - news/sentiment working perfectly. User then asked about bootstrap logic location - confirmed all in DataServiceV2 directly. User requested separating into BootstrapService. Created new service, moved all 6 bootstrap methods (734 lines) and 4 helper methods. Fixed sed disasters - used python script instead to update all CLI commands. Tested bootstrap commands - all working. Removed old bootstrap methods from DataServiceV2 (734 lines, 29% reduction). User asked about web server - confirmed FastAPI already implemented at src/api/web_app.py with 14 endpoints. User requested quick doc. Created docs/planning/WEB_PLANNING.md with how to run, endpoints, examples, troubleshooting. User tried running but got "uvicorn: command not found". Fixed docs to show need to activate venv or use venv/bin/uvicorn. User tested - web server working. User ran /goodbye.
+
+---
+
+## Session Entry - 2025-10-13 22:30
+
+### Work Completed
+- ✅ **Test suite cleanup**: Massive reduction from 21 test files to 8 files
+  - Deleted 13 integration/complex test files (manager tests, service integration tests, web app tests)
+  - Removed ~22,600 lines of integration tests
+  - Test suite reduced from ~25,620 lines to ~2,944 lines (88% reduction)
+- ✅ **Provider test updates for dataclass models**: Updated tests to work with refactored providers
+  - Updated `test_polygon_news_provider.py` to test NewsArticle dataclass (replaced dict assertions with dataclass attribute access)
+  - Updated `test_polygon_market_status_provider.py` to test MarketStatusSnapshot dataclass
+  - Added tests for dataclass helper methods (get_insight_for_ticker, is_market_open, is_extended_hours)
+  - Verified `test_polygon_snapshot_provider.py` already using dataclasses correctly (TickerSnapshot, MarketSnapshot)
+  - Verified `test_polygon_markets_provider.py` and `test_polygon_tickers_provider.py` using dataclasses correctly
+- ✅ **Repository test review**: Confirmed all 3 repository test files are well-structured unit tests
+  - `test_asset_price_repository.py` (545 lines) - Gap trading queries with in-memory SQLite
+  - `test_fundamentals_repository.py` (519 lines) - Market cap filtering tests
+  - `test_universe_repository.py` (475 lines) - Universe membership management
+
+### Current State
+- **Test suite clean and focused**: Only good unit tests remain
+  - 5 provider test files: All test API transformation with mocked responses
+  - 3 repository test files: All test business queries with in-memory SQLite
+  - Zero integration tests, zero manager tests (those were thin wrappers with no business logic)
+- **Provider tests aligned with architecture**: All tests now work with dataclass return types from Oct 12 refactoring
+- **No broken tests**: All remaining tests are properly structured and should pass
+
+### In-Progress Tasks
+- None - test cleanup work completed
+
+### Blockers/Issues
+- None identified
+
+### Next Session Priorities
+1. **High Priority Testing**: Test gap analyze during premarket/afterhours (verify update_market_snapshot() integration)
+2. **Manual testing**: Run all commands to verify recent refactoring didn't break anything
+3. **Optional**: Create unit tests for business logic files (gap_analyzer.py, gap_performance_calculator.py, sentiment_analyzer.py, screener_engine.py) - would be significant work due to complex dependencies
+
+### Conversation Context
+User requested comprehensive test cleanup: "clear out all our integration and complex tests and make sure we have good UNIT tests please, in general audit tests and clean it up". I audited 21 test files, identified 13 files to delete (10 manager tests testing thin SQLite wrappers, 2 service integration tests, 1 web app test). Deleted all 13 files successfully. Then reviewed remaining 8 test files - found provider tests using old dict assertions but current implementation returns dataclass objects (NewsArticle, MarketStatusSnapshot, PriceBar from Oct 12 refactoring). Updated test_polygon_news_provider.py to test NewsArticle dataclass attributes instead of dict keys, added tests for sentiment insights transformation and get_insight_for_ticker() helper method. Updated test_polygon_market_status_provider.py to test MarketStatusSnapshot dataclass, added tests for helper methods (is_market_open, is_exchange_open, is_extended_hours) and extended hours detection. Verified test_polygon_snapshot_provider already using dataclasses correctly (TickerSnapshot). Verified test_polygon_markets_provider and test_polygon_tickers_provider using Market and Asset dataclasses correctly. Reviewed 3 repository test files - all well-structured with in-memory SQLite, good coverage of business query logic. User asked to proceed with all test fixes. Final state: 8 test files, ~2,944 lines (88% reduction), all properly structured unit tests. Discussed creating unit tests for business logic but noted these files (gap_analyzer, gap_performance_calculator, sentiment_analyzer, screener_engine) have complex dependencies requiring substantial mocking. User ran /goodbye.
+
+---
+
+## Session Entry - 2025-10-13 20:00
+
+### Work Completed
+- ✅ **Market update command refactoring**: Massive simplification from 333 lines to 97 lines
+  - Renamed `get_market_snapshot()` → `update_market_snapshot()` to reflect actual behavior
+  - Method now handles TTL checks, API fetch, transform, save, and metadata recording internally
+  - Returns `MarketSnapshotUpdateStats` object with all operation metrics
+  - Eliminated double-save bug (was saving during fetch AND in CLI)
+  - CLI now just calls method and displays results - no business logic
+  - Fixed duplicate counting: now correctly shows "6,526 duplicates skipped" vs "0 new records"
+- ✅ **Timing information**: Added comprehensive timing display for both scenarios
+  - When data fresh: Shows last snapshot time, age in minutes, TTL setting
+  - When update performed: Shows update duration, completion time, plus timing info
+  - Both paths now display consistent information about data freshness
+- ✅ **Stats model architecture**: Created reusable `MarketSnapshotUpdateStats` dataclass
+  - Tracks: total_tickers, matched_symbols, unmatched_symbols, transformed, invalid, saved, duplicates
+  - Includes `data_was_fresh` flag to distinguish TTL bypass from API fetch
+  - Used across service layer and display layer
+- ✅ **Gap commands integration**: Updated gap analyze to use new `update_market_snapshot()` method
+  - Two call sites updated to handle stats object instead of raw snapshot
+  - Displays ticker counts and new records when forcing market data refresh
+- ✅ **Gap backtest fixes**: Fixed import errors and schema mismatches
+  - Renamed `GapPerformanceCalculator` → `GapCandidateResultCalculator` (correct class name)
+  - Fixed schema mismatch: model had `gap_candidate_id`, database had `gap_result_id`
+  - Updated SQLModel, dataclass, and repository to all use `gap_result_id`
+  - Fixed PriceBar access: changed `bar['open']` → `bar.open` (object attributes, not dict)
+  - Fixed datetime conversion: removed `fromisoformat()` call (already datetime from database)
+
+### Current State
+- **Market update command clean**: Single responsibility, all logic in service layer
+- **No double-save**: Data saved once in `update_market_snapshot()`, not in CLI
+- **Consistent stats tracking**: Stats object used everywhere, no manual calculation in CLI
+- **Timing always visible**: Users always see data age and TTL settings
+- **Gap backtest working**: Schema aligned, object access fixed, import errors resolved
+- **All 5 callers updated**: market_commands.py, gap_commands.py (2 places), docs, tests all reference correct method
+
+### In-Progress Tasks
+- None - refactoring complete, but gap analyze/backtest need testing during market hours
+
+### Blockers/Issues
+- ⚠️ **Gap analyze untested**: Ran out of time before extended hours to test analyze command
+- ⚠️ **Gap backtest partially tested**: Fixed import/schema errors but haven't run full backtest
+
+### Next Session Priorities
+1. **Test gap analyze during premarket** - Verify update_market_snapshot() integration works
+2. **Test gap backtest with historical data** - Ensure PriceBar fixes work end-to-end
+3. **Verify market update timing display** - Check both fresh and stale data scenarios
+4. Manual testing of all commands after today's refactoring
+
+### Conversation Context
+Session started with user complaining about confusing market update output showing "Persisted 411 asset prices" then "No new data - all 0 records" with "Processed: 0" and "Duplicates skipped: 0" - completely broken stats. I found double-save: `get_market_snapshot()` was saving during fetch (411 records), then CLI was trying to save again (0 new because already saved). User correctly identified architectural flaw: market snapshot should update asset prices in one bulk operation, not fetch then save separately. I renamed to `update_market_snapshot()` and moved save back into method. User wanted stats object returned so CLI can display results. Created `MarketSnapshotUpdateStats` dataclass. Updated method to return stats with all metrics. Simplified CLI from 333 lines to 97 lines - just calls method and displays stats. Fixed duplicate counting logic (was hardcoded to 0). Tested - works perfectly showing correct stats. User wanted timing info for both cases (TTL fresh and update performed). Added metadata queries to show last snapshot time, age, and TTL setting in both scenarios. User said timing appears twice when update runs - fixed to show once at end with blank line separator. Found 5 files referencing `get_market_snapshot()`: market_commands, gap_commands (2 calls), docs, tests. Updated all 5 files. Gap commands calls updated to use stats object. Docs updated to show new signature. Tests already called different method. User tested market update - works great! Then tried gap backtest - import error for `GapPerformanceCalculator`. Found class is actually `GapCandidateResultCalculator`. Fixed imports. Then schema error: model used `gap_candidate_id` but database has `gap_result_id`. Fixed SQLModel, dataclass, repository to all use `gap_result_id`. Then PriceBar access error: code used `bar['open']` but PriceBar is object not dict. Fixed to use `bar.open`. Then datetime error: code tried `fromisoformat()` on already-datetime field. Removed conversion. User said ran out of time to test gap analyze (extended hours only) and gap backtest broke so couldn't test that either. My fault for breaking commands with refactoring and market update bugs earlier.
+
+---
+
 ## Session Entry - 2025-10-13 18:00
 
 ### Work Completed

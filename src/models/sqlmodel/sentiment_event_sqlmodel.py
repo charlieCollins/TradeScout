@@ -6,7 +6,8 @@ This model represents sentiment events in the database using SQLModel ORM.
 from datetime import datetime, date, time
 from decimal import Decimal
 from typing import Optional
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field, SQLModel, Index
+from sqlalchemy import text
 
 
 class SentimentEventSQLModel(SQLModel, table=True):
@@ -20,6 +21,15 @@ class SentimentEventSQLModel(SQLModel, table=True):
     """
 
     __tablename__ = "sentiment_events"
+
+    __table_args__ = (
+        Index(
+            'idx_sentiment_events_unique_external',
+            'asset_id', 'sentiment_type_id', 'external_id',
+            unique=True,
+            sqlite_where=text("external_id IS NOT NULL")
+        ),
+    )
 
     # Primary key
     id: Optional[int] = Field(default=None, primary_key=True)

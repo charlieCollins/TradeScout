@@ -160,6 +160,41 @@ class UniverseRepository:
         logger.debug(f"Saved universe: {universe.name}")
         return universe
 
+    def upsert_universe(
+        self,
+        name: str,
+        description: str,
+        is_active: bool = False
+    ) -> UniverseSQLModel:
+        """Create or update a universe by name.
+
+        Args:
+            name: Universe name
+            description: Universe description
+            is_active: Whether universe should be active
+
+        Returns:
+            Universe record (created or updated)
+        """
+        existing = self.get_by_name(name)
+
+        if existing:
+            # Update existing
+            existing.description = description
+            existing.is_active = is_active
+            return self.save(existing)
+        else:
+            # Create new
+            from datetime import datetime
+            new_universe = UniverseSQLModel(
+                name=name,
+                description=description,
+                is_active=is_active,
+                created_at=datetime.now(),
+                updated_at=datetime.now()
+            )
+            return self.save(new_universe)
+
     def delete(self, universe: UniverseSQLModel) -> int:
         """Delete universe and all its memberships.
 
@@ -273,6 +308,40 @@ class UniverseRepository:
 
         return list(self.session.exec(statement).all())
 
+    def get_active_universe_assets(
+        self,
+        limit: Optional[int] = None
+    ) -> List[AssetSQLModel]:
+        """Get all assets in the active universe.
+
+        Business query: Used by fundamentals bootstrap and other operations
+        that need to work with the active trading universe.
+
+        Args:
+            limit: Optional limit on number of results
+
+        Returns:
+            List of Asset objects in active universe
+        """
+        active_universe = self.get_active_universe()
+        if not active_universe:
+            logger.warning("No active universe found")
+            return []
+
+        # Join UniverseMembership with Assets to get full asset records
+        statement = select(AssetSQLModel).join(
+            UniverseMembershipSQLModel,
+            AssetSQLModel.id == UniverseMembershipSQLModel.asset_id
+        ).where(
+            UniverseMembershipSQLModel.universe_id == active_universe.id,
+            AssetSQLModel.is_active == True
+        ).order_by(AssetSQLModel.symbol)
+
+        if limit:
+            statement = statement.limit(limit)
+
+        return list(self.session.exec(statement).all())
+
     def is_symbol_in_universe(self, symbol: str, universe_name: str) -> bool:
         """Check if a symbol is in a specific universe.
 
@@ -343,6 +412,40 @@ class UniverseRepository:
         self.session.commit()
         logger.info(f"Added {added_count} memberships to universe_id {universe_id}")
         return added_count
+
+    def bulk_add_memberships(
+        self,
+        universe_id: int,
+        asset_ids: List[int]
+    ) -> int:
+        """Bulk add memberships to a universe (optimized for large lists).
+
+        Assumes memberships were cleared first, so no duplicate checking.
+
+        Args:
+            universe_id: Universe database ID
+            asset_ids: List of asset IDs to add
+
+        Returns:
+            Number of memberships added
+        """
+        if not asset_ids:
+            return 0
+
+        memberships = [
+            UniverseMembershipSQLModel(
+                universe_id=universe_id,
+                asset_id=asset_id
+            )
+            for asset_id in asset_ids
+        ]
+
+        self.session.add_all(memberships)
+        self.session.commit()
+
+        count = len(memberships)
+        logger.info(f"Bulk added {count} memberships to universe_id {universe_id}")
+        return count
 
     def clear_memberships(self, universe_id: int) -> int:
         """Clear all memberships from a universe.

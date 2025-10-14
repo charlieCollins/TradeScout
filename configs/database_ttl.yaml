@@ -23,6 +23,6 @@ market_context_ttl_minutes: 5       # Market context objects cache
 market_holidays_ttl_days: 30        # Market holidays rarely change (cache for 30 days)
 
 # Data validation and refresh intervals
-max_fundamentals_age_days: 7        # When to warn about stale fundamentals
+max_fundamentals_age_days: 30        # When to warn about stale fundamentals
 max_tickers_age_days: 3             # When to warn about stale ticker universe
 market_data_stale_hours: 4          # When price data is considered too old for trading

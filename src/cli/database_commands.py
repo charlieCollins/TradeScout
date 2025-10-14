@@ -49,7 +49,6 @@ def database_info(app_context):
 
     table.add_row("Path", info['database_path'])
     table.add_row("Status", info.get('status', 'unknown'))
-    table.add_row("Schema Version", str(info.get('schema_version', 'unknown')))
 
     console.print(table)
 
@@ -202,7 +201,6 @@ def database_init(app_context):
         # Show database info
         info = initializer.get_database_info()
         console.print(f"Database: {info['database_path']}")
-        console.print(f"Schema version: {info.get('schema_version', 'unknown')}")
 
     else:
         console.print("[red]❌ Database initialization failed[/red]")
@@ -261,7 +259,9 @@ def bootstrap_providers(app_context):
 
     try:
         data_service = app_context.get_data_service_v2()
-        count = data_service.bootstrap_providers()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
+        count = bootstrap_service.bootstrap_providers()
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap providers: {e}[/red]")
         sys.exit(1)
@@ -278,6 +278,36 @@ def bootstrap_providers(app_context):
         console.print(f"\nActive provider: {active_provider.name}")
 
 
+@database.command('bootstrap-sentiment-types')
+@pass_config
+def bootstrap_sentiment_types(app_context):
+    """Initialize sentiment types for news analysis."""
+    console.print("[blue]Initializing sentiment types...[/blue]")
+
+    # Check if database exists
+    if not Path(app_context.db_path).exists():
+        console.print(f"[red]Database not found: {app_context.db_path}[/red]")
+        console.print("[yellow]Run 'tradescout database init' first[/yellow]")
+        sys.exit(1)
+        bootstrap_service = BootstrapService(data_service)
+        from services.bootstrap_service import BootstrapService
+
+    try:
+        data_service = app_context.get_data_service_v2()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
+        count = bootstrap_service.bootstrap_sentiment_types()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to bootstrap sentiment types: {e}[/red]")
+        sys.exit(1)
+
+    if count > 0:
+        console.print("[green]✅ Sentiment types initialization completed[/green]")
+        console.print(f"  Sentiment types created: {count}")
+    else:
+        console.print("[yellow]ℹ️  Sentiment types already exist - skipping[/yellow]")
+
+
 @database.command('bootstrap-markets')
 @pass_config
 def bootstrap_markets(app_context):
@@ -292,7 +322,9 @@ def bootstrap_markets(app_context):
 
     try:
         data_service = app_context.get_data_service_v2()
-        count = data_service.bootstrap_markets(asset_class="stocks", locale="us")
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
+        count = bootstrap_service.bootstrap_markets(asset_class="stocks", locale="us")
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap markets: {e}[/red]")
         sys.exit(1)
@@ -331,13 +363,15 @@ def bootstrap_tickers(app_context, limit, force):
 
     try:
         data_service = app_context.get_data_service_v2()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
 
         # Create CLI output adapters
         progress_reporter = CLIProgressReporter(console=console)
         output_adapter = CLIOutputAdapter(console=console)
 
         # Bootstrap assets with progress reporting
-        result = data_service.bootstrap_assets(
+        result = bootstrap_service.bootstrap_assets(
             market="stocks", active=True, progress=progress_reporter
         )
 
@@ -374,6 +408,8 @@ def bootstrap_universes(app_context, force):
         from utils.config_loader import get_config_loader
 
         data_service = app_context.get_data_service_v2()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
     except Exception as e:
         console.print(f"[red]❌ Failed to initialize DataService: {e}[/red]")
         sys.exit(1)
@@ -392,7 +428,7 @@ def bootstrap_universes(app_context, force):
         console.print(f"\n[bold]Bootstrapping '{universe_name}'...[/bold]")
 
         try:
-            stats = data_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
+            stats = bootstrap_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
 
             if stats and not stats.get('skipped', False):
                 members = stats.get('filtered_assets', 0)
@@ -450,6 +486,8 @@ def bootstrap_fundamentals(app_context, symbol, force, limit):
 
     try:
         data_service = app_context.get_data_service_v2()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
 
         if limit:
             console.print(f"[blue]Processing up to {limit:,} assets from database[/blue]")
@@ -461,7 +499,7 @@ def bootstrap_fundamentals(app_context, symbol, force, limit):
         output_adapter = CLIOutputAdapter(console=console)
 
         # Bootstrap fundamentals with progress reporting
-        result = data_service.bootstrap_fundamentals(
+        result = bootstrap_service.bootstrap_fundamentals(
             limit=limit, progress=progress_reporter
         )
 
@@ -539,6 +577,8 @@ def bootstrap_all(app_context, force):
     # Get DataService for remaining operations
     try:
         data_service = app_context.get_data_service_v2()
+        from services.bootstrap_service import BootstrapService
+        bootstrap_service = BootstrapService(data_service)
     except Exception as e:
         console.print(f"[red]Failed to initialize DataService: {e}[/red]")
         sys.exit(1)
@@ -546,7 +586,7 @@ def bootstrap_all(app_context, force):
     # 2. Providers
     console.print("\n[bold]Step 2: Data Providers[/bold]")
     try:
-        count = data_service.bootstrap_providers()
+        count = bootstrap_service.bootstrap_providers()
         console.print(f"[green]✅ Providers: {count} stored[/green]")
     except Exception as e:
         console.print(f"[red]Provider bootstrap failed: {e}[/red]")
@@ -555,7 +595,7 @@ def bootstrap_all(app_context, force):
     # 3. Markets
     console.print("\n[bold]Step 3: Markets[/bold]")
     try:
-        count = data_service.bootstrap_markets(asset_class="stocks", locale="us")
+        count = bootstrap_service.bootstrap_markets(asset_class="stocks", locale="us")
         console.print(f"[green]✅ Markets: {count} stored[/green]")
     except Exception as e:
         console.print(f"[red]Market bootstrap failed: {e}[/red]")
@@ -564,7 +604,7 @@ def bootstrap_all(app_context, force):
     # 4. Assets/Tickers
     console.print("\n[bold]Step 4: Assets from Polygon[/bold]")
     try:
-        count = data_service.bootstrap_assets(market="stocks", active=True)
+        count = bootstrap_service.bootstrap_assets(market="stocks", active=True)
         console.print(f"[green]✅ Assets: {count:,} stored[/green]")
     except Exception as e:
         console.print(f"[red]Asset bootstrap failed: {e}[/red]")
@@ -580,7 +620,7 @@ def bootstrap_all(app_context, force):
         universe_names = list(all_universes.keys())
 
         for universe_name in universe_names:
-            stats = data_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
+            stats = bootstrap_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
             members = stats.get('filtered_assets', 0)
             if members == 0:
                 console.print(f"[yellow]⚠️  {universe_name}: {members:,} members - Universe is empty! This may indicate missing fundamentals data.[/yellow]")
@@ -593,6 +633,18 @@ def bootstrap_all(app_context, force):
     except Exception as e:
         console.print(f"[red]Universe bootstrap failed: {e}[/red]")
         sys.exit(1)
+
+    # 6. Sentiment Types
+    console.print("\n[bold]Step 6: Sentiment Types[/bold]")
+    try:
+        count = bootstrap_service.bootstrap_sentiment_types()
+        if count > 0:
+            console.print(f"[green]✅ Sentiment types: {count} created[/green]")
+        else:
+            console.print(f"[green]✅ Sentiment types: already exist[/green]")
+    except Exception as e:
+        console.print(f"[red]Sentiment types bootstrap failed: {e}[/red]")
+        # Non-fatal - continue anyway
 
     console.print("\n[bold green]✅ Complete bootstrap successful![/bold green]")
     console.print("Database is ready for use.")
@@ -626,12 +678,6 @@ def results_backup(app_context, output):
         from repositories.gap_candidate_repository import GapCandidateRepository
         from repositories.gap_candidate_result_repository import GapCandidateResultRepository
         from repositories.gap_result_news_repository import GapResultNewsRepository
-        from database.database_initializer import DatabaseInitializer
-
-        # Get schema version
-        initializer = DatabaseInitializer(app_context.db_path)
-        db_info = initializer.get_database_info()
-        schema_version = db_info.get('schema_version', 'unknown')
 
         # Create session
         engine = create_engine(f"sqlite:///{app_context.db_path}", echo=False,
@@ -671,7 +717,6 @@ def results_backup(app_context, output):
         backup_data = {
             "backup_metadata": {
                 "created_at": datetime.now().isoformat(),
-                "schema_version": schema_version,
                 "database_path": str(app_context.db_path),
                 "record_counts": {
                     "gap_candidates": len(gap_candidates),

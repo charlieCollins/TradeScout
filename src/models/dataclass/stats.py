@@ -10,7 +10,6 @@ class DatabaseStats:
     """Database statistics and health information."""
 
     database_path: str
-    schema_version: str
     status: str
     table_counts: Dict[str, int]
     total_records: int

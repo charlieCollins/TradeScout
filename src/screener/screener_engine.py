@@ -118,7 +118,8 @@ class ScreenerEngine:
                 f"Screener '{screener_name}' has invalid 'valid_sessions' - must be a non-empty list"
             )
 
-        current_session = market_context.current_session.value
+        # Convert market session to screener-compatible name (closed_pre/closed_post → closed)
+        current_session = market_context.current_session.to_screener_session()
         if current_session not in valid_sessions:
             raise ValueError(
                 f"Screener '{screener_name}' is not available during {current_session} session. "

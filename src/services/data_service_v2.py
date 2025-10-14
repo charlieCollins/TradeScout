@@ -601,14 +601,16 @@ class DataServiceV2:
             saved_count = self.batch_save_asset_prices(asset_prices)
             logger.info(f"Saved {saved_count} new asset prices to database (skipped {len(asset_prices) - saved_count} duplicates, {stats_invalid} invalid)")
 
-            # Record metadata
+            # Record metadata - processed_items is valid data we handled, not just new saves
+            # Invalid/rejected data is quality enforcement, not failure
+            # Duplicates mean data is fresh, not a failure
             self.record_bulk_operation_metadata(
                 operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS,
                 operation_subtype="refresh",
                 start_time=start_time,
                 total_items=len(market_snapshot.tickers),
-                processed_items=saved_count,
-                failed_items=stats_invalid
+                processed_items=len(asset_prices),  # Valid data successfully processed
+                failed_items=0  # Quality rejections aren't failures
             )
         else:
             logger.warning(f"No valid asset prices to save ({stats_invalid} invalid)")
@@ -847,600 +849,6 @@ class DataServiceV2:
         analyzer = SentimentAnalyzer(time_window_days=time_window_days)
         return analyzer.calculate_sentiment_score(symbol, sentiment_events)
 
-    # ============================================================================
-    # BOOTSTRAP OPERATIONS (Temporary delegations during migration)
-    # ============================================================================
-    #
-    # Bootstrap operations are complex, large-scale operations that fetch from APIs
-    # and populate the database. They delegate to old architecture during migration.
-
-    def bootstrap_providers(self) -> int:
-        """Bootstrap data providers into database using new architecture.
-
-        Currently stores the hardcoded Polygon provider to the database.
-        In the future, this could be expanded to support multiple providers
-        (YFinance, Alpha Vantage, Finnhub, etc.).
-
-        Returns:
-            Number of providers stored successfully
-        """
-        logger.info("Bootstrapping providers")
-
-        # Check if Polygon provider already exists
-        existing = self.provider_repository.get_by_name("polygon")
-        if existing:
-            logger.info("Provider 'polygon' already exists - skipping")
-            return 0
-
-        # Create Polygon provider
-        from datetime import datetime
-
-        provider_sql = ProviderSQLModel(
-            id=1,
-            name="polygon",
-            display_name="Polygon.io",
-            base_url="https://api.polygon.io",
-            api_key_required=True,
-            is_active=True,
-            created_at=datetime.now()
-        )
-
-        # Save to database using repository
-        self.provider_repository.save(provider_sql)
-
-        logger.info("Bootstrapped 1 provider (Polygon)")
-        return 1
-
-    def bootstrap_markets(self, asset_class: str = "stocks", locale: str = "us") -> int:
-        """Bootstrap markets/exchanges from Polygon API using new architecture.
-
-        Fetches all exchanges from Polygon /v3/reference/exchanges endpoint
-        and stores them to the markets table.
-
-        Args:
-            asset_class: Asset class to filter (default: "stocks")
-            locale: Locale to filter (default: "us")
-
-        Returns:
-            Number of markets stored successfully
-
-        Raises:
-            RuntimeError: If prerequisites (providers) are not met
-        """
-        logger.info(
-            f"Bootstrapping markets from Polygon (asset_class={asset_class}, locale={locale})"
-        )
-
-        # Check prerequisites
-        provider_count = self.provider_repository.count_all()
-        if provider_count == 0:
-            raise RuntimeError(
-                "Cannot bootstrap markets: No providers in database. Run 'bootstrap-providers' first."
-            )
-
-        # Fetch all markets from Polygon API
-        markets = self.polygon_markets_provider.fetch_all_exchanges(
-            asset_class=asset_class, locale=locale
-        )
-
-        if not markets:
-            logger.warning("No markets fetched from Polygon")
-            return 0
-
-        # Convert Market dataclass → MarketSQLModel
-        market_sql_list = []
-        for market in markets:
-            market_sql = MarketSQLModel(
-                id=market.id if market.id != 0 else None,
-                code=market.code,
-                name=market.name,
-                asset_class=market.asset_class,
-                locale=market.locale,
-                is_active=market.is_active,
-                created_at=market.created_at
-            )
-            market_sql_list.append(market_sql)
-
-        # Bulk save using repository
-        stored_count = self.market_repository.bulk_save(market_sql_list)
-
-        logger.info(f"Bootstrapped {stored_count} markets")
-        return stored_count
-
-    def bootstrap_assets(
-        self,
-        market: str = "stocks",
-        active: bool = True,
-        progress=None
-    ):
-        """Bootstrap all assets from Polygon tickers API using new architecture.
-
-        Fetches all tickers from Polygon and stores them as assets in database.
-        This is a bulk operation that should be run periodically (every 3 days per TTL).
-
-        Args:
-            market: Market type (default: "stocks")
-            active: Only fetch active tickers (default: True)
-            progress: Optional progress reporter for operation tracking
-
-        Returns:
-            BootstrapResult with operation statistics and error details
-
-        Raises:
-            RuntimeError: If prerequisites (providers, markets) are not met
-        """
-        import time
-        from dataclasses import replace
-        from models.dataclass.results import BootstrapResult
-
-        start_time = time.time()
-        logger.info(
-            f"Bootstrapping assets from Polygon (market={market}, active={active})"
-        )
-
-        # Check prerequisites
-        provider_count = self.provider_repository.count_all()
-        if provider_count == 0:
-            raise RuntimeError(
-                "Cannot bootstrap assets: No providers in database. Run 'bootstrap-providers' first."
-            )
-
-        market_count = self.market_repository.count_all()
-        if market_count == 0:
-            raise RuntimeError(
-                "Cannot bootstrap assets: No markets in database. Run 'bootstrap-markets' first."
-            )
-
-        # Get Polygon provider ID
-        polygon_provider = self.provider_repository.get_by_name("polygon")
-        if not polygon_provider:
-            raise RuntimeError(
-                "Cannot bootstrap assets: Polygon provider not found in database."
-            )
-
-        # Create market_code to market_id mapping
-        all_markets = self.market_repository.get_all(active_only=False)
-        market_code_to_id = {m.code: m.id for m in all_markets}
-
-        # Fetch all tickers from API with market mapping
-        raw_assets = self.polygon_provider.fetch_all_tickers(
-            market=market, active=active, market_code_to_id=market_code_to_id
-        )
-
-        # Fix provider_id for all assets (provider uses placeholder provider_id)
-        assets = [
-            replace(asset, provider_id=polygon_provider.id)
-            for asset in raw_assets
-        ]
-
-        if not assets:
-            duration = time.time() - start_time
-            return BootstrapResult(
-                operation="assets",
-                total_items=0,
-                successful=0,
-                failed=0,
-                duration_seconds=duration
-            )
-
-        # Convert Asset dataclass → AssetSQLModel
-        asset_sql_list = []
-        for asset in assets:
-            asset_sql = AssetSQLModel(
-                id=asset.id if asset.id != 0 else None,
-                symbol=asset.symbol,
-                name=asset.name,
-                asset_type=asset.asset_type.value if hasattr(asset.asset_type, 'value') else asset.asset_type,
-                asset_class=asset.asset_class.value if hasattr(asset.asset_class, 'value') else asset.asset_class,
-                is_active=asset.is_active,
-                provider_id=asset.provider_id,
-                market_id=asset.market_id,
-                created_at=asset.created_at,
-                updated_at=asset.updated_at
-            )
-            asset_sql_list.append(asset_sql)
-
-        # Bulk save using repository
-        stored_count = self.asset_repository.bulk_save(asset_sql_list)
-
-        duration = time.time() - start_time
-        logger.info(f"Bootstrapped {stored_count} assets in {duration:.1f}s")
-
-        # Record metadata for bulk ticker operation
-        from datetime import datetime
-        self.record_bulk_operation_metadata(
-            operation_type=DataUpdateMetadataType.TICKERS,
-            operation_subtype="bootstrap",
-            start_time=datetime.fromtimestamp(start_time),
-            total_items=len(assets),
-            processed_items=stored_count,
-            failed_items=len(assets) - stored_count,
-            api_calls_made=1
-        )
-
-        return BootstrapResult(
-            operation="assets",
-            total_items=len(assets),
-            successful=stored_count,
-            failed=len(assets) - stored_count,
-            duration_seconds=duration
-        )
-
-    def bootstrap_fundamentals(self, limit: Optional[int] = None, progress=None):
-        """Bootstrap fundamentals for all assets in database using new architecture.
-
-        This is a bulk operation that:
-        1. Gets all assets from database
-        2. For each asset, fetches ticker details from Polygon
-        3. Extracts and stores fundamentals data
-
-        Note: This can be expensive with many assets. Use limit to process in batches.
-
-        Args:
-            limit: Optional limit on number of assets to process
-            progress: Optional progress reporter for operation tracking
-
-        Returns:
-            BootstrapResult with operation statistics and error details
-
-        Raises:
-            RuntimeError: If prerequisites (assets) are not met
-        """
-        import time
-        from models.dataclass.results import BootstrapResult
-        from models.asset_fundamentals import AssetFundamentals
-        from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
-
-        start_time = time.time()
-        logger.info(f"Bootstrapping fundamentals (limit={limit})")
-
-        # Get all active assets from database
-        assets = self.asset_repository.find_all_active(limit=limit)
-
-        if not assets:
-            raise RuntimeError(
-                "Cannot bootstrap fundamentals: No assets in database. Run 'bootstrap-tickers' first."
-            )
-
-        total_assets = len(assets)
-        logger.info(f"Fetching fundamentals for {total_assets} assets")
-
-        # Phase 1: Fetch ALL fundamentals from API (network calls only)
-        fundamentals_data = {}  # {asset_id: AssetFundamentals object}
-        fetch_errors = []
-
-        if progress:
-            progress.start_operation("Fetching from API", total_assets)
-
-        for i, asset_sql in enumerate(assets, start=1):
-            try:
-                # Fetch raw ticker data from Polygon
-                ticker_data = self.polygon_provider.fetch_ticker_details_raw(asset_sql.symbol)
-                if not ticker_data:
-                    fetch_errors.append(f"{asset_sql.symbol}: No data from API")
-                    continue
-
-                # Convert to AssetFundamentals using model's class method
-                fundamentals = AssetFundamentals.from_polygon_data(
-                    asset_id=asset_sql.id,
-                    provider_id=1,  # Polygon provider
-                    polygon_data=ticker_data,
-                )
-                fundamentals_data[asset_sql.id] = fundamentals
-                logger.debug(f"Successfully parsed fundamentals for {asset_sql.symbol}")
-
-            except Exception as e:
-                fetch_errors.append(f"{asset_sql.symbol}: {str(e)}")
-                logger.error(f"Error fetching fundamentals for {asset_sql.symbol}: {e}")
-
-            if progress and i % 10 == 0:
-                progress.update_progress(i, total_assets)
-
-        if progress:
-            progress.complete_operation()
-
-        # Phase 2: Bulk save all fundamentals (single database transaction)
-        insert_errors = []
-        successful_count = 0
-
-        if fundamentals_data:
-            logger.info(f"Saving {len(fundamentals_data)} fundamentals to database...")
-
-            if progress:
-                progress.start_operation("Saving to database", len(fundamentals_data))
-
-            # Convert to SQLModel
-            fundamentals_sql_list = []
-            for asset_id, fundamentals in fundamentals_data.items():
-                try:
-                    fundamentals_sql = FundamentalsSQLModel(
-                        id=fundamentals.id if fundamentals.id != 0 else None,
-                        asset_id=fundamentals.asset_id,
-                        provider_id=fundamentals.provider_id,
-                        market_cap=fundamentals.market_cap,
-                        shares_outstanding=fundamentals.shares_outstanding,
-                        sector=fundamentals.sector,
-                        industry=fundamentals.industry,
-                        description=fundamentals.description,
-                        employees=fundamentals.employees,
-                        headquarters=fundamentals.headquarters,
-                        homepage_url=fundamentals.homepage_url,
-                        created_at=fundamentals.created_at,
-                        updated_at=fundamentals.updated_at
-                    )
-                    fundamentals_sql_list.append(fundamentals_sql)
-                except Exception as e:
-                    insert_errors.append(f"asset_id {asset_id}: {str(e)}")
-
-            # Bulk save using repository
-            if fundamentals_sql_list:
-                successful_count = self.fundamentals_repository.bulk_save(fundamentals_sql_list)
-
-            if progress:
-                progress.complete_operation()
-
-        duration = time.time() - start_time
-        logger.info(
-            f"Bootstrapped {successful_count}/{total_assets} fundamentals in {duration:.1f}s"
-        )
-
-        # Record metadata for bulk fundamentals operation
-        from datetime import datetime
-        self.record_bulk_operation_metadata(
-            operation_type=DataUpdateMetadataType.FUNDAMENTALS,
-            operation_subtype="bootstrap",
-            start_time=datetime.fromtimestamp(start_time),
-            total_items=total_assets,
-            processed_items=successful_count,
-            failed_items=total_assets - successful_count,
-            api_calls_made=total_assets
-        )
-
-        return BootstrapResult(
-            operation="fundamentals",
-            total_items=total_assets,
-            successful=successful_count,
-            failed=total_assets - successful_count,
-            fetch_errors=fetch_errors,
-            insert_errors=insert_errors,
-            duration_seconds=duration
-        )
-
-    # ============================================================================
-    # UNIVERSE FILTERING HELPERS
-    # ============================================================================
-
-    def _apply_universe_filters(
-        self, assets: List[Dict[str, Any]], config: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
-        """Apply universe filtering criteria to assets.
-
-        Args:
-            assets: List of asset dicts
-            config: Universe configuration from UNIVERSE_CONFIG
-
-        Returns:
-            Filtered list of asset dicts
-        """
-        included = config.get("included", {})
-        excluded = config.get("excluded", {})
-
-        filtered = []
-        for asset in assets:
-            if self._should_include_asset(asset, included, excluded):
-                filtered.append(asset)
-
-        return filtered
-
-    def _should_include_asset(
-        self, asset: Dict[str, Any], included: Dict[str, Any], excluded: Dict[str, Any]
-    ) -> bool:
-        """Check if asset meets inclusion criteria and doesn't meet exclusion criteria."""
-        # Check inclusion criteria
-        if not self._meets_inclusion_criteria(asset, included):
-            return False
-
-        # Check exclusion criteria
-        if self._meets_exclusion_criteria(asset, excluded):
-            return False
-
-        return True
-
-    def _meets_inclusion_criteria(
-        self, asset: Dict[str, Any], criteria: Dict[str, Any]
-    ) -> bool:
-        """Check if asset meets all inclusion criteria."""
-        import re
-
-        # Check asset types (ticker_types: CS, ETF, REIT)
-        if "ticker_types" in criteria:
-            asset_type = asset.get("asset_type", "")
-            # Map database asset_type to config ticker_types
-            type_mapping = {"stock": "CS", "etf": "ETF", "reit": "REIT"}
-            mapped_type = type_mapping.get(asset_type.lower(), asset_type)
-            if mapped_type not in criteria["ticker_types"]:
-                return False
-
-        # Check exchanges (XNYS, XNAS)
-        if "exchanges" in criteria:
-            market_code = asset.get("market_code", "")
-            if market_code not in criteria["exchanges"]:
-                return False
-
-        # Check symbol pattern (regex)
-        if "symbol_pattern" in criteria:
-            symbol = asset.get("symbol", "")
-            if not re.match(criteria["symbol_pattern"], symbol):
-                return False
-
-        # Check active status
-        if criteria.get("active_only", False):
-            if not asset.get("is_active", False):
-                return False
-
-        # Check sectors (requires fundamentals data)
-        if "sectors" in criteria:
-            sector = asset.get("sector")
-            # If sector filtering is required but sector data is missing, exclude
-            if not sector:
-                return False
-            if sector not in criteria["sectors"]:
-                return False
-
-        # Check minimum market cap
-        if "min_market_cap" in criteria:
-            market_cap = asset.get("market_cap")
-            # If market cap filtering is required but data is missing, exclude
-            if market_cap is None:
-                return False
-            if market_cap < criteria["min_market_cap"]:
-                return False
-
-        # Check maximum market cap
-        if "max_market_cap" in criteria:
-            market_cap = asset.get("market_cap")
-            if market_cap is None:
-                return False
-            if market_cap > criteria["max_market_cap"]:
-                return False
-
-        # Check minimum volume
-        if "min_volume" in criteria:
-            volume = asset.get("volume")
-            if volume is None:
-                return False
-            if volume < criteria["min_volume"]:
-                return False
-
-        return True
-
-    def _meets_exclusion_criteria(
-        self, asset: Dict[str, Any], criteria: Dict[str, Any]
-    ) -> bool:
-        """Check if asset meets any exclusion criteria (should be excluded)."""
-        import re
-
-        symbol = asset.get("symbol", "")
-        market_code = asset.get("market_code", "")
-
-        # Exclude preferred stocks (symbols ending in -P, -PR, -A, etc.)
-        if criteria.get("preferred_stocks", False):
-            if re.search(r"-[PA-Z]+$", symbol):
-                return True
-
-        # Exclude non-major exchanges (minor_exchanges.otc_markets)
-        if criteria.get("minor_exchanges", {}).get("otc_markets", False):
-            # Only keep XNYS and XNAS
-            if market_code not in ["XNYS", "XNAS"]:
-                return True
-
-        # Exclude invalid symbols (special characters, not matching [A-Z]{1,5})
-        if criteria.get("invalid_symbols", {}).get("special_characters", False):
-            if not re.match(r"^[A-Z]{1,5}$", symbol):
-                return True
-
-        return False
-
-    # ============================================================================
-    # BOOTSTRAP OPERATIONS - UNIVERSES
-    # ============================================================================
-
-    def bootstrap_universes(self, universe_name: str = "default_universe", force_refresh: bool = False):
-        """Bootstrap a universe by filtering assets based on configuration criteria using new architecture.
-
-        Universes are filtered subsets of assets created by applying inclusion/exclusion
-        criteria defined in config/universe_config.py. This method:
-        1. Fetches all assets + fundamentals data from database
-        2. Applies filtering criteria (exchanges, market cap, sectors, etc.)
-        3. Creates/updates Universe record
-        4. Clears old memberships and adds new ones
-        5. Records metadata timestamp
-
-        Args:
-            universe_name: Name of universe from UNIVERSE_CONFIG (default: "default_universe")
-            force_refresh: If True, bypass TTL and refresh regardless of freshness
-
-        Returns:
-            Dictionary with statistics: {
-                "total_assets": int,
-                "filtered_assets": int,
-                "memberships_added": int
-            }
-
-        Raises:
-            RuntimeError: If prerequisites (assets) are not met
-        """
-        from config.universe_loader import get_config_loader
-
-        logger.info(f"Bootstrapping universe: {universe_name}")
-
-        # Get universe configuration
-        config_loader = get_config_loader()
-        all_universes = config_loader.load_all_universes()
-        config = all_universes.get(universe_name)
-        if not config:
-            raise ValueError(
-                f"Unknown universe: {universe_name}. Available: {list(all_universes.keys())}"
-            )
-
-        # Check prerequisites - need assets in database to filter
-        asset_count = self.asset_repository.count_active()
-        if asset_count == 0:
-            raise RuntimeError(
-                "Cannot bootstrap universes: No assets in database. Run 'bootstrap-tickers' first."
-            )
-
-        # Check if this specific universe exists
-        # Note: Universe freshness checking removed - use force_refresh=True to always rebuild
-        if not force_refresh:
-            universe_record = self.universe_repository.get_by_name(universe_name)
-            if universe_record:
-                # Universe exists - optionally skip if you want to avoid rebuilding
-                # For now, we'll always rebuild to ensure data is current
-                pass
-
-        # Fetch all assets with fundamentals and market data
-        all_assets = self.universe_repository.get_assets_with_fundamentals()
-
-        if not all_assets:
-            raise RuntimeError(
-                "Cannot bootstrap universes: No assets with fundamentals found."
-            )
-
-        # Apply filtering criteria
-        filtered_assets = self._apply_universe_filters(all_assets, config)
-
-        logger.info(
-            f"Filtered {len(all_assets)} assets down to {len(filtered_assets)} for universe '{universe_name}'"
-        )
-
-        # Create or update Universe record
-        universe_record = self.universe_repository.upsert_universe(
-            name=universe_name,
-            description=config.get("description", ""),
-            is_active=True
-        )
-
-        # Clear old memberships
-        self.universe_repository.clear_memberships(universe_record.id)
-
-        # Add new memberships (asset_ids only)
-        asset_ids = [asset["id"] for asset in filtered_assets]
-        memberships_added = self.universe_repository.bulk_add_memberships(
-            universe_id=universe_record.id,
-            asset_ids=asset_ids
-        )
-
-        logger.info(
-            f"Bootstrapped universe '{universe_name}': {memberships_added} memberships added"
-        )
-
-        return {
-            "total_assets": len(all_assets),
-            "filtered_assets": len(filtered_assets),
-            "memberships_added": memberships_added
-        }
-
     def get_active_provider(self):
         """Get active provider using repository pattern.
 
@@ -1528,7 +936,6 @@ class DataServiceV2:
 
         return DatabaseStats(
             database_path="data/tradescout.db",
-            schema_version="2.0",  # New architecture
             status="healthy",
             table_counts=table_counts,
             total_records=total_records,
@@ -2160,6 +1567,7 @@ class DataServiceV2:
         # Check if we need to refresh
         if force_refresh or self._is_holidays_data_stale():
             logger.debug("Fetching fresh holidays from API")
+            start_time = datetime.now()
 
             # Fetch from Polygon API
             holidays_data = self.polygon_market_status_provider.fetch_upcoming_holidays()
@@ -2182,21 +1590,16 @@ class DataServiceV2:
                 ]
                 self.market_holiday_repository.bulk_save(holidays_sql)
 
-                # Record metadata timestamp
-                from models.sqlmodel.data_update_metadata_sqlmodel import DataUpdateMetadataSQLModel
-                from models.dataclass.data_update_metadata import OperationStatus
-
-                metadata = DataUpdateMetadataSQLModel(
-                    operation_type=DataUpdateMetadataType.MARKET_HOLIDAYS.value,
+                # Record metadata
+                self.record_bulk_operation_metadata(
+                    operation_type=DataUpdateMetadataType.MARKET_HOLIDAYS,
                     operation_subtype="fetch",
-                    started_at=datetime.now(),
-                    completed_at=datetime.now(),
-                    status=OperationStatus.COMPLETED.value,
+                    start_time=start_time,
                     total_items=len(holidays_data),
                     processed_items=len(holidays_data),
+                    failed_items=0,
                     api_calls_made=1
                 )
-                self.metadata_repository.save(metadata)
 
                 logger.info(f"Stored {len(holidays_data)} holidays")
                 return holidays_data
@@ -2249,20 +1652,21 @@ class DataServiceV2:
         failed_items: int = 0,
         api_calls_made: int = 1
     ) -> None:
-        """Record metadata for bulk operations - ONLY for market_snapshots, tickers, fundamentals.
+        """Record metadata for bulk operations - ONLY for market_snapshots, tickers, fundamentals, and market_holidays.
 
-        IMPORTANT: This method should ONLY be called by three bulk operations:
+        IMPORTANT: This method should ONLY be called by four bulk operations:
         1. Market snapshots (market update command)
         2. Tickers (bootstrap_assets)
         3. Fundamentals (bootstrap_fundamentals)
+        4. Market holidays (get_market_holidays with refresh)
 
-        All other operations (providers, markets, holidays, universes) should NOT use this.
+        All other operations (providers, markets, universes) should NOT use this.
 
-        This utility standardizes metadata tracking across the three bulk operations.
+        This utility standardizes metadata tracking across the four bulk operations.
         Automatically handles timing, status determination, and metadata persistence.
 
         Args:
-            operation_type: MUST be MARKET_SNAPSHOTS, TICKERS, or FUNDAMENTALS
+            operation_type: MUST be MARKET_SNAPSHOTS, TICKERS, FUNDAMENTALS, or MARKET_HOLIDAYS
             operation_subtype: Subtype (e.g., "bootstrap", "bulk_update", "fetch")
             start_time: When the operation started
             total_items: Total number of items processed
@@ -2273,12 +1677,16 @@ class DataServiceV2:
         from models.sqlmodel.data_update_metadata_sqlmodel import DataUpdateMetadataSQLModel
         from models.dataclass.data_update_metadata import OperationStatus
 
-        # Determine status based on failures
-        if failed_items == 0:
+        # Determine status based on success/failure
+        # COMPLETED: Got data from API and processed it successfully (even if nothing new)
+        # PARTIAL: Got data but some items had real errors/failures
+        # FAILED: Couldn't process any data due to errors
+        if processed_items > 0 and failed_items == 0:
             status = OperationStatus.COMPLETED
-        elif processed_items > 0:
+        elif processed_items > 0 and failed_items > 0:
             status = OperationStatus.PARTIAL
         else:
+            # No items processed - could be API failure or no data
             status = OperationStatus.FAILED
 
         metadata = DataUpdateMetadataSQLModel(
