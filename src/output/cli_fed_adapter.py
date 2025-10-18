@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from models.dataclass.fed_result import FedUpdateResult, FedInfoResult
+from models.result.fed_result import FedUpdateResult, FedInfoResult
 
 
 console = Console()

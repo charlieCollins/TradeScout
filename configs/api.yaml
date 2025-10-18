@@ -1,0 +1,24 @@
+# API Configuration
+# Settings for external API providers (Polygon.io, etc.)
+
+api:
+  polygon:
+    # Rate limiting configuration
+    rate_limiting:
+      default_wait_seconds: 60  # How long to wait when hitting rate limits
+      retry_attempts: 3         # Number of retry attempts
+      backoff_multiplier: 2     # Exponential backoff multiplier
+
+    # Pagination settings
+    pagination:
+      tickers_page_size: 1000   # Results per page for ticker fetching
+      max_page_size: 1000       # Maximum allowed page size
+
+    # Aggregates API limits
+    aggregates:
+      minute_bars_limit: 50000  # Max results for minute bar queries
+      daily_bars_limit: 5000    # Max results for daily bar queries
+
+    # Timeouts
+    request_timeout_seconds: 30
+    health_check_timeout_seconds: 10

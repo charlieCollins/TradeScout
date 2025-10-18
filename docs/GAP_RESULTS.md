@@ -439,32 +439,6 @@ GROUP BY is_friday_gap;
 
 ---
 
-## 🚀 Future Enhancements
-
-**Planned Features:**
-
-1. **CSV Export**
-   ```bash
-   ./tradescout gap results export --format=csv --output=gaps.csv
-   ```
-
-2. **Advanced Filtering**
-   ```bash
-   ./tradescout gap results --min-quality-score=70 --min-volume-ratio=2.0
-   ```
-
-3. **Trend Analysis**
-   ```bash
-   ./tradescout gap results trends --metric=rejection_rate --days=90
-   ```
-
-4. **Performance Integration**
-   ```bash
-   ./tradescout gap results --with-performance --only-winners
-   ```
-
----
-
 ## 📚 Related Documentation
 
 - **[GAP_TRADING_STRATEGY.md](GAP_TRADING_STRATEGY.md)** - Gap trading strategy overview

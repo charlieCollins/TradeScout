@@ -102,6 +102,19 @@ class SentimentTypeRepository:
 
         return list(self.session.exec(statement).all())
 
+    def find_news_types(self) -> List[int]:
+        """Get IDs of all news-related sentiment types.
+
+        Business query: Filter for news types (name LIKE 'news_%').
+
+        Returns:
+            List of sentiment type IDs for news types
+        """
+        statement = select(SentimentTypeSQLModel.id).where(
+            SentimentTypeSQLModel.name.like('news_%')  # type: ignore
+        )
+        return list(self.session.exec(statement).all())
+
     # =========================================================================
     # PERSISTENCE OPERATIONS
     # =========================================================================

@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from models.dataclass.results import NewsResult
+from models.result.news_result import NewsResult
 
 
 class CLINewsOutputAdapter:

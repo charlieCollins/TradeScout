@@ -19,14 +19,13 @@ class PresentationContext:
         gap_analysis_adapter: Adapter for gap analysis results
         gap_performance_adapter: Adapter for gap performance/backtest results
         bootstrap_adapter: Adapter for bootstrap operation results
-        fetch_adapter: Adapter for fetch operation results
-        update_adapter: Adapter for update operation results
         news_adapter: Adapter for news/sentiment results
         asset_adapter: Adapter for asset information
         market_adapter: Adapter for market information
         universe_adapter: Adapter for universe listings
         validate_adapter: Adapter for validation results
         fed_adapter: Adapter for federal reserve data
+        database_adapter: Adapter for database statistics
     """
 
     def __init__(
@@ -35,14 +34,13 @@ class PresentationContext:
         gap_analysis_adapter=None,
         gap_performance_adapter=None,
         bootstrap_adapter=None,
-        fetch_adapter=None,
-        update_adapter=None,
         news_adapter=None,
         asset_adapter=None,
         market_adapter=None,
         universe_adapter=None,
         validate_adapter=None,
-        fed_adapter=None
+        fed_adapter=None,
+        database_adapter=None
     ):
         """Initialize presentation context with output adapters.
 
@@ -51,24 +49,22 @@ class PresentationContext:
             gap_analysis_adapter: Adapter for gap analysis output
             gap_performance_adapter: Adapter for gap performance/backtest output
             bootstrap_adapter: Adapter for bootstrap operations
-            fetch_adapter: Adapter for fetch operations
-            update_adapter: Adapter for update operations
             news_adapter: Adapter for news/sentiment output
             asset_adapter: Adapter for asset info output
             market_adapter: Adapter for market info output
             universe_adapter: Adapter for universe listings
             validate_adapter: Adapter for validation results
             fed_adapter: Adapter for federal reserve data
+            database_adapter: Adapter for database statistics
         """
         self.screener_adapter = screener_adapter
         self.gap_analysis_adapter = gap_analysis_adapter
         self.gap_performance_adapter = gap_performance_adapter
         self.bootstrap_adapter = bootstrap_adapter
-        self.fetch_adapter = fetch_adapter
-        self.update_adapter = update_adapter
         self.news_adapter = news_adapter
         self.asset_adapter = asset_adapter
         self.market_adapter = market_adapter
         self.universe_adapter = universe_adapter
         self.validate_adapter = validate_adapter
         self.fed_adapter = fed_adapter
+        self.database_adapter = database_adapter

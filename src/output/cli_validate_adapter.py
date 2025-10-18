@@ -7,7 +7,7 @@ For web/JSON output, a different adapter would be injected via PresentationConte
 from rich.console import Console
 from rich.table import Table
 
-from models.dataclass.validate_result import VolumeValidationResult
+from models.result.validate_result import VolumeValidationResult
 
 
 console = Console()

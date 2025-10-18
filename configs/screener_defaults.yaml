@@ -1,0 +1,18 @@
+# Screener Default Configuration
+# Default values used by all screeners when not specified in individual YAML files
+
+screener_defaults:
+  # Display settings
+  display:
+    default_limit: 50     # Default max results when not specified
+    max_limit: 500        # Absolute maximum results allowed
+
+  # Data source settings
+  data_source:
+    require_recent_trading: true
+    default_universe: "default"
+
+  # Volume validation (can be overridden per screener)
+  volume_validation:
+    enabled: false
+    min_volume_ratio: 1.5

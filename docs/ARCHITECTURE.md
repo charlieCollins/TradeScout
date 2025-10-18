@@ -775,12 +775,35 @@ def fetch_market_status(self) -> Optional[Dict[str, Any]]
 - ❌ Business rules
 - ❌ Direct API calls (passed as fetch_fn)
 
+### Presentation Layer (Output Adapters)
+
+**Responsibilities:**
+- ✅ Format result models for specific outputs (CLI, Web, JSON)
+- ✅ Terminal formatting (Rich tables, colors, panels)
+- ✅ JSON serialization for API responses
+- ✅ Handle datetime formatting, number formatting
+- ✅ Output-specific styling and layout
+
+**Examples:**
+```python
+def display_screener_results(self, result: ScreenerResult)
+def display_market_context(self, result: MarketContextResult)
+def display_gap_analysis(self, result: GapAnalysisResult)
+```
+
+**Does NOT Belong Here:**
+- ❌ Business logic
+- ❌ Database queries
+- ❌ Building result models (that's command layer)
+- ❌ Data fetching or calculations
+
 ### CLI Layer (User Interface)
 
 **Responsibilities:**
 - ✅ Parse user commands and arguments
 - ✅ Call service layer methods
-- ✅ Format output for terminal display
+- ✅ Build result models from service responses
+- ✅ Call presentation adapters to display results
 - ✅ Handle user errors (invalid input)
 - ✅ Progress bars and status updates
 
@@ -789,6 +812,7 @@ def fetch_market_status(self) -> Optional[Dict[str, Any]]
 - ❌ Database queries
 - ❌ API calls
 - ❌ Data transformations
+- ❌ Direct formatting (use adapters instead)
 
 ### Model Layers
 
@@ -1050,6 +1074,18 @@ src/
 │   │   ├── fed_data.py
 │   │   └── ...
 │   │
+│   ├── result/             # Output-agnostic result models
+│   │   ├── asset_result.py      # AssetInfoResult, PriceDataResult, etc.
+│   │   ├── market_result.py     # MarketUpdateResult, MarketContextResult
+│   │   ├── screener_result.py   # ScreenerResult
+│   │   ├── gap_result.py        # GapAnalysisResult, GapPerformanceResult
+│   │   ├── fed_result.py        # FedDataResult
+│   │   ├── news_result.py       # NewsResult
+│   │   ├── universe_result.py   # UniverseListResult, UniverseInfoResult
+│   │   ├── validate_result.py   # VolumeValidationResult
+│   │   ├── database_result.py   # DatabaseStats
+│   │   └── bootstrap_result.py  # BootstrapResult
+│   │
 │   ├── sqlmodel/           # ORM models for database
 │   │   ├── asset_sqlmodel.py
 │   │   ├── market_sqlmodel.py
@@ -1095,10 +1131,27 @@ src/
 │   ├── screener_engine.py
 │   └── screener_display.py
 │
-├── output/
-│   ├── cli_adapter.py
-│   ├── screener_display.py
-│   └── gap_display.py
+├── output/                  # Output adapters (CLI and Web)
+│   ├── cli_screener_adapter.py
+│   ├── cli_market_adapter.py
+│   ├── cli_asset_adapter.py
+│   ├── cli_gap_adapter.py       # CLIGapAnalysisAdapter + CLIGapPerformanceAdapter
+│   ├── cli_news_adapter.py
+│   ├── cli_bootstrap_adapter.py
+│   ├── cli_database_adapter.py
+│   ├── cli_universe_adapter.py
+│   ├── cli_validate_adapter.py
+│   ├── cli_fed_adapter.py
+│   ├── cli_progress_reporter.py
+│   ├── web_screener_adapter.py
+│   ├── web_market_adapter.py
+│   ├── web_asset_adapter.py
+│   ├── web_gap_adapter.py
+│   ├── web_news_adapter.py
+│   ├── web_universe_adapter.py
+│   ├── web_validate_adapter.py
+│   ├── web_fed_adapter.py
+│   └── __init__.py
 │
 ├── cli/
 │   ├── main.py
@@ -1113,6 +1166,205 @@ src/
     ├── config_loader.py
     └── ...
 ```
+
+---
+
+## Layer 5: Presentation Layer (Output Adapters)
+
+**Location:** `src/output/`
+
+**Purpose:** Format result models for different output contexts (CLI, Web, Reports)
+
+### Result Model → Adapter Pattern
+
+TradeScout separates business logic from presentation using an **output-agnostic architecture**:
+
+```
+Business Logic → Result Model → Output Adapter → Display
+     (Service)      (Data)        (Format)       (CLI/Web)
+```
+
+### Result Models
+
+**Location:** `src/models/result/`
+
+**Purpose:** Output-agnostic data containers that hold all information needed to display results
+
+**Characteristics:**
+```python
+@dataclass(frozen=True)  # Immutable
+class ScreenerResult:
+    """Pure data - no display logic."""
+    screener_name: str
+    results: List[Dict[str, Any]]
+    screener_def: Dict[str, Any]
+    market_context: MarketContext
+    excluded_count: int
+    snapshot_time: Optional[str] = None
+```
+
+**Benefits:**
+- Output-agnostic (can display as CLI, Web, JSON, PDF, etc.)
+- Testable (no UI dependencies)
+- Serializable (can log, cache, transmit)
+- Type-safe (validated structure)
+
+**Result Models:**
+- `ScreenerResult` - Screener execution results
+- `GapAnalysisResult` - Gap analysis findings
+- `GapPerformanceResult` - Gap backtest performance
+- `MarketUpdateResult` - Market data update stats
+- `MarketContextResult` - Market session state
+- `AssetInfoResult` - Asset information
+- `PriceDataResult` - Price data
+- `NewsResult` - News/sentiment results
+- `UniverseListResult` - Universe listings
+- `UniverseInfoResult` - Universe details
+- `VolumeValidationResult` - Volume validation data
+- `DatabaseStats` - Database statistics
+- `BootstrapResult` - Bootstrap operation results
+- `FedDataResult` - Federal reserve data
+
+### Output Adapters
+
+**CLI Adapters:** `src/output/cli_*_adapter.py`
+- Format results using Rich library (tables, colors, panels)
+- Display directly to terminal
+- Examples: `CLIScreenerOutputAdapter`, `CLIGapAnalysisAdapter`
+
+**Web Adapters:** `src/output/web_*_adapter.py`
+- Format results as JSON-serializable dictionaries
+- Return Dict[str, Any] for FastAPI responses
+- Examples: `WebScreenerOutputAdapter`, `WebMarketOutputAdapter`
+
+**Adapter Pattern:**
+```python
+class CLIScreenerOutputAdapter:
+    """CLI-specific formatting using Rich."""
+
+    def display_screener_results(self, result: ScreenerResult):
+        """Takes result model, displays with Rich tables."""
+        table = Table(title=result.screener_name)
+        for row in result.results:
+            table.add_row(...)
+        console.print(table)
+
+class WebScreenerOutputAdapter:
+    """Web API formatting - returns JSON."""
+
+    def display_screener_results(self, result: ScreenerResult) -> Dict[str, Any]:
+        """Takes result model, returns JSON-ready dict."""
+        return {
+            "screener": result.screener_name,
+            "results": result.results,
+            "excluded_count": result.excluded_count,
+            # ... all fields as JSON
+        }
+```
+
+### PresentationContext (Dependency Injection)
+
+**Location:** `src/utils/presentation_context.py`
+
+**Purpose:** Inject appropriate output adapters based on context (CLI vs Web)
+
+```python
+class PresentationContext:
+    """Manages output adapters - separate from application state."""
+
+    def __init__(
+        self,
+        screener_adapter=None,
+        gap_analysis_adapter=None,
+        market_adapter=None,
+        asset_adapter=None,
+        # ... all domain adapters
+    ):
+        self.screener_adapter = screener_adapter
+        self.gap_analysis_adapter = gap_analysis_adapter
+        # ...
+```
+
+**Injection at CLI:**
+```python
+# src/cli/main.py
+app_context.presentation = PresentationContext(
+    screener_adapter=CLIScreenerOutputAdapter(),
+    gap_analysis_adapter=CLIGapAnalysisAdapter(),
+    market_adapter=CLIMarketOutputAdapter(),
+    # ... inject CLI adapters
+)
+```
+
+**Injection at Web:**
+```python
+# src/web/web_app.py
+def get_presentation_context():
+    return PresentationContext(
+        screener_adapter=WebScreenerOutputAdapter(),
+        gap_adapter=WebGapOutputAdapter(),
+        market_adapter=WebMarketOutputAdapter(),
+        # ... inject Web adapters
+    )
+```
+
+### Command Pattern (Output-Agnostic)
+
+Commands build result models and delegate display to injected adapters:
+
+```python
+# src/cli/screener_commands.py
+def screener(app_context, screener_name: str):
+    """Command is output-agnostic - works for CLI and Web."""
+
+    # Execute business logic
+    results = screener_engine.execute_screener(...)
+
+    # Build output-agnostic result model
+    result = ScreenerResult(
+        screener_name=screener_name,
+        results=results,
+        screener_def=screener_def,
+        market_context=market_context,
+        excluded_count=excluded_count,
+        # ... all display data
+    )
+
+    # Display using injected adapter (CLI or Web!)
+    app_context.presentation.screener_adapter.display_screener_results(result)
+```
+
+**Same command works for:**
+- CLI: Displays Rich tables in terminal
+- Web: Returns JSON for API responses
+- Tests: No display, just validates result model
+
+### Adapter Coverage
+
+**CLI Adapters (11):**
+1. `CLIScreenerOutputAdapter` - Screener results
+2. `CLIGapAnalysisAdapter` - Gap analysis
+3. `CLIGapPerformanceAdapter` - Gap backtest
+4. `CLIMarketOutputAdapter` - Market updates
+5. `CLIAssetOutputAdapter` - Asset information
+6. `CLINewsOutputAdapter` - News/sentiment
+7. `CLIUniverseOutputAdapter` - Universe listings
+8. `CLIValidateOutputAdapter` - Validation results
+9. `CLIFedOutputAdapter` - Federal reserve data
+10. `CLIBootstrapOutputAdapter` - Bootstrap operations (CLI-only)
+11. `CLIDatabaseOutputAdapter` - Database statistics (CLI-only)
+
+**Web Adapters (8):**
+1. `WebScreenerOutputAdapter` - Screener results
+2. `WebGapOutputAdapter` - Gap analysis
+3. `WebMarketOutputAdapter` - Market updates
+4. `WebAssetOutputAdapter` - Asset information
+5. `WebNewsOutputAdapter` - News/sentiment
+6. `WebUniverseOutputAdapter` - Universe listings
+7. `WebValidateOutputAdapter` - Validation results
+8. `WebFedOutputAdapter` - Federal reserve data
+
+**Note:** Bootstrap and Database are CLI-only operations (no web adapters)
 
 ---
 

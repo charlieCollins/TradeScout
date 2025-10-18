@@ -140,6 +140,29 @@ class AssetRepository:
 
         return list(self.session.exec(statement).all())
 
+    def count(self) -> int:
+        """Count total number of assets.
+
+        Returns:
+            Total asset count
+        """
+        from sqlmodel import func, select
+
+        stmt = select(func.count(AssetSQLModel.id))
+        return self.session.exec(stmt).first() or 0
+
+    def get_last_updated(self) -> Optional["datetime"]:
+        """Get the most recent update timestamp across all assets.
+
+        Returns:
+            Latest updated_at timestamp or None
+        """
+        from datetime import datetime
+        from sqlmodel import func, select
+
+        stmt = select(func.max(AssetSQLModel.updated_at))
+        return self.session.exec(stmt).first()
+
     def get_by_symbol_with_market(
         self, symbol: str
     ) -> Optional[tuple[AssetSQLModel, "MarketSQLModel"]]:

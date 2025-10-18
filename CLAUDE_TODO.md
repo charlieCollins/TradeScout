@@ -1,14 +1,12 @@
 # TradeScout - TODO List
 
-*Last updated: 2025-10-15 08:35*
+*Last updated: 2025-10-18 10:30*
 
 ## Active TODOs
 
 **Testing (High Priority - NEXT SESSION):**
-- [ ] **Test gap analyze end-to-end** - Verify complete workflow with database save works after fixes
-- [ ] **Test gap backtest command** - Verify historical performance tracking works
-- [ ] **Test bootstrap commands after refactoring** - Verify BootstrapService works correctly for all 6 bootstrap operations
-- [ ] **Explore Web API** - Try out endpoints at http://localhost:8000/docs with Swagger UI
+- [ ] **Test gap analyze during premarket/afterhours** - Verify complete workflow with database save works
+- [ ] **Test screener commands during regular session** - Validate context-aware templates work correctly
 
 **Testing (Low Priority):**
 - [ ] Test context-aware screeners during regular trading session (9:30-4:00 PM) - Optional validation
@@ -17,18 +15,9 @@
 - [ ] Create unit tests for business logic files (gap_analyzer.py, gap_performance_calculator.py, sentiment_analyzer.py, screener_engine.py) - Would be significant work due to complex dependencies
 - [ ] Audit CacheService - explain and document the cache-aside pattern implementation
 - [ ] Audit force/force_refresh parameter support across all DataServiceV2 methods - ensure consistency
-- [ ] **Reconcile date handling inconsistencies** - We have `market backfill <date>` command AND `--date` options in screener/gap commands, using inconsistent date formats and approaches
 
 **Nice-to-Have Features:**
-- [ ] Validate MarketContext dates are correct and used universally (display in both CLI and Web output)
-- [ ] Add `--date` option to market update commands for backfilling historical data for specific dates
-- [ ] Add POST endpoints to Web API for bootstrap operations (currently all GET)
-- [ ] Follow Polygon API next_url for paginated news results
-- [ ] **Web adapters need JSON output adapters** - Currently web layer has hardcoded/extracted output (not using presentation adapters)
-- [ ] Add JSONOutputAdapter when Web API work begins
 - [ ] Add WebSocketProgressReporter for real-time web UI updates
-- [ ] Implement full strategy backtest with entry/exit rules per GAP_TRADING_STRATEGY.md
-- [ ] Implement gap_candidate database schema enhancements (Phase 1 from GAP_RESULTS.md)
 
 ---
 

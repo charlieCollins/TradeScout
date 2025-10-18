@@ -1,8 +1,11 @@
 # Sentiment analysis configuration
 
-# Time window for sentiment calculations (in days)
-# Articles older than this window will not be included in sentiment score calculations
-time_window_days: 30
+# Analysis settings
+analysis:
+  default_time_window_days: 30  # Default lookback when not specified
+  max_time_window_days: 90      # Maximum lookback allowed
+  max_articles: 10              # Maximum articles to consider
+  recency_weight: 0.3           # Weight factor for recent news in weighted scoring
 
 # Confidence thresholds based on number of articles
 confidence_thresholds:

@@ -1,0 +1,20 @@
+#!/home/ccollins/projects/TradeScout/venv/bin/python
+"""TradeScout Web Interface launcher."""
+
+import sys
+from pathlib import Path
+
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+if __name__ == "__main__":
+    import uvicorn
+
+    # Run the FastAPI web application
+    uvicorn.run(
+        "web.web_app:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,  # Auto-reload on code changes (dev mode)
+        log_level="info"
+    )

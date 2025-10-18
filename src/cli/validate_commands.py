@@ -7,7 +7,6 @@ from typing import Optional
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 from .main import pass_config
 
@@ -96,7 +95,7 @@ def volume(app_context, count: int, symbols: Optional[str]):
 
             test_asset_ids = candidate_asset_ids
 
-        from models.dataclass.validate_result import VolumeValidationResult, VolumeValidationRow
+        from models.result.validate_result import VolumeValidationResult, VolumeValidationRow
 
         # Track successful tests for extended hours
         successful_tests = 0

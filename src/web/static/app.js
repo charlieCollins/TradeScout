@@ -2,8 +2,9 @@
 
 let currentResults = null;
 
-// Load screeners on page load
+// Load screeners and market context on page load
 document.addEventListener('DOMContentLoaded', () => {
+    loadMarketContext();
     loadScreeners();
     setupEventListeners();
 });
@@ -11,6 +12,102 @@ document.addEventListener('DOMContentLoaded', () => {
 function setupEventListeners() {
     document.getElementById('close-results').addEventListener('click', closeResults);
     document.getElementById('export-csv').addEventListener('click', exportToCSV);
+    document.getElementById('market-update-btn').addEventListener('click', updateMarketData);
+}
+
+// Fetch and display market context
+async function loadMarketContext() {
+    try {
+        const response = await fetch('/api/market/context');
+        if (!response.ok) throw new Error('Failed to load market context');
+
+        const context = await response.json();
+
+        // Show market context section
+        const contextDiv = document.getElementById('market-context');
+        document.getElementById('session-name').textContent = context.trading_status.session_name;
+        // Hide the market item since we show breakdown below
+        document.getElementById('market-name').parentElement.style.display = 'none';
+        document.getElementById('market-date').textContent = context.dates.current_date;
+
+        // Build universe text
+        document.getElementById('universe-name').textContent =
+            `${context.universe.name} (${context.universe.total_assets.toLocaleString()} symbols)`;
+
+        // Add market breakdown as separate lines below universe
+        const universeItem = document.getElementById('universe-name').parentElement;
+
+        // Remove any existing breakdown items
+        let nextItem = universeItem.nextElementSibling;
+        while (nextItem && nextItem.classList.contains('context-item-breakdown')) {
+            const toRemove = nextItem;
+            nextItem = nextItem.nextElementSibling;
+            toRemove.remove();
+        }
+
+        // Add new breakdown items
+        context.universe.market_breakdown.forEach(m => {
+            const breakdownItem = document.createElement('div');
+            breakdownItem.className = 'context-item context-item-breakdown';
+            breakdownItem.innerHTML = `
+                <span class="context-label">  └─ ${m.name}:</span>
+                <span class="context-value">${m.count.toLocaleString()} (${m.percentage.toFixed(1)}%)</span>
+            `;
+            universeItem.insertAdjacentElement('afterend', breakdownItem);
+        });
+
+        // Add last snapshot info if available
+        if (context.last_snapshot && context.last_snapshot.age) {
+            const snapshotInfo = document.createElement('div');
+            snapshotInfo.className = 'context-item';
+            snapshotInfo.innerHTML = `
+                <span class="context-label">Last Update:</span>
+                <span class="context-value">${context.last_snapshot.age}</span>
+            `;
+            contextDiv.insertBefore(snapshotInfo, document.getElementById('market-update-btn').parentElement);
+        }
+
+        contextDiv.style.display = 'flex';
+    } catch (error) {
+        console.error('Error loading market context:', error);
+    }
+}
+
+// Update market data
+async function updateMarketData() {
+    const button = document.getElementById('market-update-btn');
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner"></span> Updating...';
+
+    try {
+        const response = await fetch('/api/market/update', {
+            method: 'POST'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update market data');
+        }
+
+        const result = await response.json();
+
+        // Show success message
+        if (result.data_was_fresh) {
+            alert(`Market data is fresh (within TTL). No update needed.\nLast update: ${result.age_minutes?.toFixed(1)} minutes ago`);
+        } else {
+            alert(`Market data updated successfully!\n\nSaved: ${result.saved} new records\nDuplicates skipped: ${result.duplicates}\nTotal records: ${result.total_historical_records?.toLocaleString()}`);
+        }
+
+        // Reload market context to show updated timestamp
+        loadMarketContext();
+    } catch (error) {
+        console.error('Error updating market data:', error);
+        alert(`Error: ${error.message}`);
+    } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+    }
 }
 
 // Fetch and display available screeners
@@ -86,12 +183,14 @@ async function runScreener(name) {
 
 // Display screener results
 function displayResults(data) {
-    // Show market context
+    // Show market context (simplified for screener results)
     const contextDiv = document.getElementById('market-context');
     document.getElementById('session-name').textContent = data.market_context.session;
-    document.getElementById('market-name').textContent = data.market_context.market;
+    // Keep market hidden since we don't need it
+    document.getElementById('market-name').parentElement.style.display = 'none';
     document.getElementById('market-date').textContent = data.market_context.date;
-    document.getElementById('universe-name').textContent = `${data.universe.name} (${data.universe.total_symbols} symbols)`;
+    // Hide universe display for screener results (not in response)
+    document.getElementById('universe-name').parentElement.style.display = 'none';
     contextDiv.style.display = 'flex';
 
     // Show results section
@@ -129,11 +228,17 @@ function displayResults(data) {
         configHtml += '</div>';
     }
 
+    // Build data date display
+    let dataDateInfo = '';
+    if (data.market_context.data_date && data.market_context.data_date !== data.market_context.date) {
+        dataDateInfo = ` | <strong>Data from: ${data.market_context.data_date}</strong>`;
+    }
+
     resultsInfo.innerHTML = `
         <strong>${data.description}</strong><br>
         Session: ${data.market_context.session} |
         Market: ${data.market_context.market} |
-        Date: ${data.market_context.date}
+        Date: ${data.market_context.date}${dataDateInfo}
         ${configHtml}
     `;
 
@@ -152,12 +257,14 @@ function displayResults(data) {
     // Use display columns from YAML config
     const displayColumns = data.display_columns || [];
 
-    // Build table headers from display config
+    // Build table headers from display config with sort indicators
     thead.innerHTML = `
         <tr>
-            ${displayColumns.map(col => {
+            ${displayColumns.map((col, index) => {
                 const colName = typeof col === 'string' ? col : col.name;
-                return `<th onclick="sortTableByColumn(this)">${colName}</th>`;
+                return `<th data-column-index="${index}" onclick="sortTableByColumn(${index})" style="cursor: pointer; user-select: none;">
+                    ${colName} <span class="sort-indicator"></span>
+                </th>`;
             }).join('')}
         </tr>
     `;
@@ -165,10 +272,17 @@ function displayResults(data) {
     // Build table rows using display config
     tbody.innerHTML = data.results.map(result => `
         <tr>
-            ${displayColumns.map(col => {
+            ${displayColumns.map((col, colIndex) => {
                 const field = typeof col === 'string' ? col : col.field;
                 const format = typeof col === 'string' ? '' : col.format;
+                const colName = typeof col === 'string' ? col : col.name;
                 const value = evaluateFieldExpression(result, field);
+
+                // Make symbol column clickable
+                if (colName.toUpperCase() === 'SYMBOL' && result.symbol) {
+                    return `<td><span class="symbol-link" onclick="openAssetModal('${result.symbol}')">${value}</span></td>`;
+                }
+
                 return `<td>${formatValue(value, format)}</td>`;
             }).join('')}
         </tr>
@@ -179,6 +293,77 @@ function displayResults(data) {
 
     // Scroll to results
     resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Sort state
+let currentSortColumn = null;
+let currentSortDirection = 'asc';
+
+// Sort table by column index
+function sortTableByColumn(columnIndex) {
+    if (!currentResults || !currentResults.results || currentResults.results.length === 0) return;
+
+    const displayColumns = currentResults.display_columns || [];
+    const column = displayColumns[columnIndex];
+    const field = typeof column === 'string' ? column : column.field;
+
+    // Toggle sort direction if clicking same column
+    if (currentSortColumn === columnIndex) {
+        currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+        currentSortColumn = columnIndex;
+        currentSortDirection = 'asc';
+    }
+
+    // Sort the results
+    const sortedResults = [...currentResults.results].sort((a, b) => {
+        const aVal = evaluateFieldExpression(a, field);
+        const bVal = evaluateFieldExpression(b, field);
+
+        // Handle null/undefined values
+        if (aVal === null || aVal === undefined) return 1;
+        if (bVal === null || bVal === undefined) return -1;
+
+        // Numeric comparison
+        if (typeof aVal === 'number' && typeof bVal === 'number') {
+            return currentSortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+
+        // String comparison
+        const aStr = String(aVal);
+        const bStr = String(bVal);
+        const comparison = aStr.localeCompare(bStr);
+        return currentSortDirection === 'asc' ? comparison : -comparison;
+    });
+
+    // Update the results display
+    const tbody = document.getElementById('results-tbody');
+    tbody.innerHTML = sortedResults.map(result => `
+        <tr>
+            ${displayColumns.map(col => {
+                const field = typeof col === 'string' ? col : col.field;
+                const format = typeof col === 'string' ? '' : col.format;
+                const colName = typeof col === 'string' ? col : col.name;
+                const value = evaluateFieldExpression(result, field);
+
+                // Make symbol column clickable
+                if (colName.toUpperCase() === 'SYMBOL' && result.symbol) {
+                    return `<td><span class="symbol-link" onclick="openAssetModal('${result.symbol}')">${value}</span></td>`;
+                }
+
+                return `<td>${formatValue(value, format)}</td>`;
+            }).join('')}
+        </tr>
+    `).join('');
+
+    // Update sort indicators
+    document.querySelectorAll('.sort-indicator').forEach((indicator, index) => {
+        if (index === columnIndex) {
+            indicator.textContent = currentSortDirection === 'asc' ? ' ▲' : ' ▼';
+        } else {
+            indicator.textContent = '';
+        }
+    });
 }
 
 // Setup dual horizontal scrollbars
@@ -211,6 +396,10 @@ function evaluateFieldExpression(result, field) {
     // Handle expressions like "min_close - prevday_close" or "((min_close - day_open) / day_open * 100)"
     try {
         let expr = field;
+
+        // Replace SQL ABS() function with JavaScript Math.abs()
+        expr = expr.replace(/ABS\(/g, 'Math.abs(');
+
         // Replace field names with values
         for (const [key, value] of Object.entries(result)) {
             if (value !== null && value !== undefined) {
@@ -445,4 +634,176 @@ function exportToCSV() {
 // Helper: Capitalize first letter
 function capitalizeFirst(str) {
     return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Asset Info Modal Functions
+
+async function openAssetModal(symbol) {
+    const modal = document.getElementById('asset-modal');
+    const modalSymbol = document.getElementById('modal-symbol');
+    const modalLoading = document.getElementById('modal-loading');
+    const modalError = document.getElementById('modal-error');
+    const modalData = document.getElementById('modal-data');
+
+    // Show modal
+    modal.style.display = 'flex';
+
+    // Reset state
+    modalSymbol.textContent = symbol;
+    modalLoading.style.display = 'block';
+    modalError.style.display = 'none';
+    modalData.style.display = 'none';
+
+    try {
+        // Fetch asset info
+        const response = await fetch(`/api/assets/${symbol}/info`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to load asset info');
+        }
+
+        const data = await response.json();
+
+        // Populate basic info
+        document.getElementById('modal-name').textContent = data.asset.asset.name || '-';
+        document.getElementById('modal-market').textContent = data.asset.market ? `${data.asset.market.name} (${data.asset.market.code})` : '-';
+        document.getElementById('modal-type').textContent = data.asset.asset.type || '-';
+        document.getElementById('modal-currency').textContent = data.asset.asset.currency || '-';
+        document.getElementById('modal-status').textContent = data.asset.asset.active ? '✅ Active' : '❌ Inactive';
+        document.getElementById('modal-universes').textContent = data.asset.universes.join(', ') || 'None';
+
+        // Populate fundamentals if available
+        const fundamentalsSection = document.getElementById('modal-fundamentals-section');
+        if (data.asset.fundamentals) {
+            const fund = data.asset.fundamentals;
+            document.getElementById('modal-market-cap').textContent = fund.market_cap_display || '-';
+            document.getElementById('modal-shares-out').textContent = fund.shares_outstanding_display || '-';
+            document.getElementById('modal-sector').textContent = fund.sector || '-';
+            document.getElementById('modal-industry').textContent = fund.industry || '-';
+            document.getElementById('modal-pe-ratio').textContent = fund.pe_ratio ? fund.pe_ratio.toFixed(2) : '-';
+            document.getElementById('modal-beta').textContent = fund.beta ? fund.beta.toFixed(2) : '-';
+            fundamentalsSection.style.display = 'block';
+        } else {
+            fundamentalsSection.style.display = 'none';
+        }
+
+        // Populate price data if available
+        const priceSection = document.getElementById('modal-price-section');
+        if (data.price) {
+            const price = data.price;
+            document.getElementById('modal-prev-close').textContent = price.prevday_close ? `$${price.prevday_close.toFixed(2)}` : '-';
+            document.getElementById('modal-day-open').textContent = price.day_open ? `$${price.day_open.toFixed(2)}` : '-';
+            document.getElementById('modal-day-high').textContent = price.day_high ? `$${price.day_high.toFixed(2)}` : '-';
+            document.getElementById('modal-day-low').textContent = price.day_low ? `$${price.day_low.toFixed(2)}` : '-';
+            document.getElementById('modal-day-close').textContent = price.day_close ? `$${price.day_close.toFixed(2)}` : '-';
+            document.getElementById('modal-day-volume').textContent = price.day_volume ? formatVolume(price.day_volume) : '-';
+            priceSection.style.display = 'block';
+        } else {
+            priceSection.style.display = 'none';
+        }
+
+        // Populate news and sentiment section
+        const newsSection = document.getElementById('modal-news-section');
+        const newsList = document.getElementById('modal-news-list');
+        const sentimentSummary = document.getElementById('modal-sentiment-summary');
+
+        if (data.sentiment) {
+            const events = data.sentiment.sentiment_events || [];
+            const score = data.sentiment.sentiment_score;
+
+            // Populate sentiment summary at top
+            if (score) {
+                // We have a sentiment score
+                document.getElementById('modal-sentiment-score').textContent = score.score.toFixed(2);
+                document.getElementById('modal-sentiment-label').textContent = `(${score.sentiment_label})`;
+                document.getElementById('modal-sentiment-details').textContent =
+                    `${score.total_articles} articles within ${data.sentiment.time_window_days}-day window, ${score.confidence_level} confidence`;
+
+                // Color code the summary border based on sentiment
+                sentimentSummary.className = 'modal-sentiment-summary';
+                if (score.score > 0.3) {
+                    sentimentSummary.classList.add('positive');
+                } else if (score.score < -0.3) {
+                    sentimentSummary.classList.add('negative');
+                } else {
+                    sentimentSummary.classList.add('neutral');
+                }
+            } else if (events.length > 0) {
+                // We have events but no score (articles outside time window)
+                document.getElementById('modal-sentiment-score').textContent = 'N/A';
+                document.getElementById('modal-sentiment-label').textContent = '';
+                document.getElementById('modal-sentiment-details').textContent =
+                    `No articles within ${data.sentiment.time_window_days}-day window`;
+                sentimentSummary.className = 'modal-sentiment-summary neutral';
+            } else {
+                // No events at all
+                document.getElementById('modal-sentiment-score').textContent = 'N/A';
+                document.getElementById('modal-sentiment-label').textContent = '';
+                document.getElementById('modal-sentiment-details').textContent = '';
+                sentimentSummary.className = 'modal-sentiment-summary neutral';
+            }
+
+            // Populate news articles
+            if (events.length > 0) {
+                // Clear existing content
+                newsList.innerHTML = '';
+
+                // Show only first 5 articles
+                const articlesToShow = events.slice(0, 5);
+
+                articlesToShow.forEach(article => {
+                    const articleDiv = document.createElement('div');
+                    articleDiv.className = `news-article ${article.sentiment_type.toLowerCase()}`;
+
+                    // Build article HTML
+                    let articleHTML = `
+                        <div class="news-article-header">
+                            <div class="news-article-title">
+                                ${article.article_url ?
+                                    `<a href="${article.article_url}" target="_blank" rel="noopener noreferrer">${article.title}</a>` :
+                                    article.title
+                                }
+                            </div>
+                            <span class="news-article-sentiment ${article.sentiment_type.toLowerCase()}">${article.sentiment_type}</span>
+                        </div>
+                        <div class="news-article-meta">
+                            <span class="news-article-date">${article.event_date} ${article.event_time || ''}</span>
+                            <span class="news-article-publisher">${article.publisher}</span>
+                        </div>
+                    `;
+
+                    // Add reasoning if available
+                    if (article.sentiment_reasoning && article.sentiment_reasoning.trim()) {
+                        articleHTML += `<div class="news-article-reasoning">${article.sentiment_reasoning}</div>`;
+                    }
+
+                    articleDiv.innerHTML = articleHTML;
+                    newsList.appendChild(articleDiv);
+                });
+
+                newsSection.style.display = 'block';
+            } else {
+                // Show "no news" message
+                newsList.innerHTML = '<div style="color: var(--text-secondary); text-align: center; padding: 20px;">📰 No news articles found for this symbol</div>';
+                newsSection.style.display = 'block';
+            }
+        } else {
+            newsSection.style.display = 'none';
+        }
+
+        // Show data, hide loading
+        modalLoading.style.display = 'none';
+        modalData.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading asset info:', error);
+        modalLoading.style.display = 'none';
+        modalError.style.display = 'block';
+        modalError.textContent = `Error: ${error.message}`;
+    }
+}
+
+function closeAssetModal() {
+    const modal = document.getElementById('asset-modal');
+    modal.style.display = 'none';
 }

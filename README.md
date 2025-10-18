@@ -138,19 +138,30 @@ TradeScout provides real-time market screening across different trading sessions
 
 ## Architecture
 
-- **CLI Layer**: Click framework with Rich output formatting
-- **Data Provider**: Centralized data access layer with typed models
-- **Market Context**: Comprehensive market session and trading day intelligence
-- **Database**: SQLite with custom DatabaseManager and proper schema
-- **API Integration**: Polygon.io Premium with rate limiting and model conversion
-- **Screeners**: YAML-configured with dynamic SQL generation
-- **Universe Management**: Multi-universe asset filtering and organization
-- **Session Management**: Real-time market session detection with trading calendar awareness
+TradeScout uses a **layered repository architecture** with clean separation of concerns:
+
+### Core Layers
+- **CLI Layer**: Click framework with output-agnostic commands
+- **Presentation Layer**: Output adapters (CLI with Rich formatting, Web with JSON)
+- **Service Layer**: Business logic orchestration (DataServiceV2, MarketContextService)
+- **Repository Layer**: Type-safe data access with SQLModel
+- **Provider Layer**: External API integration (Polygon.io)
+- **Database**: SQLite with dual model system (domain dataclasses + ORM SQLModels)
+
+### Key Patterns
+- **Result Model → Adapter Pattern**: Commands build output-agnostic result models, adapters handle formatting
+  - 11 CLI adapters for terminal display (Rich tables/colors)
+  - 8 Web adapters for JSON API responses
+  - Same business logic works for CLI and Web
+- **Repository Pattern**: Business-focused data access, hiding database complexity
+- **Cache-Aside Pattern**: TTL-based caching with automatic refresh
+- **Dependency Injection**: PresentationContext injects appropriate adapters (CLI vs Web)
 
 ### Key Components
-- **MarketContext**: Replaces simple market status with comprehensive session intelligence
-- **Typed Models**: MarketSnapshot, TickerSnapshot, AssetFundamentals, Universe models
-- **Data Provider Pattern**: CLI → Data Provider → Database (no layer bypassing)
+- **PresentationContext**: Manages output adapters for display-agnostic commands
+- **Result Models**: Output-agnostic data containers (ScreenerResult, GapAnalysisResult, etc.)
+- **MarketContext**: Comprehensive market session and trading day intelligence
+- **Typed Models**: Domain dataclasses (Asset, Market) + ORM SQLModels for persistence
 - **Universe System**: Configurable asset universes with filtering and statistics
 
 ## Requirements

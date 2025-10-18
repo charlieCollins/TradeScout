@@ -30,7 +30,7 @@ class CLIScreenerOutputAdapter:
         Args:
             result: ScreenerResult model containing all screener data
         """
-        from models.dataclass.screener_result import ScreenerResult
+        from models.result.screener_result import ScreenerResult
 
         # Extract session from market context
         session = result.market_context.session_name
@@ -205,7 +205,7 @@ class CLIScreenerOutputAdapter:
 
         # Show what date the screener is querying for
         self.console.print(
-            f"[bold cyan]Querying Data For:[/bold cyan] {expected_date}"
+            f"[bold cyan]Data from:[/bold cyan] {expected_date}"
         )
 
     def _get_field_value(self, result: Dict, field: str) -> Any:
@@ -272,13 +272,6 @@ class CLIScreenerOutputAdapter:
                 if val1 and val2:
                     return val1 * val2
 
-        # Handle CASE expressions (return placeholder for now)
-        if field.startswith("CASE"):
-            # TODO: change_percent doesn't exist - need context-aware calculation
-            # change = result.get("change_percent", 0)
-            # return "↑" if change > 0 else "↓" if change < 0 else "="
-            return "FIX_ME"
-
         return ""
 
     def _format_value(self, value: Any, format_type: str) -> str:
@@ -334,7 +327,7 @@ class CLIScreenerOutputAdapter:
         Args:
             result: ScreenerListResult containing list of screeners
         """
-        from models.dataclass.screener_result import ScreenerListResult
+        from models.result.screener_result import ScreenerListResult
 
         table = Table(title="Available Screeners", show_header=True)
         table.add_column("Screener", style="cyan", no_wrap=True)

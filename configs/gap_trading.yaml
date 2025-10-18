@@ -30,6 +30,7 @@ quality_scoring:
   catalyst:
     max_points: 20
     multiplier: 0.2             # catalyst_score * 0.2
+    default_score: 60           # Default when no catalyst data available (moderate positive)
 
   sector_alignment:
     points: 10
@@ -42,6 +43,13 @@ risk_levels:
   low: 85                       # Score ≥85 = low risk
   medium: 70                    # Score 70-84 = medium risk
   high: 0                       # Score <70 = high risk
+
+# Quality classification thresholds
+quality_thresholds:
+  excellent: 85                 # Same as risk_levels.low
+  good: 70                      # Same as risk_levels.medium
+  fair: 60                      # Marginal quality
+  weak: 0                       # < 60 is weak
 
 # Gap significance thresholds
 gap_significance:

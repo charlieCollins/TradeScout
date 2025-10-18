@@ -5,8 +5,6 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
-from rich import box
 
 from .main import pass_config
 
@@ -25,7 +23,7 @@ def universes(app_context):
 def universe_list(app_context):
     """List all available universes."""
     try:
-        from models.dataclass.universe_result import UniverseListResult, UniverseListItem
+        from models.result.universe_result import UniverseListResult, UniverseListItem
 
         data_service = app_context.get_data_service_v2()
         universes_list = data_service.get_all_universes()
@@ -65,7 +63,7 @@ def universe_info(app_context, universe_name):
         universe_name = app_context.get_active_universe()
 
     try:
-        from models.dataclass.universe_result import UniverseInfoResult
+        from models.result.universe_result import UniverseInfoResult
 
         data_service = app_context.get_data_service_v2()
 

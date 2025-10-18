@@ -34,49 +34,84 @@ body {
 
 /* Header */
 .header {
-    text-align: center;
-    padding: 40px 20px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    padding: 15px 20px;
     border-bottom: 1px solid var(--border-color);
 }
 
 .logo {
-    width: 120px;
-    height: 120px;
-    margin-bottom: 20px;
+    width: 50px;
+    height: 50px;
 }
 
 .header h1 {
-    font-size: 3rem;
+    font-size: 1.8rem;
     font-weight: 600;
-    margin-bottom: 10px;
     background: linear-gradient(135deg, var(--accent-blue), var(--accent-green));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
-.tagline {
-    color: var(--text-secondary);
-    font-size: 1.1rem;
-}
-
 /* Market Context */
 .market-context {
     display: flex;
-    justify-content: center;
+    justify-content: flex-start;
     gap: 30px;
+    column-gap: 30px;
+    row-gap: 5px;
     flex-wrap: wrap;
     padding: 20px;
     margin: 20px 0;
     background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 8px;
+    align-items: flex-start;
 }
 
 .context-item {
     display: flex;
     flex-direction: column;
+    align-items: flex-start;
+    gap: 5px;
+}
+
+.context-item-breakdown {
+    display: flex;
+    flex-direction: row;
     align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    font-size: 0.85rem;
+    padding: 0 !important;
+    margin: 0 0 2px 20px !important;
+    width: 100%;
+    flex-basis: 100%;
+    line-height: 1;
+    min-height: auto;
+}
+
+.context-item-breakdown .context-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-family: monospace;
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: nowrap;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
+}
+
+.context-item-breakdown .context-value {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-weight: normal;
+    margin: 0;
+    padding: 0;
+    line-height: 1;
 }
 
 .context-label {
@@ -359,10 +394,313 @@ body {
     text-decoration: underline;
 }
 
+/* Modal Styles */
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    cursor: pointer;
+}
+
+.modal-content {
+    position: relative;
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    width: 90%;
+    max-width: 800px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    animation: modalSlideIn 0.3s ease;
+}
+
+@keyframes modalSlideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-50px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-color);
+    position: sticky;
+    top: 0;
+    background-color: var(--bg-secondary);
+    z-index: 10;
+}
+
+.modal-header h2 {
+    font-size: 1.5rem;
+    color: var(--accent-blue);
+    margin: 0;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 2rem;
+    cursor: pointer;
+    padding: 0;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.modal-close:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-loading {
+    text-align: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+.modal-error {
+    padding: 20px;
+    background-color: rgba(248, 81, 73, 0.1);
+    border: 1px solid var(--accent-red);
+    border-radius: 6px;
+    color: var(--accent-red);
+}
+
+.modal-section {
+    margin-bottom: 30px;
+}
+
+.modal-section:last-child {
+    margin-bottom: 0;
+}
+
+.modal-section h3 {
+    font-size: 1.2rem;
+    color: var(--text-primary);
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.modal-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
+}
+
+.modal-info-grid div {
+    padding: 8px 0;
+}
+
+.modal-info-grid strong {
+    color: var(--text-secondary);
+    font-weight: 500;
+    margin-right: 8px;
+}
+
+.modal-info-grid span {
+    color: var(--text-primary);
+}
+
+/* Sentiment summary at top of news */
+.modal-sentiment-summary {
+    padding: 15px;
+    background-color: var(--bg-tertiary);
+    border-radius: 6px;
+    margin-bottom: 20px;
+    border-left: 3px solid var(--border-color);
+}
+
+.modal-sentiment-summary.positive {
+    border-left-color: var(--accent-green);
+}
+
+.modal-sentiment-summary.negative {
+    border-left-color: var(--accent-red);
+}
+
+.modal-sentiment-summary.neutral {
+    border-left-color: var(--text-secondary);
+}
+
+.sentiment-summary-main {
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+}
+
+.sentiment-summary-main strong {
+    color: var(--text-secondary);
+}
+
+.sentiment-summary-main #modal-sentiment-score {
+    color: var(--text-primary);
+    font-weight: 600;
+    margin: 0 8px;
+}
+
+.sentiment-summary-main #modal-sentiment-label {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.sentiment-summary-details {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+/* Clickable symbol in table */
+.symbol-link {
+    color: var(--accent-blue);
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.symbol-link:hover {
+    color: var(--accent-green);
+    text-decoration: underline;
+}
+
+/* News articles list */
+.modal-news-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.news-article {
+    padding: 15px;
+    background-color: var(--bg-tertiary);
+    border-radius: 6px;
+    border-left: 3px solid var(--border-color);
+    transition: all 0.2s;
+}
+
+.news-article.positive {
+    border-left-color: var(--accent-green);
+}
+
+.news-article.negative {
+    border-left-color: var(--accent-red);
+}
+
+.news-article.neutral {
+    border-left-color: var(--text-secondary);
+}
+
+.news-article:hover {
+    background-color: var(--bg-primary);
+}
+
+.news-article-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.news-article-title {
+    font-weight: 600;
+    color: var(--text-primary);
+    flex: 1;
+    margin: 0;
+}
+
+.news-article-title a {
+    color: var(--accent-blue);
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.news-article-title a:hover {
+    color: var(--accent-green);
+    text-decoration: underline;
+}
+
+.news-article-sentiment {
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.news-article-sentiment.positive {
+    background-color: rgba(63, 185, 80, 0.2);
+    color: var(--accent-green);
+}
+
+.news-article-sentiment.negative {
+    background-color: rgba(248, 81, 73, 0.2);
+    color: var(--accent-red);
+}
+
+.news-article-sentiment.neutral {
+    background-color: rgba(139, 148, 158, 0.2);
+    color: var(--text-secondary);
+}
+
+.news-article-meta {
+    display: flex;
+    gap: 15px;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.news-article-publisher {
+    font-style: italic;
+}
+
+.news-article-reasoning {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-style: italic;
+    margin-top: 8px;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .header h1 {
-        font-size: 2rem;
+        font-size: 1.4rem;
+    }
+
+    .logo {
+        width: 40px;
+        height: 40px;
     }
 
     .screeners-grid {
@@ -385,5 +723,23 @@ body {
 
     .btn-secondary {
         flex: 1;
+    }
+
+    .modal-content {
+        width: 95%;
+        max-height: 95vh;
+    }
+
+    .modal-info-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .modal-sentiment-score {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .modal-sentiment-breakdown {
+        grid-template-columns: 1fr;
     }
 }

@@ -7,11 +7,6 @@ from datetime import datetime
 
 import click
 from rich.console import Console
-from rich.table import Table
-from rich import box
-from rich.columns import Columns
-from rich.align import Align
-from rich.panel import Panel
 
 from .main import pass_config, create_header
 
@@ -25,13 +20,13 @@ def display_market_context(app_context):
         # Initialize data service
         sys.path.insert(0, str(Path(__file__).parent.parent))
         from utils.config_loader import get_config_loader
-        from models.dataclass.asset_result import MarketContextResult
+        from models.result.asset_result import MarketContextResult
 
         data_service = app_context.get_data_service_v2()
 
         # Get markets from universe config
         config_loader = get_config_loader()
-        universe_config = config_loader.load_universe_config("default_universe")
+        universe_config = config_loader.load_universe_config("default")
         configured_exchanges = universe_config.get("included", {}).get("exchanges", [])
 
         if not configured_exchanges:
@@ -61,6 +56,10 @@ def display_market_context(app_context):
         result = MarketContextResult(markets=markets)
         app_context.presentation.asset_adapter.display_market_context(result)
 
+    except FileNotFoundError as e:
+        # Config file missing - this is a fatal error
+        console.print(f"[red]❌ Configuration error: {e}[/red]")
+        sys.exit(1)
     except Exception as e:
         console.print(f"[dim]⚠️ Market context unavailable: {e}[/dim]")
         console.print()
@@ -104,7 +103,7 @@ def info(app_context, symbol: str, force: bool):
 
     # Get asset info and price data (this fetches and stores fresh data)
     try:
-        from models.dataclass.asset_result import AssetInfoResult, PriceDataResult
+        from models.result.asset_result import AssetInfoResult, PriceDataResult
 
         asset_info = data_service.get_asset_with_market(symbol)
         if not asset_info:
@@ -120,11 +119,15 @@ def info(app_context, symbol: str, force: bool):
             if data_service.is_symbol_in_universe(symbol, univ.name):
                 member_of.append(univ.name)
 
+        # Get fundamentals if available (service returns dataclass)
+        fundamentals = data_service.get_fundamentals(asset.id)
+
         # Create result and display
         asset_result = AssetInfoResult(
             asset=asset,
             market=market,
-            universes=member_of
+            universes=member_of,
+            fundamentals=fundamentals
         )
         app_context.presentation.asset_adapter.display_asset_info(asset_result)
 
@@ -202,7 +205,7 @@ def info(app_context, symbol: str, force: bool):
 
         # Display recent sentiment events using adapter
         try:
-            from models.dataclass.asset_result import SentimentEventsResult
+            from models.result.asset_result import SentimentEventsResult
 
             sentiment_events = data_service.get_sentiment_events(symbol=symbol)
 
@@ -212,7 +215,7 @@ def info(app_context, symbol: str, force: bool):
 
             # Calculate sentiment score
             sentiment_config = config_loader.load_sentiment_config()
-            time_window_days = sentiment_config["time_window_days"]
+            time_window_days = sentiment_config["analysis"]["default_time_window_days"]
             sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=time_window_days)
 
             # Build result and display

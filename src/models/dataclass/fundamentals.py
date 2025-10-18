@@ -104,22 +104,3 @@ class AssetFundamentals:
             provider_id=provider_id,
             last_updated=datetime.now()
         )
-
-    @classmethod
-    def from_db_row(cls, row: tuple) -> 'AssetFundamentals':
-        """Create AssetFundamentals from database row."""
-        return cls(
-            asset_id=row[0],
-            company_name=row[1],
-            sector=row[2],
-            industry=row[3],
-            sic_code=row[4],
-            market_cap=row[5],
-            shares_outstanding=row[6],
-            avg_volume_30d=row[7],
-            beta=Decimal(str(row[8])) if row[8] is not None else None,
-            pe_ratio=Decimal(str(row[9])) if row[9] is not None else None,
-            dividend_yield=Decimal(str(row[10])) if row[10] is not None else None,
-            provider_id=row[11],
-            last_updated=datetime.fromisoformat(row[12])
-        )

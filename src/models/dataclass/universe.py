@@ -20,22 +20,6 @@ class Universe:
     created_at: datetime
     updated_at: datetime
 
-    @classmethod
-    def from_db_row(cls, row: tuple) -> 'Universe':
-        """Create Universe from database row."""
-        return cls(
-            id=row[0],
-            name=row[1],
-            description=row[2],
-            is_active=bool(row[3]),
-            min_market_cap=row[4],
-            min_volume=row[5],
-            max_assets=row[6],
-            last_updated=datetime.fromisoformat(row[7]) if row[7] else None,
-            created_at=datetime.fromisoformat(row[8]),
-            updated_at=datetime.fromisoformat(row[9])
-        )
-
 
 @dataclass(frozen=True)
 class UniverseMembership:
@@ -48,19 +32,6 @@ class UniverseMembership:
     removed_date: Optional[datetime]
     reason: Optional[str]
     is_active: bool
-
-    @classmethod
-    def from_db_row(cls, row: tuple) -> 'UniverseMembership':
-        """Create UniverseMembership from database row."""
-        return cls(
-            id=row[0],
-            universe_id=row[1],
-            asset_id=row[2],
-            added_date=datetime.fromisoformat(row[3]),
-            removed_date=datetime.fromisoformat(row[4]) if row[4] else None,
-            reason=row[5],
-            is_active=bool(row[6])
-        )
 
 
 @dataclass(frozen=True)

@@ -46,8 +46,6 @@ def main(app_context, db_path: str, debug: bool):
         from utils.presentation_context import PresentationContext
         from output.cli_screener_adapter import CLIScreenerOutputAdapter
         from output.cli_bootstrap_adapter import CLIBootstrapOutputAdapter
-        from output.cli_fetch_adapter import CLIFetchOutputAdapter
-        from output.cli_update_adapter import CLIUpdateOutputAdapter
         from output.cli_news_adapter import CLINewsOutputAdapter
         from output.cli_gap_adapter import CLIGapAnalysisAdapter, CLIGapPerformanceAdapter
         from output.cli_asset_adapter import CLIAssetOutputAdapter
@@ -55,20 +53,20 @@ def main(app_context, db_path: str, debug: bool):
         from output.cli_universe_adapter import CLIUniverseOutputAdapter
         from output.cli_validate_adapter import CLIValidateOutputAdapter
         from output.cli_fed_adapter import CLIFedOutputAdapter
+        from output.cli_database_adapter import CLIDatabaseOutputAdapter
 
         app_context.presentation = PresentationContext(
             screener_adapter=CLIScreenerOutputAdapter(),
             gap_analysis_adapter=CLIGapAnalysisAdapter(),
             gap_performance_adapter=CLIGapPerformanceAdapter(),
             bootstrap_adapter=CLIBootstrapOutputAdapter(),
-            fetch_adapter=CLIFetchOutputAdapter(),
-            update_adapter=CLIUpdateOutputAdapter(),
             news_adapter=CLINewsOutputAdapter(),
             asset_adapter=CLIAssetOutputAdapter(),
             market_adapter=CLIMarketOutputAdapter(),
             universe_adapter=CLIUniverseOutputAdapter(),
             validate_adapter=CLIValidateOutputAdapter(),
             fed_adapter=CLIFedOutputAdapter(),
+            database_adapter=CLIDatabaseOutputAdapter(),
         )
 
     # Setup logging

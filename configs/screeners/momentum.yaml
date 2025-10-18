@@ -11,7 +11,7 @@ valid_sessions:
 
 # Data source configuration
 data_source:
-  universe: "default_universe"
+  universe: "default"
   require_recent_trading: true
 
 # Field mappings - what each concept means per session
@@ -107,10 +107,6 @@ display:
           field: "((min_close - prevday_close) / prevday_close * 100)"
           format: "percent"
           width: 12
-        - name: "Abs %"
-          field: "ABS((min_close - prevday_close) / prevday_close) * 100"
-          format: "percent"
-          width: 10
         - name: "PM Volume"
           field: "min_accumulated_volume"
           format: "volume"
@@ -136,10 +132,6 @@ display:
           field: "((min_close - day_open) / day_open * 100)"
           format: "percent"
           width: 12
-        - name: "Abs %"
-          field: "ABS((min_close - day_open) / day_open) * 100"
-          format: "percent"
-          width: 10
         - name: "Volume"
           field: "day_volume"
           format: "volume"
@@ -165,10 +157,6 @@ display:
           field: "((min_close - day_close) / day_close * 100)"
           format: "percent"
           width: 12
-        - name: "Abs %"
-          field: "ABS((min_close - day_close) / day_close) * 100"
-          format: "percent"
-          width: 10
         - name: "Time"
           field: "min_timestamp_formatted"
           width: 12
@@ -190,10 +178,6 @@ display:
           field: "((day_close - prevday_close) / prevday_close * 100)"
           format: "percent"
           width: 12
-        - name: "Abs %"
-          field: "ABS((day_close - prevday_close) / prevday_close) * 100"
-          format: "percent"
-          width: 10
         - name: "Volume"
           field: "prevday_volume"
           format: "volume"

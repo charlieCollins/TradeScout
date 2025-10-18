@@ -7,12 +7,10 @@ from datetime import datetime
 from pathlib import Path
 
 import click
-from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import (BarColumn, Progress, SpinnerColumn,
                            TaskProgressColumn, TextColumn)
-from rich.table import Table
 
 from utils.config_loader import get_field_for_context
 
@@ -31,18 +29,21 @@ def market(app_context):
 
 
 @market.command()
-@click.option("--force", is_flag=True, help="Force refresh, bypass TTL cache")
+@click.option("--date", help="Specific date to backfill (YYYY-MM-DD)")
+@click.option("--force", is_flag=True, help="Force refresh, bypass TTL cache or overwrite existing data")
 @pass_config
-def update(app_context, force):
+def update(app_context, date, force):
     """
-    Update market snapshot data for all assets in universe.
+    Update market snapshot data or backfill historical data.
 
-    Fetches fresh market data from Polygon API and updates the database
-    with current price information for all assets in the default universe.
+    If --date is provided, backfills historical data for that specific date.
+    If no --date is provided, updates current market snapshot for all assets.
 
-    Example:
-        tradescout market update
-        tradescout market update --force
+    Examples:
+        tradescout market update                      # Update current snapshot
+        tradescout market update --force              # Force update current snapshot
+        tradescout market update --date 2025-10-15    # Backfill data for Oct 15
+        tradescout market update --date 2025-10-15 --force  # Force backfill for Oct 15
     """
     from datetime import datetime
 
@@ -59,165 +60,140 @@ def update(app_context, force):
         console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
         sys.exit(1)
 
-    # Update market snapshot (handles TTL checks, API fetch, transform, save)
-    console.print("[bold blue]Updating market snapshot...[/bold blue]")
+    # Branch based on whether date is provided
+    if date:
+        # BACKFILL MODE: Historical data for specific date
+        # Parse date
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            console.print(f"[red]❌ Invalid date format: {date}. Use YYYY-MM-DD (e.g., 2025-10-15)[/red]")
+            sys.exit(1)
 
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            update_task = progress.add_task("Processing market data...", total=None)
+        # Backfill market data
+        console.print(f"[bold blue]Backfilling market data for {target_date}...[/bold blue]")
 
-            stats = data_service.update_market_snapshot(force_refresh=force)
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                backfill_task = progress.add_task("Processing grouped daily bars...", total=None)
 
-            progress.update(update_task, completed=True)
+                stats = data_service.backfill_market_data(target_date=target_date, force_refresh=force)
 
-    except Exception as e:
-        console.print(f"[red]❌ Failed to update market snapshot: {e}[/red]")
-        logger.exception("Market snapshot update failed")
-        sys.exit(1)
+                progress.update(backfill_task, completed=True)
 
-    # Build result
-    from models.dataclass.market_result import MarketUpdateResult
-    from models.dataclass.data_update_metadata import DataUpdateMetadataType
-    from services.cache_service import CacheConfig
+        except Exception as e:
+            console.print(f"[red]❌ Failed to backfill market data: {e}[/red]")
+            logger.exception("Market backfill failed")
+            sys.exit(1)
 
-    ttl_minutes = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS) / 60
-    metadata = data_service.metadata_repository.get_latest_by_operation(
-        operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS.value
-    )
+        # Build backfill result
+        from models.result.market_result import MarketBackfillResult
 
-    # Calculate update duration
-    end_time = datetime.now()
-    duration_seconds = (end_time - start_time).total_seconds()
+        # Calculate update duration
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
 
-    # Get timing information
-    last_snapshot_time = None
-    age_minutes = None
-    if metadata and metadata.completed_at:
-        last_snapshot_time = metadata.completed_at
-        age = datetime.now() - metadata.completed_at
-        age_minutes = age.total_seconds() / 60
+        # Get total records count
+        total_historical_records = None
+        try:
+            total_historical_records = data_service.asset_price_repository.count_all()
+        except Exception as e:
+            logger.warning(f"Could not get total price record count: {e}")
 
-    # Get total records count
-    total_historical_records = None
-    try:
-        total_historical_records = data_service.asset_price_repository.count_all()
-    except Exception:
-        pass
+        # Create result and display
+        result = MarketBackfillResult(
+            target_date=target_date,
+            force_refresh=force,
+            total_tickers=stats.total_tickers,
+            matched_symbols=stats.matched_symbols,
+            unmatched_symbols=stats.unmatched_symbols,
+            transformed=stats.transformed,
+            saved=stats.saved,
+            duplicates=stats.duplicates,
+            invalid=stats.invalid,
+            invalid_no_timestamp=stats.invalid_no_timestamp,
+            invalid_exception=stats.invalid_exception,
+            duration_seconds=duration_seconds,
+            completed_at=end_time,
+            total_historical_records=total_historical_records
+        )
+        app_context.presentation.market_adapter.display_market_backfill_result(result)
 
-    # Create result and display
-    result = MarketUpdateResult(
-        data_was_fresh=stats.data_was_fresh,
-        total_tickers=stats.total_tickers,
-        matched_symbols=stats.matched_symbols,
-        unmatched_symbols=stats.unmatched_symbols,
-        transformed=stats.transformed,
-        saved=stats.saved,
-        duplicates=stats.duplicates,
-        invalid=stats.invalid,
-        duration_seconds=duration_seconds,
-        completed_at=end_time,
-        last_snapshot_time=last_snapshot_time,
-        age_minutes=age_minutes,
-        ttl_minutes=ttl_minutes,
-        total_historical_records=total_historical_records
-    )
-    app_context.presentation.market_adapter.display_market_update_result(result)
+    else:
+        # SNAPSHOT MODE: Current market data
+        # Update market snapshot (handles TTL checks, API fetch, transform, save)
+        console.print("[bold blue]Updating market snapshot...[/bold blue]")
 
+        try:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console,
+            ) as progress:
+                update_task = progress.add_task("Processing market data...", total=None)
 
-@market.command()
-@click.argument("date")
-@click.option("--force", is_flag=True, help="Force refresh, overwrite existing data even if older")
-@pass_config
-def backfill(app_context, date, force):
-    """
-    Backfill market data for a specific date using daily bars.
+                stats = data_service.update_market_snapshot(force_refresh=force)
 
-    DATE should be in YYYY-MM-DD format (e.g., 2025-10-14).
+                progress.update(update_task, completed=True)
 
-    This fetches end-of-day bars for all stocks that traded on the specified date
-    and saves data for all symbols in our database. Only updates records if the
-    new provider_updated_at is newer than existing data (unless --force is used).
+        except Exception as e:
+            console.print(f"[red]❌ Failed to update market snapshot: {e}[/red]")
+            logger.exception("Market snapshot update failed")
+            sys.exit(1)
 
-    Example:
-        tradescout market backfill 2025-10-14
-        tradescout market backfill 2025-10-14 --force
-    """
-    from datetime import datetime, date as date_obj
+        # Build snapshot result
+        from models.result.market_result import MarketUpdateResult
+        from models.dataclass.data_update_metadata import DataUpdateMetadataType
+        from services.cache_service import CacheConfig
 
-    start_time = datetime.now()
+        ttl_minutes = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS) / 60
+        metadata = data_service.metadata_repository.get_latest_by_operation(
+            operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS.value
+        )
 
-    # Parse date
-    try:
-        target_date = datetime.strptime(date, "%Y-%m-%d").date()
-    except ValueError:
-        console.print(f"[red]❌ Invalid date format: {date}. Use YYYY-MM-DD (e.g., 2025-10-14)[/red]")
-        sys.exit(1)
+        # Calculate update duration
+        end_time = datetime.now()
+        duration_seconds = (end_time - start_time).total_seconds()
 
-    # Display market context at the top
-    display_market_context(app_context)
+        # Get timing information
+        last_snapshot_time = None
+        age_minutes = None
+        if metadata and metadata.completed_at:
+            last_snapshot_time = metadata.completed_at
+            age = datetime.now() - metadata.completed_at
+            age_minutes = age.total_seconds() / 60
 
-    # Initialize data service
-    try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        data_service = app_context.get_data_service_v2()
-    except Exception as e:
-        console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
-        sys.exit(1)
+        # Get total records count
+        total_historical_records = None
+        try:
+            total_historical_records = data_service.asset_price_repository.count_all()
+        except Exception:
+            pass
 
-    # Backfill market data
-    console.print(f"[bold blue]Backfilling market data for {target_date}...[/bold blue]")
-
-    try:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            backfill_task = progress.add_task("Processing grouped daily bars...", total=None)
-
-            stats = data_service.backfill_market_data(target_date=target_date, force_refresh=force)
-
-            progress.update(backfill_task, completed=True)
-
-    except Exception as e:
-        console.print(f"[red]❌ Failed to backfill market data: {e}[/red]")
-        logger.exception("Market backfill failed")
-        sys.exit(1)
-
-    # Build result
-    from models.dataclass.market_result import MarketBackfillResult
-
-    # Calculate update duration
-    end_time = datetime.now()
-    duration_seconds = (end_time - start_time).total_seconds()
-
-    # Get total records count
-    total_historical_records = None
-    try:
-        total_historical_records = data_service.asset_price_repository.count_all()
-    except Exception as e:
-        logger.warning(f"Could not get total price record count: {e}")
-
-    # Create result and display
-    result = MarketBackfillResult(
-        target_date=target_date,
-        force_refresh=force,
-        total_tickers=stats.total_tickers,
-        matched_symbols=stats.matched_symbols,
-        unmatched_symbols=stats.unmatched_symbols,
-        transformed=stats.transformed,
-        saved=stats.saved,
-        duplicates=stats.duplicates,
-        invalid=stats.invalid,
-        duration_seconds=duration_seconds,
-        completed_at=end_time,
-        total_historical_records=total_historical_records
-    )
-    app_context.presentation.market_adapter.display_market_backfill_result(result)
+        # Create result and display
+        result = MarketUpdateResult(
+            data_was_fresh=stats.data_was_fresh,
+            total_tickers=stats.total_tickers,
+            matched_symbols=stats.matched_symbols,
+            unmatched_symbols=stats.unmatched_symbols,
+            transformed=stats.transformed,
+            saved=stats.saved,
+            duplicates=stats.duplicates,
+            invalid=stats.invalid,
+            invalid_no_timestamp=stats.invalid_no_timestamp,
+            invalid_exception=stats.invalid_exception,
+            duration_seconds=duration_seconds,
+            completed_at=end_time,
+            last_snapshot_time=last_snapshot_time,
+            age_minutes=age_minutes,
+            ttl_minutes=ttl_minutes,
+            total_historical_records=total_historical_records
+        )
+        app_context.presentation.market_adapter.display_market_update_result(result)
 
 
 @market.command()
@@ -226,7 +202,7 @@ def context(app_context):
     """Show current market context, universe composition, and last snapshot status"""
 
     try:
-        from models.dataclass.market_result import MarketContextResult
+        from models.result.market_result import MarketContextResult
 
         # Get universe statistics using data provider
         active_universe = app_context.get_active_universe()

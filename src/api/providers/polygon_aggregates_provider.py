@@ -3,6 +3,8 @@
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime, date
+
+from utils.config_loader import ConfigLoader
 from .base_provider import BaseAPIProvider
 
 logger = logging.getLogger(__name__)
@@ -97,6 +99,10 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             List of PriceBar objects, or None if error
         """
         try:
+            # Load aggregates limits from config
+            config = ConfigLoader().load_yaml("api.yaml")
+            minute_bars_limit = config["api"]["polygon"]["aggregates"]["minute_bars_limit"]
+
             # Convert datetimes to Unix timestamps in milliseconds (Polygon requirement)
             from_ts = int(from_datetime.timestamp() * 1000)
             to_ts = int(to_datetime.timestamp() * 1000)
@@ -107,7 +113,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             params = {
                 "adjusted": str(adjusted).lower(),  # "true" or "false"
                 "sort": "asc",  # Chronological order
-                "limit": 50000  # Max results (after-hours is ~240 minutes max)
+                "limit": minute_bars_limit
             }
 
             raw_data = self._make_request(endpoint, params)
@@ -151,6 +157,10 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             List of PriceBar objects, or None if error
         """
         try:
+            # Load aggregates limits from config
+            config = ConfigLoader().load_yaml("api.yaml")
+            daily_bars_limit = config["api"]["polygon"]["aggregates"]["daily_bars_limit"]
+
             # Convert dates to timestamps
             from_dt = datetime.combine(from_date, datetime.min.time())
             to_dt = datetime.combine(to_date, datetime.max.time())
@@ -164,7 +174,7 @@ class PolygonAggregatesProvider(BaseAPIProvider):
             params = {
                 "adjusted": str(adjusted).lower(),  # "true" or "false"
                 "sort": "asc",  # Chronological order
-                "limit": 5000
+                "limit": daily_bars_limit
             }
 
             raw_data = self._make_request(endpoint, params)

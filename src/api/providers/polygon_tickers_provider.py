@@ -13,6 +13,8 @@ The provider offers both parsed (Asset) and raw (dict) methods to support both u
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+from utils.config_loader import ConfigLoader
 from models.dataclass.asset import Asset, AssetType, AssetClass
 from .base_provider import BaseAPIProvider
 
@@ -121,7 +123,7 @@ class PolygonTickersProvider(BaseAPIProvider):
         self,
         market: str = "stocks",
         active: bool = True,
-        limit: int = 1000,
+        limit: Optional[int] = None,
         market_code_to_id: Optional[Dict[str, int]] = None
     ) -> List[Asset]:
         """Fetch all tickers from Polygon API (paginated).
@@ -131,12 +133,20 @@ class PolygonTickersProvider(BaseAPIProvider):
         Args:
             market: Market type (default: "stocks")
             active: Only active tickers (default: True)
-            limit: Results per page (default: 1000, max: 1000)
+            limit: Results per page (default from api.yaml)
             market_code_to_id: Mapping of market codes (XNAS, XNYS) to database IDs
 
         Returns:
             List of Asset objects
         """
+        # Load pagination config
+        config = ConfigLoader().load_yaml("api.yaml")
+        pagination_config = config["api"]["polygon"]["pagination"]
+
+        if limit is None:
+            limit = pagination_config["tickers_page_size"]
+        max_page_size = pagination_config["max_page_size"]
+
         endpoint = "/v3/reference/tickers"
         all_assets = []
         next_url = None
@@ -144,7 +154,7 @@ class PolygonTickersProvider(BaseAPIProvider):
         params = {
             "market": market,
             "active": "true" if active else "false",
-            "limit": min(limit, 1000),  # Polygon max is 1000
+            "limit": min(limit, max_page_size),
             "sort": "ticker",
             "order": "asc"
         }

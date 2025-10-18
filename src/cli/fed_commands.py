@@ -7,8 +7,6 @@ from datetime import datetime
 
 import click
 from rich.console import Console
-from rich.table import Table
-from rich import box
 
 from .main import pass_config
 
@@ -48,7 +46,7 @@ def update(app_context, limit: int):
         sys.exit(1)
 
     try:
-        from models.dataclass.fed_result import FedUpdateResult
+        from models.result.fed_result import FedUpdateResult
 
         console.print(f"[cyan]📊 Fetching Federal Reserve economic data (limit={limit})...[/cyan]")
         console.print()
@@ -118,7 +116,7 @@ def info(app_context, limit: int):
         sys.exit(1)
 
     try:
-        from models.dataclass.fed_result import FedInfoResult, FedInfoSection
+        from models.result.fed_result import FedInfoResult, FedInfoSection
 
         # Get latest for each type
         latest_data = data_service.fed_get_all_latest()

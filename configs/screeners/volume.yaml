@@ -10,7 +10,7 @@ valid_sessions:
 
 # Data source configuration
 data_source:
-  universe: "default_universe"
+  universe: "default"
   require_recent_trading: true
 
 # Field mappings - what each concept means per session

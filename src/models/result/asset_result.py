@@ -7,6 +7,7 @@ from datetime import datetime
 from models.dataclass.asset import Asset
 from models.dataclass.market import Market
 from models.dataclass.price import AssetPrice
+from models.dataclass.fundamentals import AssetFundamentals
 
 if TYPE_CHECKING:
     from analysis.sentiment_analyzer import SentimentScore
@@ -24,6 +25,7 @@ class AssetInfoResult:
     asset: Asset  # Compose existing Asset model
     market: Optional[Market]  # Compose existing Market model
     universes: List[str]  # Universe memberships
+    fundamentals: Optional[AssetFundamentals] = None  # Fundamental data if available
 
 
 @dataclass

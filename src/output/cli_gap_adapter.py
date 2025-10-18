@@ -254,7 +254,7 @@ Quality Tiers:
         Args:
             result: GapResultsListResult containing results grouped by trading date
         """
-        from models.dataclass.gap_result import GapResultsListResult
+        from models.result.gap_result import GapResultsListResult
 
         # Display header
         self.console.print(Panel.fit(

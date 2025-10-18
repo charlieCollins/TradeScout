@@ -293,6 +293,131 @@ class AssetPriceRepository:
             logger.debug(f"No new prices to save (all {len(prices_to_check)} records already exist)")
         return inserted_count
 
+    def bulk_upsert(self, prices: List[AssetPriceSQLModel], force_refresh: bool = False) -> dict:
+        """Bulk upsert prices - insert new or update existing based on (asset_id, trade_date).
+
+        Business rules:
+        - Normal mode (force_refresh=False):
+          * INSERT if record doesn't exist
+          * UPDATE if record exists AND new data is newer (provider_updated_at)
+          * SKIP if record exists AND new data is older/same
+
+        - Force mode (force_refresh=True):
+          * DELETE all existing records for these (asset_id, trade_date) combinations
+          * INSERT all new records (complete refresh with latest API data)
+
+        Args:
+            prices: List of prices to upsert
+            force_refresh: If True, delete existing and insert fresh. If False, smart upsert.
+
+        Returns:
+            Dictionary with counts: {'inserted': int, 'updated': int, 'skipped': int, 'deleted': int}
+        """
+        if not prices:
+            return {'inserted': 0, 'updated': 0, 'skipped': 0, 'deleted': 0}
+
+        # Filter out invalid records
+        valid_prices = [p for p in prices if p.provider_updated_at and p.provider_updated_at != 0]
+        if not valid_prices:
+            return {'inserted': 0, 'updated': 0, 'skipped': 0, 'deleted': 0}
+
+        deleted_count = 0
+        inserted_count = 0
+        updated_count = 0
+        skipped_count = 0
+
+        if force_refresh:
+            # FORCE MODE: Delete existing records, then insert fresh
+            # Build list of (asset_id, trade_date) tuples to delete
+            keys_to_delete = [(p.asset_id, p.trade_date) for p in valid_prices]
+
+            # Delete all existing records for these keys
+            for asset_id, trade_date in keys_to_delete:
+                statement = select(AssetPriceSQLModel).where(
+                    AssetPriceSQLModel.asset_id == asset_id,
+                    AssetPriceSQLModel.trade_date == trade_date
+                )
+                existing = self.session.exec(statement).first()
+                if existing:
+                    self.session.delete(existing)
+                    deleted_count += 1
+
+            # Commit deletes
+            if deleted_count > 0:
+                self.session.commit()
+                logger.debug(f"Force refresh: deleted {deleted_count} existing records")
+
+            # Insert all fresh records
+            for price in valid_prices:
+                self.session.add(price)
+                inserted_count += 1
+
+            self.session.commit()
+            logger.debug(f"Force refresh: inserted {inserted_count} fresh records")
+
+        else:
+            # NORMAL MODE: Smart upsert with timestamp checking
+            for price in valid_prices:
+                # Check if record exists for this (asset_id, trade_date)
+                statement = select(AssetPriceSQLModel).where(
+                    AssetPriceSQLModel.asset_id == price.asset_id,
+                    AssetPriceSQLModel.trade_date == price.trade_date
+                )
+                existing = self.session.exec(statement).first()
+
+                if existing:
+                    # Record exists - only update if new data is newer
+                    if price.provider_updated_at > existing.provider_updated_at:
+                        # Update existing record
+                        existing.provider_id = price.provider_id
+                        existing.provider_updated_at = price.provider_updated_at
+                        existing.symbol = price.symbol
+                        existing.updated_at = price.updated_at
+                        existing.prevday_open = price.prevday_open
+                        existing.prevday_high = price.prevday_high
+                        existing.prevday_low = price.prevday_low
+                        existing.prevday_close = price.prevday_close
+                        existing.prevday_volume = price.prevday_volume
+                        existing.prevday_vwap = price.prevday_vwap
+                        existing.day_open = price.day_open
+                        existing.day_high = price.day_high
+                        existing.day_low = price.day_low
+                        existing.day_close = price.day_close
+                        existing.day_volume = price.day_volume
+                        existing.day_vwap = price.day_vwap
+                        existing.min_timestamp = price.min_timestamp
+                        existing.min_open = price.min_open
+                        existing.min_high = price.min_high
+                        existing.min_low = price.min_low
+                        existing.min_close = price.min_close
+                        existing.min_volume = price.min_volume
+                        existing.min_vwap = price.min_vwap
+                        existing.min_accumulated_volume = price.min_accumulated_volume
+                        existing.min_num_trades = price.min_num_trades
+                        self.session.add(existing)
+                        updated_count += 1
+                    else:
+                        # Skip - existing data is newer or same
+                        skipped_count += 1
+                        logger.debug(
+                            f"Skipping {price.symbol} on {price.trade_date} - "
+                            f"existing data is newer ({existing.provider_updated_at} >= {price.provider_updated_at})"
+                        )
+                else:
+                    # Insert new record
+                    self.session.add(price)
+                    inserted_count += 1
+
+            self.session.commit()
+            logger.debug(f"Smart upsert: {inserted_count} inserts, {updated_count} updates, {skipped_count} skipped")
+
+        return {
+            'inserted': inserted_count,
+            'updated': updated_count,
+            'skipped': skipped_count,
+            'deleted': deleted_count
+        }
+
     def delete(self, price: AssetPriceSQLModel) -> None:
         """Delete price from database.
 

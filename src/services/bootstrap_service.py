@@ -243,7 +243,7 @@ class BootstrapService:
         """
         import time
         from dataclasses import replace
-        from models.dataclass.results import BootstrapResult
+        from models.result.bootstrap_result import BootstrapResult
 
         start_time = time.time()
         logger.info(
@@ -360,7 +360,7 @@ class BootstrapService:
         """
         import time
         from datetime import datetime
-        from models.dataclass.results import BootstrapResult
+        from models.result.bootstrap_result import BootstrapResult
         from models.dataclass.fundamentals import AssetFundamentals
         from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
         from utils.fundamentals_cache import FundamentalsCacheHelper
@@ -684,7 +684,7 @@ class BootstrapService:
     # BOOTSTRAP OPERATIONS - UNIVERSES
     # ============================================================================
 
-    def bootstrap_universes(self, universe_name: str = "default_universe", force_refresh: bool = False):
+    def bootstrap_universes(self, universe_name: str = "default", force_refresh: bool = False):
         """Bootstrap a universe by filtering assets based on configuration criteria using new architecture.
 
         Universes are filtered subsets of assets created by applying inclusion/exclusion
@@ -696,7 +696,7 @@ class BootstrapService:
         5. Records metadata timestamp
 
         Args:
-            universe_name: Name of universe from UNIVERSE_CONFIG (default: "default_universe")
+            universe_name: Name of universe from UNIVERSE_CONFIG (default: "default")
             force_refresh: If True, bypass TTL and refresh regardless of freshness
 
         Returns:

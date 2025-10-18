@@ -19,8 +19,9 @@ import logging
 from pathlib import Path
 from datetime import date, datetime
 
+from utils.config_loader import ConfigLoader
+
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 
@@ -197,6 +198,10 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         # Step 5: Fetch news/sentiment for validated candidates
         console.print(f"[bold cyan]📰 Fetching News & Sentiment...[/bold cyan]")
 
+        # Load catalyst scoring config
+        gap_config = ConfigLoader().load_yaml("gap_trading.yaml")
+        catalyst_default_score = gap_config["quality_scoring"]["catalyst"]["default_score"]
+
         for candidate in validated_candidates:
             try:
                 # Fetch news and sentiment (stores events automatically)
@@ -224,13 +229,13 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
                         else:
                             candidate.catalyst_score = 20  # Negative
                     else:
-                        candidate.catalyst_score = 0  # No sentiment
+                        candidate.catalyst_score = catalyst_default_score  # No sentiment
                 else:
-                    candidate.catalyst_score = 0  # No news
+                    candidate.catalyst_score = catalyst_default_score  # No news
 
             except Exception as e:
                 # Silently skip news errors - not critical for analysis
-                candidate.catalyst_score = 0
+                candidate.catalyst_score = catalyst_default_score
 
         console.print(f"  [green]✓ News/sentiment analysis complete[/green]\n")
 
@@ -690,7 +695,7 @@ def results_command(app_context, num_days, num_results_per_day, session, status)
     """
     from datetime import date, timedelta
     from collections import defaultdict
-    from models.dataclass.gap_result import GapResultRow, GapResultsByDate, GapResultsListResult
+    from models.result.gap_result import GapResultRow, GapResultsByDate, GapResultsListResult
 
     # Get DataServiceV2
     data_service = app_context.get_data_service_v2()

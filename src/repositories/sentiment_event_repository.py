@@ -219,6 +219,34 @@ class SentimentEventRepository:
         logger.debug(f"Bulk saved {count} sentiment events")
         return count
 
+    def get_latest_news_time(
+        self,
+        asset_id: int,
+        news_type_ids: list
+    ) -> Optional["datetime"]:
+        """Get most recent created_at timestamp for news events.
+
+        Business query: Check freshness of news data for staleness detection.
+
+        Args:
+            asset_id: Asset database ID
+            news_type_ids: List of news sentiment type IDs
+
+        Returns:
+            Most recent created_at timestamp, or None if no events found
+        """
+        from datetime import datetime
+
+        if not news_type_ids:
+            return None
+
+        statement = select(func.max(SentimentEventSQLModel.created_at)).where(
+            SentimentEventSQLModel.asset_id == asset_id,
+            SentimentEventSQLModel.sentiment_type_id.in_(news_type_ids)  # type: ignore
+        )
+
+        return self.session.exec(statement).first()
+
     # =========================================================================
     # STATISTICS
     # =========================================================================

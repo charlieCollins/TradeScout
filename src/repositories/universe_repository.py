@@ -492,6 +492,15 @@ class UniverseRepository:
         )
         return self.session.exec(statement).one()
 
+    def count_all_memberships(self) -> int:
+        """Count total number of universe memberships across all universes.
+
+        Returns:
+            Total count of all memberships
+        """
+        statement = select(func.count()).select_from(UniverseMembershipSQLModel)
+        return self.session.exec(statement).one()
+
     def get_market_breakdown(
         self,
         universe_name: str

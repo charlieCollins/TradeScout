@@ -53,11 +53,11 @@ class ConfigLoader:
         self._cache[relative_path] = config
         return config
 
-    def load_universe_config(self, universe_name: str = "default_universe") -> Dict[str, Any]:
+    def load_universe_config(self, universe_name: str) -> Dict[str, Any]:
         """Load a universe configuration.
 
         Args:
-            universe_name: Name of universe (default: "default_universe")
+            universe_name: Name of universe to load
 
         Returns:
             Universe configuration dictionary
@@ -235,7 +235,15 @@ class ConfigLoader:
         # Validate top-level structure
         validate_required_keys(
             config,
-            required_keys=["time_window_days", "confidence_thresholds", "score_thresholds"],
+            required_keys=["analysis", "confidence_thresholds", "score_thresholds"],
+            config_name="configs/sentiment.yaml"
+        )
+
+        # Validate analysis section
+        validate_nested_keys(
+            config,
+            parent_key="analysis",
+            required_nested_keys=["default_time_window_days", "max_time_window_days", "max_articles", "recency_weight"],
             config_name="configs/sentiment.yaml"
         )
 

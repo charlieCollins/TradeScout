@@ -6,6 +6,8 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
+from utils.config_loader import ConfigLoader
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,12 +109,13 @@ class BaseAPIProvider(ABC):
     def _handle_rate_limit(self, response: requests.Response) -> None:
         """Handle rate limit response.
 
-        Default implementation waits 60 seconds. Override for provider-specific behavior.
+        Waits configured seconds from api.yaml. Override for provider-specific behavior.
 
         Args:
             response: HTTP response with 429 status
         """
-        wait_seconds = 60
+        config = ConfigLoader().load_yaml("api.yaml")
+        wait_seconds = config["api"]["polygon"]["rate_limiting"]["default_wait_seconds"]
         logger.warning(f"Rate limited, waiting {wait_seconds} seconds...")
         time.sleep(wait_seconds)
 

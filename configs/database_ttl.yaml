@@ -1,5 +1,8 @@
 # Time-to-live configuration for cached data and operation staleness detection
 
+# Default fallback TTL
+default_ttl_seconds: 3600  # 1 hour - used when metadata type is unknown
+
 # Asset price data (real-time market data) - in minutes
 asset_price_ttl_minutes: 10         # Individual asset prices
 ticker_snapshot_ttl_minutes: 15     # Individual ticker snapshots

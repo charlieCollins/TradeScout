@@ -7,7 +7,7 @@ from typing import Optional
 
 from rich.console import Console
 
-from models.dataclass.results import BootstrapResult
+from models.result.bootstrap_result import BootstrapResult
 
 
 class CLIBootstrapOutputAdapter:

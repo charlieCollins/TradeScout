@@ -21,7 +21,7 @@ from .dataclass.provider import Provider
 from .dataclass.fundamentals import AssetFundamentals
 from .dataclass.price import AssetPrice
 from .dataclass.snapshot import TickerSnapshot, MarketSnapshot
-from .dataclass.stats import DatabaseStats, OperationStats
+from .result.database_result import DatabaseStats
 from .dataclass.universe import Universe, UniverseMembership, UniverseStats
 
 __all__ = [
@@ -38,7 +38,6 @@ __all__ = [
     'TickerSnapshot',
     'MarketSnapshot',
     'DatabaseStats',
-    'OperationStats',
     'Universe',
     'UniverseMembership',
     'UniverseStats',

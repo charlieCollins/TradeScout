@@ -5,7 +5,6 @@ from pathlib import Path
 
 import click
 from rich.console import Console
-from rich.table import Table
 
 from .main import pass_config
 from .asset_commands import display_market_context
@@ -42,7 +41,7 @@ def screener(app_context, screener_name: str, list_screeners: bool, reference_da
     # Handle list flag
     if list_screeners:
         try:
-            from models.dataclass.screener_result import ScreenerListItem, ScreenerListResult
+            from models.result.screener_result import ScreenerListItem, ScreenerListResult
 
             screener_config = ScreenerConfig()
             available_screeners = screener_config.list_available_screeners()
@@ -155,7 +154,7 @@ def screener(app_context, screener_name: str, list_screeners: bool, reference_da
         resolved_config = resolver.get_resolved_config()
 
         # Build output-agnostic result model
-        from models.dataclass.screener_result import ScreenerResult
+        from models.result.screener_result import ScreenerResult
         result = ScreenerResult(
             screener_name=screener_name,
             results=results,

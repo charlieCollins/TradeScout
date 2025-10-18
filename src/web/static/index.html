@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TradeScout - Market Screeners</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -12,7 +13,6 @@
         <header class="header">
             <img src="/static/tradescout-logo.svg" alt="TradeScout Logo" class="logo">
             <h1>TradeScout</h1>
-            <p class="tagline">Market Research & Trading Analysis</p>
         </header>
 
         <!-- Market Context Info -->
@@ -74,6 +74,85 @@
         <footer class="footer">
             <p>TradeScout &copy; 2025 | <a href="/docs" target="_blank">API Documentation</a></p>
         </footer>
+    </div>
+
+    <!-- Asset Info Modal -->
+    <div id="asset-modal" class="modal" style="display: none;">
+        <div class="modal-overlay" onclick="closeAssetModal()"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-symbol">Asset Information</h2>
+                <button class="modal-close" onclick="closeAssetModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="modal-loading" class="modal-loading">
+                    <span class="spinner"></span> Loading asset information...
+                </div>
+                <div id="modal-error" class="modal-error" style="display: none;"></div>
+                <div id="modal-data" style="display: none;">
+                    <!-- Asset Info Section -->
+                    <div class="modal-section">
+                        <h3>Basic Information</h3>
+                        <div class="modal-info-grid">
+                            <div><strong>Name:</strong> <span id="modal-name"></span></div>
+                            <div><strong>Market:</strong> <span id="modal-market"></span></div>
+                            <div><strong>Type:</strong> <span id="modal-type"></span></div>
+                            <div><strong>Currency:</strong> <span id="modal-currency"></span></div>
+                            <div><strong>Status:</strong> <span id="modal-status"></span></div>
+                            <div><strong>Universes:</strong> <span id="modal-universes"></span></div>
+                        </div>
+                    </div>
+
+                    <!-- Fundamentals Section -->
+                    <div id="modal-fundamentals-section" class="modal-section" style="display: none;">
+                        <h3>Fundamentals</h3>
+                        <div class="modal-info-grid">
+                            <div><strong>Market Cap:</strong> <span id="modal-market-cap"></span></div>
+                            <div><strong>Shares Out:</strong> <span id="modal-shares-out"></span></div>
+                            <div><strong>Sector:</strong> <span id="modal-sector"></span></div>
+                            <div><strong>Industry:</strong> <span id="modal-industry"></span></div>
+                            <div><strong>P/E Ratio:</strong> <span id="modal-pe-ratio"></span></div>
+                            <div><strong>Beta:</strong> <span id="modal-beta"></span></div>
+                        </div>
+                    </div>
+
+                    <!-- Price Data Section -->
+                    <div id="modal-price-section" class="modal-section" style="display: none;">
+                        <h3>Latest Price Data</h3>
+                        <div class="modal-info-grid">
+                            <div><strong>Prev Close:</strong> <span id="modal-prev-close"></span></div>
+                            <div><strong>Day Open:</strong> <span id="modal-day-open"></span></div>
+                            <div><strong>Day High:</strong> <span id="modal-day-high"></span></div>
+                            <div><strong>Day Low:</strong> <span id="modal-day-low"></span></div>
+                            <div><strong>Day Close:</strong> <span id="modal-day-close"></span></div>
+                            <div><strong>Day Volume:</strong> <span id="modal-day-volume"></span></div>
+                        </div>
+                    </div>
+
+                    <!-- News Articles Section -->
+                    <div id="modal-news-section" class="modal-section" style="display: none;">
+                        <h3>Recent News Sentiment</h3>
+
+                        <!-- Overall Sentiment Score (at top) -->
+                        <div id="modal-sentiment-summary" class="modal-sentiment-summary">
+                            <div class="sentiment-summary-main">
+                                <strong>Overall:</strong>
+                                <span id="modal-sentiment-score"></span>
+                                <span id="modal-sentiment-label"></span>
+                            </div>
+                            <div class="sentiment-summary-details">
+                                <span id="modal-sentiment-details"></span>
+                            </div>
+                        </div>
+
+                        <!-- News Articles List -->
+                        <div id="modal-news-list" class="modal-news-list">
+                            <!-- News articles will be populated here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="/static/app.js"></script>

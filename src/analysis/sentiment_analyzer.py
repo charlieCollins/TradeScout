@@ -86,28 +86,34 @@ class SentimentAnalyzer:
         "mixed": 0.0,  # Mixed sentiment = neutral in aggregate
     }
 
-    def __init__(self, time_window_days: int = 5):
+    def __init__(self, time_window_days: Optional[int] = None):
         """Initialize sentiment analyzer.
 
         Loads and validates sentiment config at initialization time.
 
         Args:
-            time_window_days: Only analyze articles within this many days (default: 5)
+            time_window_days: Only analyze articles within this many days (default from config)
 
         Raises:
             ConfigValidationError: If sentiment config is invalid
         """
         from utils.config_loader import get_config_loader
 
-        self.time_window_days = time_window_days
-
         # Load and validate config once at initialization
         config_loader = get_config_loader()
         sentiment_config = config_loader.load_sentiment_config()
 
+        # Use config default if not specified
+        if time_window_days is None:
+            time_window_days = sentiment_config["analysis"]["default_time_window_days"]
+        self.time_window_days = time_window_days
+
         # Store thresholds for use in SentimentScore objects
         self.score_thresholds = sentiment_config["score_thresholds"]
         self.confidence_thresholds = sentiment_config["confidence_thresholds"]
+
+        # Store analysis config
+        self.recency_weight_default = sentiment_config["analysis"]["recency_weight"]
 
     def calculate_sentiment_score(
         self, symbol: str, sentiment_events: List[SentimentEvent]
@@ -208,18 +214,21 @@ class SentimentAnalyzer:
         )
 
     def calculate_weighted_sentiment_score(
-        self, symbol: str, sentiment_events: List[SentimentEvent], recency_weight: float = 0.3
+        self, symbol: str, sentiment_events: List[SentimentEvent], recency_weight: Optional[float] = None
     ) -> SentimentScore:
         """Calculate sentiment score with recency weighting (newer events weighted more).
 
         Args:
             symbol: Stock symbol
             sentiment_events: List of SentimentEvent objects
-            recency_weight: Weight factor for recency (0.0-1.0, default 0.3)
+            recency_weight: Weight factor for recency (0.0-1.0, default from config)
 
         Returns:
             SentimentScore with weighted overall score
         """
+        # Use config default if not specified
+        if recency_weight is None:
+            recency_weight = self.recency_weight_default
         if not sentiment_events:
             return self.calculate_sentiment_score(symbol, sentiment_events)
 

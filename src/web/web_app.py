@@ -145,6 +145,36 @@ def get_app_context() -> AppContext:
     return AppContext(db_path=DB_PATH)
 
 
+def get_presentation_context():
+    """Dependency: Provide PresentationContext with web output adapters.
+
+    Returns PresentationContext configured with web-specific adapters
+    that return JSON-ready dictionaries for FastAPI serialization.
+    """
+    from utils.presentation_context import PresentationContext
+    from output.web_screener_adapter import WebScreenerOutputAdapter
+    from output.web_market_adapter import WebMarketOutputAdapter
+    from output.web_news_adapter import WebNewsOutputAdapter
+    from output.web_gap_adapter import WebGapOutputAdapter
+    from output.web_fed_adapter import WebFedOutputAdapter
+    from output.web_universe_adapter import WebUniverseOutputAdapter
+    from output.web_validate_adapter import WebValidateOutputAdapter
+    from output.web_asset_adapter import WebAssetOutputAdapter
+
+    return PresentationContext(
+        screener_adapter=WebScreenerOutputAdapter(),
+        market_adapter=WebMarketOutputAdapter(),
+        news_adapter=WebNewsOutputAdapter(),
+        gap_analysis_adapter=WebGapOutputAdapter(),
+        gap_performance_adapter=WebGapOutputAdapter(),  # Same adapter for now
+        fed_adapter=WebFedOutputAdapter(),
+        universe_adapter=WebUniverseOutputAdapter(),
+        validate_adapter=WebValidateOutputAdapter(),
+        asset_adapter=WebAssetOutputAdapter(),
+        bootstrap_adapter=None,  # Bootstrap is CLI-only
+    )
+
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
@@ -252,6 +282,165 @@ async def get_asset(
         )
 
     return asset
+
+
+@app.get(
+    "/api/assets/{symbol}/info",
+    response_model=Dict[str, Any],
+    summary="Get comprehensive asset information",
+    description="""
+    Get complete asset information including details, fundamentals, latest price, and sentiment.
+
+    **Parameters:**
+    - `symbol`: Stock ticker symbol (e.g., AAPL, MSFT)
+
+    **Example:**
+    ```
+    GET /api/assets/AAPL/info
+    ```
+
+    **Returns:** Complete asset information with all available data
+    """
+)
+async def get_asset_info(
+    symbol: str,
+    data_service: DataServiceV2 = Depends(get_data_service),
+    presentation = Depends(get_presentation_context)
+):
+    """Get comprehensive asset information.
+
+    Args:
+        symbol: Stock ticker symbol
+        data_service: Injected DataServiceV2
+        presentation: Injected PresentationContext with web adapters
+
+    Returns:
+        Complete asset information
+
+    Raises:
+        HTTPException: 404 if asset not found
+    """
+    logger.info(f"GET /api/assets/{symbol}/info")
+
+    try:
+        from models.result.asset_result import AssetInfoResult, PriceDataResult, SentimentEventsResult
+        from utils.config_loader import get_config_loader
+        from services.converters import (
+            convert_asset_sqlmodel_to_dataclass,
+            convert_market_sqlmodel_to_dataclass,
+            convert_asset_price_sqlmodel_to_dataclass
+        )
+
+        symbol = symbol.upper()
+
+        # Get asset with market (returns SQLModel objects)
+        asset_info = data_service.get_asset_with_market(symbol)
+        if not asset_info:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Asset '{symbol}' not found"
+            )
+
+        asset_sqlmodel, market_sqlmodel = asset_info
+
+        # Convert SQLModel to dataclass for result models
+        asset = convert_asset_sqlmodel_to_dataclass(asset_sqlmodel)
+        market = convert_market_sqlmodel_to_dataclass(market_sqlmodel) if market_sqlmodel else None
+
+        # Get universe memberships
+        all_universes = data_service.get_all_universes()
+        member_of = []
+        for univ in all_universes:
+            if data_service.is_symbol_in_universe(symbol, univ.name):
+                member_of.append(univ.name)
+
+        # Get fundamentals if available
+        fundamentals = data_service.get_fundamentals(asset.id)
+
+        # Create asset info result
+        asset_result = AssetInfoResult(
+            asset=asset,
+            market=market,
+            universes=member_of,
+            fundamentals=fundamentals
+        )
+
+        # Get latest price data (returns SQLModel)
+        price_sqlmodel = data_service.get_latest_asset_price(symbol)
+        price_result = None
+        if price_sqlmodel:
+            # Convert to dataclass
+            price_data = convert_asset_price_sqlmodel_to_dataclass(price_sqlmodel)
+            price_result = PriceDataResult(
+                asset_price=price_data,
+                is_new_data=False,
+                forced_fetch=False
+            )
+
+        # Get sentiment events - check if news is stale and fetch if needed
+        sentiment_result = None
+        try:
+            config_loader = get_config_loader()
+
+            # Check if news is stale and fetch if needed
+            ttl_config = config_loader.load_database_ttl_config()
+            news_ttl_minutes = ttl_config.get("news_ttl_minutes", 30)
+
+            needs_refresh = data_service.is_news_stale(symbol, hours=news_ttl_minutes / 60)
+
+            if needs_refresh:
+                logger.info(f"News data is stale for {symbol}, fetching fresh articles...")
+                try:
+                    # Fetch fresh news (limit to 10 articles)
+                    data_service.fetch_news_and_sentiment(symbol, limit=10)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch fresh news for {symbol}: {e}")
+                    # Continue anyway - show whatever news we have
+
+            # Get sentiment events (whether we just fetched or not)
+            sentiment_events = data_service.get_sentiment_events(symbol=symbol)
+
+            # Get sentiment type mapping
+            all_types = data_service.get_all_sentiment_types(active_only=False)
+            type_id_to_name = {t.id: t.name for t in all_types}
+
+            # Calculate sentiment score
+            sentiment_config = config_loader.load_sentiment_config()
+            time_window_days = sentiment_config["analysis"]["default_time_window_days"]
+            sentiment_score = data_service.calculate_asset_sentiment(symbol, limit=10, time_window_days=time_window_days)
+
+            # Build result (even if empty, so UI can show "no news")
+            sentiment_result = SentimentEventsResult(
+                symbol=symbol,
+                sentiment_events=sentiment_events,
+                type_id_to_name=type_id_to_name,
+                sentiment_score=sentiment_score,
+                time_window_days=time_window_days
+            )
+        except Exception as e:
+            logger.warning(f"Could not fetch sentiment events for {symbol}: {e}")
+
+        # Use adapters to format all data
+        response = {
+            "asset": presentation.asset_adapter.display_asset_info(asset_result),
+        }
+
+        if price_result:
+            response["price"] = presentation.asset_adapter.display_price_data(price_result)
+
+        if sentiment_result:
+            response["sentiment"] = presentation.asset_adapter.display_sentiment_events(sentiment_result)
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting asset info for {symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting asset info: {str(e)}"
+        )
 
 
 @app.get(
@@ -760,13 +949,15 @@ async def list_screeners():
 )
 async def run_screener(
     name: str,
-    app_context: AppContext = Depends(get_app_context)
+    app_context: AppContext = Depends(get_app_context),
+    presentation = Depends(get_presentation_context)
 ):
     """Run a screener by name.
 
     Args:
         name: Screener name
         app_context: Injected AppContext
+        presentation: Injected PresentationContext with web adapters
 
     Returns:
         Screener results with context and data
@@ -785,36 +976,32 @@ async def run_screener(
         market_context = app_context.market_context
         data_service = app_context.get_data_service_v2()
 
-        # Execute screener
+        # Execute screener (returns tuple: results, excluded_count)
         screener_engine = ScreenerEngine(data_service, app_context)
-        results = screener_engine.execute_screener(screener_def, market_context)
+        results, excluded_count = screener_engine.execute_screener(screener_def, market_context)
 
-        # Get display columns and resolved config from YAML
+        # Get resolved config for result model
         from screener.template_resolver import TemplateResolver
         resolver = TemplateResolver(screener_def, market_context.session_name)
-        display_columns = resolver.resolve_display_columns()
         resolved_config = resolver.get_resolved_config()
 
-        # Return results with context, display config, and resolved configuration
-        return {
-            "screener": name,
-            "description": screener_def.get("description", ""),
-            "market_context": {
-                "session": market_context.session_name,
-                "market": market_context.market.name,
-                "market_code": market_context.market.code,
-                "date": str(market_context.current_date),
-                "is_trading_day": market_context.is_trading_day,
-            },
-            "universe": {
-                "name": app_context.get_data_service_v2().get_active_universe().name,
-                "total_symbols": len(app_context.get_data_service_v2().get_active_universe_symbols())
-            },
-            "resolved_config": resolved_config,
-            "display_columns": display_columns,
-            "results": results,
-            "count": len(results)
-        }
+        # Build output-agnostic result model
+        from models.result.screener_result import ScreenerResult
+        result = ScreenerResult(
+            screener_name=name,
+            results=results,
+            screener_def=screener_def,
+            resolved_config=resolved_config,
+            market_context=market_context,
+            excluded_count=excluded_count,
+            snapshot_time=None,
+            sessions_text=None,
+            warnings=None,
+            data_date_summary=None
+        )
+
+        # Use adapter to format for web/JSON
+        return presentation.screener_adapter.display_screener_results(result)
 
     except FileNotFoundError:
         raise HTTPException(
@@ -832,6 +1019,254 @@ async def run_screener(
         raise HTTPException(
             status_code=500,
             detail=f"Error running screener: {str(e)}"
+        )
+
+
+@app.get(
+    "/api/market/context",
+    response_model=Dict[str, Any],
+    summary="Get current market context",
+    description="""
+    Get current market context including session, trading status, and universe info.
+
+    **Example:**
+    ```
+    GET /api/market/context
+    ```
+
+    **Returns:** Market context with session info, universe stats, and last snapshot details
+    """
+)
+async def get_market_context(
+    app_context: AppContext = Depends(get_app_context),
+    presentation = Depends(get_presentation_context)
+):
+    """Get current market context.
+
+    Args:
+        app_context: Injected AppContext
+        presentation: Injected PresentationContext with web adapters
+
+    Returns:
+        Market context information
+    """
+    logger.info("GET /api/market/context")
+
+    try:
+        from models.result.market_result import MarketContextResult
+        from datetime import datetime
+
+        # Get universe statistics using data provider
+        active_universe = app_context.get_active_universe()
+        data_service = app_context.get_data_service_v2()
+
+        # Get universe market breakdown
+        universe_markets = data_service.get_universe_market_breakdown(active_universe)
+
+        # Get total universe count
+        universe_stats = data_service.get_universe_stats(active_universe)
+        total_universe = universe_stats.total_members if universe_stats else 0
+
+        # Get market context - uses the universe's primary market (first market listed)
+        ctx = app_context.market_context
+
+        # Get last snapshot metadata
+        last_snapshot_status = None
+        last_snapshot_time = None
+        last_snapshot_age_str = None
+
+        try:
+            # Query metadata using repository
+            metadata = data_service.metadata_repository.get_latest_by_operation(
+                operation_type='market_snapshots',
+                operation_subtype='fetch'
+            )
+
+            if metadata and metadata.completed_at:
+                last_snapshot_time = metadata.completed_at
+                last_snapshot_status = metadata.status
+
+                # Calculate age
+                age = datetime.now() - last_snapshot_time
+                if age.total_seconds() < 60:
+                    last_snapshot_age_str = f"{age.total_seconds():.0f}s ago"
+                elif age.total_seconds() < 3600:
+                    last_snapshot_age_str = f"{age.total_seconds() / 60:.1f}m ago"
+                elif age.total_seconds() < 86400:
+                    last_snapshot_age_str = f"{age.total_seconds() / 3600:.1f}h ago"
+                else:
+                    last_snapshot_age_str = f"{age.total_seconds() / 86400:.1f}d ago"
+
+        except Exception as e:
+            logger.warning(f"Unable to fetch snapshot metadata: {e}")
+
+        # Create result and use adapter
+        result = MarketContextResult(
+            universe_name=active_universe,
+            universe_markets=universe_markets,
+            total_universe=total_universe,
+            market_context=ctx,
+            last_snapshot_status=last_snapshot_status,
+            last_snapshot_time=last_snapshot_time,
+            last_snapshot_age_str=last_snapshot_age_str
+        )
+
+        return presentation.market_adapter.display_market_context(result)
+
+    except Exception as e:
+        logger.error(f"Error getting market context: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting market context: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/market/update",
+    response_model=Dict[str, Any],
+    summary="Update market snapshot data",
+    description="""
+    Trigger market data update (current snapshot or historical backfill).
+
+    **Query Parameters:**
+    - `date`: Optional date for historical backfill (YYYY-MM-DD format)
+    - `force`: Force refresh, bypass TTL cache
+
+    **Examples:**
+    ```
+    POST /api/market/update                          # Update current snapshot
+    POST /api/market/update?force=true               # Force update
+    POST /api/market/update?date=2025-10-15          # Backfill specific date
+    POST /api/market/update?date=2025-10-15&force=true  # Force backfill
+    ```
+
+    **Returns:** Update statistics including tickers processed, saved, duplicates, etc.
+    """
+)
+async def update_market_data(
+    date: Optional[str] = Query(default=None, description="Date for historical backfill (YYYY-MM-DD)"),
+    force: bool = Query(default=False, description="Force refresh, bypass cache"),
+    data_service: DataServiceV2 = Depends(get_data_service),
+    presentation = Depends(get_presentation_context)
+):
+    """Update market data.
+
+    Args:
+        date: Optional date for backfill
+        force: Force refresh flag
+        data_service: Injected DataServiceV2
+        presentation: Injected PresentationContext with web adapters
+
+    Returns:
+        Update statistics
+
+    Raises:
+        HTTPException: 400 if date format invalid, 500 if update fails
+    """
+    logger.info(f"POST /api/market/update (date={date}, force={force})")
+
+    try:
+        from datetime import datetime
+        from models.result.market_result import MarketUpdateResult, MarketBackfillResult
+        from models.dataclass.data_update_metadata import DataUpdateMetadataType
+        from services.cache_service import CacheConfig
+
+        if date:
+            # BACKFILL MODE
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid date format: {date}. Use YYYY-MM-DD"
+                )
+
+            # Run backfill
+            stats = data_service.backfill_market_data(
+                target_date=target_date,
+                force_refresh=force
+            )
+
+            # Get total records
+            total_historical_records = None
+            try:
+                total_historical_records = data_service.asset_price_repository.count_all()
+            except Exception:
+                pass
+
+            # Build result and use adapter
+            result = MarketBackfillResult(
+                target_date=target_date,
+                force_refresh=force,
+                total_tickers=stats.total_tickers,
+                matched_symbols=stats.matched_symbols,
+                unmatched_symbols=stats.unmatched_symbols,
+                transformed=stats.transformed,
+                saved=stats.saved,
+                duplicates=stats.duplicates,
+                invalid=stats.invalid,
+                invalid_no_timestamp=stats.invalid_no_timestamp,
+                invalid_exception=stats.invalid_exception,
+                duration_seconds=0.0,  # Could track if needed
+                completed_at=datetime.now(),
+                total_historical_records=total_historical_records
+            )
+
+            return presentation.market_adapter.display_market_backfill_result(result)
+
+        else:
+            # SNAPSHOT MODE
+            stats = data_service.update_market_snapshot(force_refresh=force)
+
+            # Get TTL and metadata for timing info
+            ttl_minutes = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS) / 60
+            metadata = data_service.metadata_repository.get_latest_by_operation(
+                operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS.value
+            )
+
+            last_snapshot_time = None
+            age_minutes = None
+            if metadata and metadata.completed_at:
+                last_snapshot_time = metadata.completed_at
+                age = datetime.now() - metadata.completed_at
+                age_minutes = age.total_seconds() / 60
+
+            # Get total records
+            total_historical_records = None
+            try:
+                total_historical_records = data_service.asset_price_repository.count_all()
+            except Exception:
+                pass
+
+            # Build result and use adapter
+            result = MarketUpdateResult(
+                data_was_fresh=stats.data_was_fresh,
+                total_tickers=stats.total_tickers,
+                matched_symbols=stats.matched_symbols,
+                unmatched_symbols=stats.unmatched_symbols,
+                transformed=stats.transformed,
+                saved=stats.saved,
+                duplicates=stats.duplicates,
+                invalid=stats.invalid,
+                invalid_no_timestamp=stats.invalid_no_timestamp,
+                invalid_exception=stats.invalid_exception,
+                duration_seconds=0.0,  # Could track if needed
+                completed_at=datetime.now(),
+                last_snapshot_time=last_snapshot_time,
+                age_minutes=age_minutes,
+                ttl_minutes=ttl_minutes,
+                total_historical_records=total_historical_records
+            )
+
+            return presentation.market_adapter.display_market_update_result(result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating market data: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error updating market data: {str(e)}"
         )
 
 

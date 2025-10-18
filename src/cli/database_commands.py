@@ -37,142 +37,15 @@ def database_info(app_context):
         sys.exit(1)
 
     try:
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from database.database_initializer import DatabaseInitializer
-        initializer = DatabaseInitializer(app_context.db_path)
+        data_service = app_context.get_data_service_v2()
+        stats = data_service.get_database_stats()
+
+        # Display using injected adapter from presentation context
+        app_context.presentation.database_adapter.display_database_stats(stats)
+
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize DatabaseInitializer: {e}[/red]")
+        console.print(f"[red]❌ Failed to get database stats: {e}[/red]")
         sys.exit(1)
-
-    info = initializer.get_database_info()
-
-    # Create a nice table for display
-    table = Table(title="Database Information", show_header=True)
-    table.add_column("Property", style="cyan")
-    table.add_column("Value", style="white")
-
-    table.add_row("Path", info['database_path'])
-    table.add_row("Status", info.get('status', 'unknown'))
-
-    console.print(table)
-
-    if 'tables' in info:
-        # Create table for statistics
-        stats_table = Table(title="\nTable Statistics", show_header=True)
-        stats_table.add_column("Table", style="cyan")
-        stats_table.add_column("Records", justify="right", style="white")
-
-        total_records = 0
-        for table_name, count in sorted(info['tables'].items()):
-            if isinstance(count, int):
-                stats_table.add_row(table_name, f"{count:,}")
-                total_records += count
-            else:
-                stats_table.add_row(table_name, str(count))
-
-        console.print(stats_table)
-
-    # Add recent operations table
-    try:
-        import sqlite3
-        conn = sqlite3.connect(app_context.db_path)
-        conn.row_factory = sqlite3.Row
-        try:
-            cursor = conn.cursor()
-            cursor.execute("""
-                WITH latest_operations AS (
-                    SELECT operation_type, operation_subtype, started_at, completed_at, status, total_items,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY operation_type,
-                               CASE WHEN operation_subtype IS NULL THEN '' ELSE operation_subtype END
-                               ORDER BY started_at DESC
-                           ) as rn
-                    FROM data_update_metadata
-                )
-                SELECT operation_type, operation_subtype, started_at, completed_at, status, total_items,
-                       CASE
-                           WHEN started_at IS NOT NULL THEN
-                               ROUND((julianday('now', 'localtime') - julianday(started_at)) * 24, 1)
-                           ELSE NULL
-                       END as age_hours
-                FROM latest_operations
-                WHERE rn = 1
-                ORDER BY started_at DESC
-            """)
-            recent_ops = cursor.fetchall()
-        finally:
-            conn.close()
-
-        if recent_ops:
-            # Create recent operations table
-            ops_table = Table(title="\nRecent Data Operations", show_header=True)
-            ops_table.add_column("Operation", style="cyan")
-            ops_table.add_column("Started", style="white")
-            ops_table.add_column("Age", justify="right", style="white")
-            ops_table.add_column("Status", style="white")
-            ops_table.add_column("Items", justify="right", style="white")
-            ops_table.add_column("Duration", justify="right", style="white")
-
-            for op in recent_ops:
-                operation_type, operation_subtype, started_at, completed_at, status, total_items, age_hours = op
-
-                # Format operation name
-                if operation_subtype:
-                    operation_name = f"{operation_type}.{operation_subtype}"
-                else:
-                    operation_name = operation_type
-
-                # Parse and format started time
-                from datetime import datetime
-                try:
-                    started_dt = datetime.fromisoformat(started_at.replace('T', ' ').replace('Z', ''))
-                    started_str = started_dt.strftime("%m-%d %H:%M")
-                except:
-                    started_str = started_at[:16] if started_at else "N/A"
-
-                # Format status with colors
-                if status == "completed":
-                    status_str = f"[green]{status}[/green]"
-                elif status == "running":
-                    status_str = f"[yellow]{status}[/yellow]"
-                elif status == "failed":
-                    status_str = f"[red]{status}[/red]"
-                else:
-                    status_str = status or "unknown"
-
-                # Format item count
-                items_str = f"{total_items:,}" if total_items else "-"
-
-                # Format age
-                if age_hours is not None:
-                    if age_hours < 1:
-                        age_str = f"{age_hours * 60:.0f}m"  # Show minutes if less than 1 hour
-                    elif age_hours < 24:
-                        age_str = f"{age_hours:.1f}h"  # Show hours with decimal
-                    else:
-                        age_str = f"{age_hours / 24:.1f}d"  # Show days
-                else:
-                    age_str = "-"
-
-                # Calculate duration
-                if completed_at and started_at:
-                    try:
-                        started_dt = datetime.fromisoformat(started_at.replace('T', ' ').replace('Z', ''))
-                        completed_dt = datetime.fromisoformat(completed_at.replace('T', ' ').replace('Z', ''))
-                        duration = completed_dt - started_dt
-                        duration_str = f"{duration.total_seconds():.1f}s"
-                    except:
-                        duration_str = "-"
-                else:
-                    duration_str = "-" if status == "completed" else "running"
-
-                ops_table.add_row(operation_name, started_str, age_str, status_str, items_str, duration_str)
-
-            console.print(ops_table)
-
-    except Exception as e:
-        # Don't fail the whole command if recent operations table fails
-        console.print(f"[yellow]⚠️  Could not load recent operations: {e}[/yellow]")
 
 
 @database.command('init')
@@ -293,8 +166,6 @@ def bootstrap_sentiment_types(app_context):
         console.print(f"[red]Database not found: {app_context.db_path}[/red]")
         console.print("[yellow]Run 'tradescout database init' first[/yellow]")
         sys.exit(1)
-        bootstrap_service = BootstrapService(data_service)
-        from services.bootstrap_service import BootstrapService
 
     try:
         data_service = app_context.get_data_service_v2()
@@ -455,7 +326,7 @@ def bootstrap_universes(app_context, force):
     # Set default_universe as active after all universes are created
     if total_success > 0:
         console.print(f"\n[blue]Setting default_universe as active...[/blue]")
-        data_service.set_active_universe("default_universe")
+        data_service.set_active_universe("default")
         console.print(f"[green]✅ default_universe is now the active universe[/green]")
 
     # Summary
@@ -630,7 +501,7 @@ def bootstrap_all(app_context, force):
                 console.print(f"[green]✅ {universe_name}: {members:,} members[/green]")
 
         # Set default_universe as active
-        data_service.set_active_universe("default_universe")
+        data_service.set_active_universe("default")
 
     except Exception as e:
         console.print(f"[red]Universe bootstrap failed: {e}[/red]")

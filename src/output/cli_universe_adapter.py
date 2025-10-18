@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from models.dataclass.universe_result import UniverseListResult, UniverseInfoResult
+from models.result.universe_result import UniverseListResult, UniverseInfoResult
 
 
 console = Console()

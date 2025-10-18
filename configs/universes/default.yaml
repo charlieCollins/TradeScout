@@ -2,7 +2,7 @@
 # Primary universe for gap analysis - US stocks, ETFs, and REITs
 # Based on docs/SUPPORTED_UNIVERSE.md filtering criteria
 
-name: default_universe
+name: default
 description: Primary universe for gap analysis - US stocks, ETFs, and REITs
 
 # Included criteria

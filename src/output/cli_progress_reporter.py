@@ -1,13 +1,7 @@
 """CLI progress reporter using Rich formatting.
 
-DEPRECATED: CLIOutputAdapter has been split into separate adapters:
-- CLIBootstrapOutputAdapter (bootstrap results)
-- CLIFetchOutputAdapter (fetch results)
-- CLIUpdateOutputAdapter (update results)
-- CLINewsOutputAdapter (news results)
-- CLIScreenerOutputAdapter (screener results)
-
-This file now only contains CLIProgressReporter for progress bars.
+Provides CLIProgressReporter for progress bars during long-running operations.
+Result display is handled by domain-specific adapters (bootstrap, news, screener, market, etc.).
 """
 
 from typing import Optional

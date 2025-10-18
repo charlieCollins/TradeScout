@@ -70,8 +70,12 @@ class AppContext:
             service = self.get_market_context_service()
             self._market_context = service.get_context(market_code=primary_market_code)
 
-            # Log context for debugging
-            logger.info(f"Market Context: {self._market_context}")
+            # Log context for debugging - include all universe markets
+            data_service = self.get_data_service_v2()
+            active_universe = self.get_active_universe()
+            universe_markets = data_service.get_universe_market_breakdown(active_universe)
+            market_codes = ', '.join([code for code, _, _ in universe_markets])
+            logger.info(f"Market Context: {self._market_context} | Universe '{active_universe}' markets: [{market_codes}]")
 
         return self._market_context
 
@@ -140,10 +144,10 @@ class AppContext:
                     self._active_universe = active_universe.name
                 else:
                     # Fallback if no universe is active
-                    self._active_universe = "default_universe"
+                    self._active_universe = "default"
             except Exception as e:
                 logger.debug(f"Error getting active universe: {e}")
-                self._active_universe = "default_universe"
+                self._active_universe = "default"
 
         return self._active_universe
 
@@ -190,6 +194,6 @@ class AppContext:
 
         # Return the first market code
         primary_market_code = market_breakdown[0][0]  # (market_code, market_name, asset_count)
-        logger.info(f"Using primary market '{primary_market_code}' from universe '{active_universe}'")
+        logger.debug(f"Using primary market '{primary_market_code}' from universe '{active_universe}'")
 
         return primary_market_code

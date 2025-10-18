@@ -29,6 +29,14 @@ from models.sqlmodel.provider_sqlmodel import ProviderSQLModel
 from models.sqlmodel.universe_sqlmodel import UniverseSQLModel, UniverseMembershipSQLModel
 from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
 from models.dataclass.data_update_metadata import DataUpdateMetadataType
+from services.converters import (
+    convert_asset_sqlmodel_to_dataclass,
+    convert_market_sqlmodel_to_dataclass,
+    convert_asset_price_sqlmodel_to_dataclass,
+    convert_universe_membership_sqlmodel_to_dataclass,
+    convert_sentiment_event_sqlmodel_to_dataclass,
+    convert_fed_data_sqlmodel_to_dataclass
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,27 +140,24 @@ class DataServiceV2:
 
     def get_asset(
         self, symbol: str, force_refresh: bool = False
-    ) -> Optional[AssetSQLModel]:
-        """Get asset with cache-aside pattern.
-
-        This implements the on-demand fetching requirement:
-        1. Check local store (via cache → repository)
-        2. If missing/outdated → fetch from API (via provider)
-        3. Update local store (via cache → repository)
-        4. Return asset
+    ) -> Optional["Asset"]:
+        """Get asset by symbol.
 
         Args:
             symbol: Stock symbol (e.g., 'AAPL')
-            force_refresh: If True, bypass cache and always fetch fresh
+            force_refresh: If True, bypass cache and always fetch fresh (not implemented)
 
         Returns:
-            Asset if found, None otherwise
+            Asset dataclass if found, None otherwise
         """
-        return self.asset_cache.get_or_fetch(
-            key=symbol.upper(),
-            fetch_fn=lambda: self._fetch_asset_from_api(symbol),
-            force_refresh=force_refresh
-        )
+        # Get from repository (returns SQLModel)
+        asset_sqlmodel = self.asset_repository.get_by_symbol(symbol.upper())
+
+        if not asset_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return convert_asset_sqlmodel_to_dataclass(asset_sqlmodel)
 
     def _fetch_asset_from_api(self, symbol: str) -> Optional[AssetSQLModel]:
         """Fetch asset from Polygon API and convert to SQLModel.
@@ -219,23 +224,26 @@ class DataServiceV2:
 
     def get_market(
         self, code: str, force_refresh: bool = False
-    ) -> Optional[MarketSQLModel]:
-        """Get market by code with cache-aside pattern.
-
-        Markets are reference data that rarely changes, so they use a longer TTL (7 days).
+    ) -> Optional["Market"]:
+        """Get market by code.
 
         Args:
             code: Market code (e.g., 'XNYS', 'NASDAQ')
-            force_refresh: If True, bypass cache and always fetch fresh
+            force_refresh: If True, bypass cache and always fetch fresh (not implemented)
 
         Returns:
-            Market if found, None otherwise
+            Market dataclass if found, None otherwise
         """
-        # Markets are simpler - they're already in database from bootstrap
-        # So cache just returns from repository (no API fetch for markets)
-        return self.market_repository.get_by_code(code)
+        # Get from repository (returns SQLModel)
+        market_sqlmodel = self.market_repository.get_by_code(code)
 
-    def get_all_markets(self, active_only: bool = True) -> List[MarketSQLModel]:
+        if not market_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return convert_market_sqlmodel_to_dataclass(market_sqlmodel)
+
+    def get_all_markets(self, active_only: bool = True) -> List["Market"]:
         """Get all active markets.
 
         Args:
@@ -243,17 +251,65 @@ class DataServiceV2:
                         Note: Currently only active markets are supported
 
         Returns:
-            List of all active markets
+            List of all active markets as dataclasses
         """
-        return self.market_repository.find_all_active()
+        from models.dataclass.market import Market
 
-    def get_us_markets(self) -> List[MarketSQLModel]:
+        markets_sqlmodel = self.market_repository.find_all_active()
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            Market(
+                id=m.id,
+                code=m.code,
+                name=m.name,
+                country=m.country,
+                timezone=m.timezone,
+                currency=m.currency,
+                premarket_start_time=m.premarket_start_time,
+                premarket_end_time=m.premarket_end_time,
+                regular_open_time=m.regular_open_time,
+                regular_close_time=m.regular_close_time,
+                afterhours_start_time=m.afterhours_start_time,
+                afterhours_end_time=m.afterhours_end_time,
+                is_active=m.is_active,
+                created_at=m.created_at,
+                updated_at=m.updated_at
+            )
+            for m in markets_sqlmodel
+        ]
+
+    def get_us_markets(self) -> List["Market"]:
         """Get all active US markets.
 
         Returns:
-            List of US markets
+            List of US markets as dataclasses
         """
-        return self.market_repository.find_us_markets()
+        from models.dataclass.market import Market
+
+        markets_sqlmodel = self.market_repository.find_us_markets()
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            Market(
+                id=m.id,
+                code=m.code,
+                name=m.name,
+                country=m.country,
+                timezone=m.timezone,
+                currency=m.currency,
+                premarket_start_time=m.premarket_start_time,
+                premarket_end_time=m.premarket_end_time,
+                regular_open_time=m.regular_open_time,
+                regular_close_time=m.regular_close_time,
+                afterhours_start_time=m.afterhours_start_time,
+                afterhours_end_time=m.afterhours_end_time,
+                is_active=m.is_active,
+                created_at=m.created_at,
+                updated_at=m.updated_at
+            )
+            for m in markets_sqlmodel
+        ]
 
     # ============================================================================
     # FUNDAMENTALS OPERATIONS - Phase 3: Fundamentals entity migrated
@@ -261,7 +317,7 @@ class DataServiceV2:
 
     def get_fundamentals(
         self, asset_id: int, force_refresh: bool = False
-    ) -> Optional[FundamentalsSQLModel]:
+    ) -> Optional["AssetFundamentals"]:
         """Get fundamentals for an asset.
 
         Args:
@@ -269,14 +325,36 @@ class DataServiceV2:
             force_refresh: If True, bypass cache and always fetch fresh
 
         Returns:
-            Fundamentals if found, None otherwise
+            AssetFundamentals dataclass if found, None otherwise
         """
+        from models.dataclass.fundamentals import AssetFundamentals
+
         # Fundamentals are already in database from bootstrap
-        return self.fundamentals_repository.get_by_asset_id(asset_id)
+        fundamentals_sqlmodel = self.fundamentals_repository.get_by_asset_id(asset_id)
+
+        if not fundamentals_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass for domain layer
+        return AssetFundamentals(
+            asset_id=fundamentals_sqlmodel.asset_id,
+            company_name=fundamentals_sqlmodel.company_name,
+            sector=fundamentals_sqlmodel.sector,
+            industry=fundamentals_sqlmodel.industry,
+            sic_code=fundamentals_sqlmodel.sic_code,
+            market_cap=fundamentals_sqlmodel.market_cap,
+            shares_outstanding=fundamentals_sqlmodel.shares_outstanding,
+            avg_volume_30d=fundamentals_sqlmodel.avg_volume_30d,
+            beta=fundamentals_sqlmodel.beta,
+            pe_ratio=fundamentals_sqlmodel.pe_ratio,
+            dividend_yield=fundamentals_sqlmodel.dividend_yield,
+            provider_id=fundamentals_sqlmodel.provider_id,
+            last_updated=fundamentals_sqlmodel.last_updated
+        )
 
     def find_by_market_cap(
         self, min_cap: int, max_cap: Optional[int] = None
-    ) -> List[FundamentalsSQLModel]:
+    ) -> List["AssetFundamentals"]:
         """Find assets by market cap range.
 
         Critical for gap trading screeners (min $300M market cap required).
@@ -286,33 +364,99 @@ class DataServiceV2:
             max_cap: Maximum market cap in dollars (optional)
 
         Returns:
-            List of fundamentals meeting criteria
+            List of fundamentals meeting criteria as dataclasses
         """
-        return self.fundamentals_repository.find_by_market_cap_range(
+        from models.dataclass.fundamentals import AssetFundamentals
+
+        fundamentals_sqlmodel = self.fundamentals_repository.find_by_market_cap_range(
             min_cap=min_cap,
             max_cap=max_cap
         )
 
-    def find_gap_trading_candidates(self) -> List[FundamentalsSQLModel]:
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            AssetFundamentals(
+                asset_id=f.asset_id,
+                company_name=f.company_name,
+                sector=f.sector,
+                industry=f.industry,
+                sic_code=f.sic_code,
+                market_cap=f.market_cap,
+                shares_outstanding=f.shares_outstanding,
+                avg_volume_30d=f.avg_volume_30d,
+                beta=f.beta,
+                pe_ratio=f.pe_ratio,
+                dividend_yield=f.dividend_yield,
+                provider_id=f.provider_id,
+                last_updated=f.last_updated
+            )
+            for f in fundamentals_sqlmodel
+        ]
+
+    def find_gap_trading_candidates(self) -> List["AssetFundamentals"]:
         """Find assets suitable for gap trading (min $300M market cap).
 
         Business rule: Gap trading requires sufficient liquidity.
 
         Returns:
-            List of fundamentals meeting gap trading criteria
+            List of fundamentals meeting gap trading criteria as dataclasses
         """
-        return self.fundamentals_repository.find_for_gap_trading()
+        from models.dataclass.fundamentals import AssetFundamentals
 
-    def find_by_sector(self, sector: str) -> List[FundamentalsSQLModel]:
+        fundamentals_sqlmodel = self.fundamentals_repository.find_for_gap_trading()
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            AssetFundamentals(
+                asset_id=f.asset_id,
+                company_name=f.company_name,
+                sector=f.sector,
+                industry=f.industry,
+                sic_code=f.sic_code,
+                market_cap=f.market_cap,
+                shares_outstanding=f.shares_outstanding,
+                avg_volume_30d=f.avg_volume_30d,
+                beta=f.beta,
+                pe_ratio=f.pe_ratio,
+                dividend_yield=f.dividend_yield,
+                provider_id=f.provider_id,
+                last_updated=f.last_updated
+            )
+            for f in fundamentals_sqlmodel
+        ]
+
+    def find_by_sector(self, sector: str) -> List["AssetFundamentals"]:
         """Find assets by sector.
 
         Args:
             sector: Sector name (e.g., 'Technology', 'Healthcare')
 
         Returns:
-            List of fundamentals in the sector
+            List of fundamentals in the sector as dataclasses
         """
-        return self.fundamentals_repository.find_by_sector(sector)
+        from models.dataclass.fundamentals import AssetFundamentals
+
+        fundamentals_sqlmodel = self.fundamentals_repository.find_by_sector(sector)
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            AssetFundamentals(
+                asset_id=f.asset_id,
+                company_name=f.company_name,
+                sector=f.sector,
+                industry=f.industry,
+                sic_code=f.sic_code,
+                market_cap=f.market_cap,
+                shares_outstanding=f.shares_outstanding,
+                avg_volume_30d=f.avg_volume_30d,
+                beta=f.beta,
+                pe_ratio=f.pe_ratio,
+                dividend_yield=f.dividend_yield,
+                provider_id=f.provider_id,
+                last_updated=f.last_updated
+            )
+            for f in fundamentals_sqlmodel
+        ]
 
     def get_all_sectors(self) -> List[str]:
         """Get list of all sectors.
@@ -326,30 +470,62 @@ class DataServiceV2:
     # PROVIDER OPERATIONS - Phase 4: Providers entity migrated
     # ============================================================================
 
-    def get_provider(self, name: str) -> Optional[ProviderSQLModel]:
+    def get_provider(self, name: str) -> Optional["Provider"]:
         """Get provider by name.
 
         Args:
             name: Provider name (e.g., 'polygon', 'yfinance')
 
         Returns:
-            Provider if found, None otherwise
+            Provider dataclass if found, None otherwise
         """
-        return self.provider_repository.get_by_name(name)
+        from models.dataclass.provider import Provider
 
-    def get_all_providers(self) -> List[ProviderSQLModel]:
+        provider_sqlmodel = self.provider_repository.get_by_name(name)
+
+        if not provider_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return Provider(
+            id=provider_sqlmodel.id,
+            name=provider_sqlmodel.name,
+            display_name=provider_sqlmodel.display_name,
+            base_url=provider_sqlmodel.base_url,
+            api_key_required=provider_sqlmodel.api_key_required,
+            is_active=provider_sqlmodel.is_active,
+            created_at=provider_sqlmodel.created_at
+        )
+
+    def get_all_providers(self) -> List["Provider"]:
         """Get all active providers.
 
         Returns:
-            List of active providers
+            List of active providers as dataclasses
         """
-        return self.provider_repository.find_all_active()
+        from models.dataclass.provider import Provider
+
+        providers_sqlmodel = self.provider_repository.find_all_active()
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            Provider(
+                id=p.id,
+                name=p.name,
+                display_name=p.display_name,
+                base_url=p.base_url,
+                api_key_required=p.api_key_required,
+                is_active=p.is_active,
+                created_at=p.created_at
+            )
+            for p in providers_sqlmodel
+        ]
 
     # ============================================================================
     # UNIVERSE OPERATIONS - Phase 5: Universes entity migrated
     # ============================================================================
 
-    def get_universe(self, name: str) -> Optional[UniverseSQLModel]:
+    def get_universe(self, name: str) -> Optional["Universe"]:
         """Get universe by name.
 
         Universes are INTERNAL-ONLY - not fetched from APIs.
@@ -358,25 +534,82 @@ class DataServiceV2:
             name: Universe name (e.g., 'gap_trading_universe')
 
         Returns:
-            Universe if found, None otherwise
+            Universe dataclass if found, None otherwise
         """
-        return self.universe_repository.get_by_name(name)
+        from models.dataclass.universe import Universe
 
-    def get_all_universes(self) -> List[UniverseSQLModel]:
+        universe_sqlmodel = self.universe_repository.get_by_name(name)
+
+        if not universe_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return Universe(
+            id=universe_sqlmodel.id,
+            name=universe_sqlmodel.name,
+            description=universe_sqlmodel.description,
+            is_active=universe_sqlmodel.is_active,
+            min_market_cap=universe_sqlmodel.min_market_cap,
+            min_volume=universe_sqlmodel.min_volume,
+            max_assets=universe_sqlmodel.max_assets,
+            last_updated=universe_sqlmodel.last_updated,
+            created_at=universe_sqlmodel.created_at,
+            updated_at=universe_sqlmodel.updated_at
+        )
+
+    def get_all_universes(self) -> List["Universe"]:
         """Get all universes.
 
         Returns:
-            List of all universes
+            List of all universes as dataclasses
         """
-        return self.universe_repository.find_all()
+        from models.dataclass.universe import Universe
 
-    def get_active_universe(self) -> Optional[UniverseSQLModel]:
+        universes_sqlmodel = self.universe_repository.find_all()
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            Universe(
+                id=u.id,
+                name=u.name,
+                description=u.description,
+                is_active=u.is_active,
+                min_market_cap=u.min_market_cap,
+                min_volume=u.min_volume,
+                max_assets=u.max_assets,
+                last_updated=u.last_updated,
+                created_at=u.created_at,
+                updated_at=u.updated_at
+            )
+            for u in universes_sqlmodel
+        ]
+
+    def get_active_universe(self) -> Optional["Universe"]:
         """Get the currently active universe.
 
         Returns:
-            Active universe or None
+            Active universe dataclass or None
         """
-        return self.universe_repository.get_active_universe()
+        from models.dataclass.universe import Universe
+
+        universe_sqlmodel = self.universe_repository.get_active_universe()
+
+        if not universe_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return Universe(
+            id=universe_sqlmodel.id,
+            name=universe_sqlmodel.name,
+            description=universe_sqlmodel.description,
+            is_active=universe_sqlmodel.is_active,
+            min_market_cap=universe_sqlmodel.min_market_cap,
+            min_volume=universe_sqlmodel.min_volume,
+            max_assets=universe_sqlmodel.max_assets,
+            last_updated=universe_sqlmodel.last_updated,
+            created_at=universe_sqlmodel.created_at,
+            updated_at=universe_sqlmodel.updated_at
+        )
 
     def set_active_universe(self, universe_name: str) -> bool:
         """Set the active universe.
@@ -393,16 +626,23 @@ class DataServiceV2:
 
     def get_universe_memberships(
         self, universe_name: str
-    ) -> List[UniverseMembershipSQLModel]:
+    ) -> List["UniverseMembership"]:
         """Get memberships for a universe.
 
         Args:
             universe_name: Universe name
 
         Returns:
-            List of memberships
+            List of UniverseMembership dataclasses
         """
-        return self.universe_repository.get_memberships_by_universe_name(universe_name)
+        # Get from repository (returns SQLModel list)
+        memberships_sqlmodel = self.universe_repository.get_memberships_by_universe_name(universe_name)
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            convert_universe_membership_sqlmodel_to_dataclass(m)
+            for m in memberships_sqlmodel
+        ]
 
     def get_active_universe_symbols(self) -> List[str]:
         """Get list of symbols in the active universe.
@@ -451,7 +691,7 @@ class DataServiceV2:
     # ASSET PRICE OPERATIONS - Phase 6: AssetPrice entity migrated
     # ============================================================================
 
-    def get_latest_price(self, symbol: str) -> Optional[AssetPriceSQLModel]:
+    def get_latest_price(self, symbol: str) -> Optional["AssetPrice"]:
         """Get most recent price for a symbol.
 
         Critical for gap analysis.
@@ -460,13 +700,20 @@ class DataServiceV2:
             symbol: Stock symbol
 
         Returns:
-            Latest price or None
+            AssetPrice dataclass or None
         """
-        return self.asset_price_repository.get_latest_by_symbol(symbol)
+        # Get from repository (returns SQLModel)
+        price_sqlmodel = self.asset_price_repository.get_latest_by_symbol(symbol)
+
+        if not price_sqlmodel:
+            return None
+
+        # Convert SQLModel to dataclass at service boundary
+        return convert_asset_price_sqlmodel_to_dataclass(price_sqlmodel)
 
     def get_latest_prices(
         self, symbols: List[str]
-    ) -> List[AssetPriceSQLModel]:
+    ) -> List["AssetPrice"]:
         """Get latest prices for multiple symbols.
 
         Batch query for gap screeners.
@@ -475,13 +722,20 @@ class DataServiceV2:
             symbols: List of stock symbols
 
         Returns:
-            List of latest prices
+            List of AssetPrice dataclasses
         """
-        return self.asset_price_repository.get_latest_for_symbols(symbols)
+        # Get from repository (returns SQLModel list)
+        prices_sqlmodel = self.asset_price_repository.get_latest_for_symbols(symbols)
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            convert_asset_price_sqlmodel_to_dataclass(p)
+            for p in prices_sqlmodel
+        ]
 
     def find_prices_with_gaps(
         self, min_gap_percent: float = 2.0
-    ) -> List[AssetPriceSQLModel]:
+    ) -> List["AssetPrice"]:
         """Find assets with significant gaps.
 
         Core gap trading screener query.
@@ -490,9 +744,16 @@ class DataServiceV2:
             min_gap_percent: Minimum gap percentage (default: 2%)
 
         Returns:
-            List of assets with gaps
+            List of AssetPrice dataclasses with gaps
         """
-        return self.asset_price_repository.find_with_gaps(min_gap_percent)
+        # Get from repository (returns SQLModel list)
+        prices_sqlmodel = self.asset_price_repository.find_with_gaps(min_gap_percent)
+
+        # Convert SQLModel to dataclass at service boundary
+        return [
+            convert_asset_price_sqlmodel_to_dataclass(p)
+            for p in prices_sqlmodel
+        ]
 
     def get_last_price_update_time(self) -> Optional["datetime"]:
         """Get timestamp of most recent price update across all symbols.
@@ -526,7 +787,7 @@ class DataServiceV2:
             MarketSnapshotUpdateStats with operation statistics
         """
         from datetime import datetime, timedelta
-        from models.dataclass.stats import MarketSnapshotUpdateStats
+        from models.result.market_result import MarketSnapshotUpdateStats
 
         # Check metadata to see if data is fresh (using configured TTL)
         if not force_refresh:
@@ -573,6 +834,9 @@ class DataServiceV2:
         stats_matched = 0
         stats_unmatched = 0
         stats_invalid = 0
+        stats_skipped_stale = 0
+        stats_invalid_no_timestamp = 0
+        stats_invalid_exception = 0
 
         # market_snapshot.tickers is a dict[symbol -> TickerSnapshot]
         for symbol, ticker_snapshot in market_snapshot.tickers.items():
@@ -593,9 +857,9 @@ class DataServiceV2:
             # Only process if API has newer data (or we have no data yet)
             if existing_price and api_timestamp:
                 if api_timestamp <= existing_price.provider_updated_at:
-                    # API data is not newer, skip
-                    stats_invalid += 1
-                    logger.debug(f"Skipping {symbol} - API timestamp {api_timestamp} not newer than existing {existing_price.provider_updated_at}")
+                    # API data is same or older, skip (we already have this data or newer)
+                    stats_skipped_stale += 1
+                    logger.debug(f"Skipping {symbol} - API timestamp {api_timestamp} <= existing {existing_price.provider_updated_at}")
                     continue
 
             # Transform to AssetPrice
@@ -605,16 +869,25 @@ class DataServiceV2:
                 ticker_snapshot=ticker_snapshot
             )
 
-            if asset_price:
+            if asset_price and isinstance(asset_price, object) and not isinstance(asset_price, str):
                 asset_prices.append(asset_price)
             else:
+                # Transform failed - track the reason
                 stats_invalid += 1
+                if asset_price == "NO_TIMESTAMP":
+                    stats_invalid_no_timestamp += 1
+                elif asset_price == "EXCEPTION":
+                    stats_invalid_exception += 1
+
+        # Log invalid breakdown (debug level - not critical information)
+        if stats_invalid > 0:
+            logger.debug(f"Invalid records: {stats_invalid} total ({stats_invalid_no_timestamp} missing timestamp, {stats_invalid_exception} transform exceptions)")
 
         # Batch save to database (only saves new tuples)
         saved_count = 0
         if asset_prices:
             saved_count = self.batch_save_asset_prices(asset_prices)
-            logger.info(f"Saved {saved_count} new asset prices to database (skipped {len(asset_prices) - saved_count} duplicates, {stats_invalid} invalid)")
+            logger.info(f"Saved {saved_count} new asset prices to database (skipped {len(asset_prices) - saved_count} duplicates, {stats_skipped_stale} stale, {stats_invalid} invalid)")
 
             # Record metadata - processed_items is valid data we handled, not just new saves
             # Invalid/rejected data is quality enforcement, not failure
@@ -628,7 +901,11 @@ class DataServiceV2:
                 failed_items=0  # Quality rejections aren't failures
             )
         else:
-            logger.warning(f"No valid asset prices to save ({stats_invalid} invalid)")
+            # All data was skipped - either stale or invalid
+            if stats_skipped_stale > 0:
+                logger.info(f"No new data to save - all {stats_skipped_stale} records already in database (same or fresher)")
+            elif stats_invalid > 0:
+                logger.warning(f"No valid asset prices to save ({stats_invalid} invalid: {stats_invalid_no_timestamp} missing timestamp, {stats_invalid_exception} transform exceptions)")
 
         return MarketSnapshotUpdateStats(
             total_tickers=len(market_snapshot.tickers),
@@ -636,8 +913,10 @@ class DataServiceV2:
             unmatched_symbols=stats_unmatched,
             transformed=len(asset_prices),
             invalid=stats_invalid,
+            invalid_no_timestamp=stats_invalid_no_timestamp,
+            invalid_exception=stats_invalid_exception,
             saved=saved_count,
-            duplicates=len(asset_prices) - saved_count,
+            duplicates=len(asset_prices) - saved_count + stats_skipped_stale,  # Include stale data in duplicates count
             data_was_fresh=False
         )
 
@@ -656,7 +935,7 @@ class DataServiceV2:
             MarketSnapshotUpdateStats with operation statistics
         """
         from datetime import datetime
-        from models.dataclass.stats import MarketSnapshotUpdateStats
+        from models.result.market_result import MarketSnapshotUpdateStats
 
         start_time = datetime.now()
 
@@ -683,7 +962,6 @@ class DataServiceV2:
         stats_matched = 0
         stats_unmatched = 0
         stats_invalid = 0
-        stats_skipped_older = 0
 
         for symbol, bar in bars_dict.items():
             symbol = symbol.upper()  # Normalize symbol
@@ -696,22 +974,12 @@ class DataServiceV2:
 
             stats_matched += 1
 
-            # Check if we already have data for this date
-            existing_price = self.asset_price_repository.get_by_trade_date(symbol, target_date)
-
             # Polygon grouped bars timestamp is market close (4PM ET)
             # For backfill, use afterhours close (8PM ET) as the "latest" data for that day
             # Add 4 hours (14400000 ms) to the timestamp to represent afterhours close
             bar_timestamp_ms = bar.timestamp_ms
             afterhours_close_ms = bar_timestamp_ms + 14_400_000  # Add 4 hours
             provider_updated_at_ns = afterhours_close_ms * 1_000_000  # Convert to nanoseconds
-
-            # Skip if we have newer or same data (unless force_refresh)
-            if existing_price and not force_refresh:
-                if existing_price.provider_updated_at >= provider_updated_at_ns:
-                    stats_skipped_older += 1
-                    logger.debug(f"Skipping {symbol} - existing data is newer or same ({existing_price.provider_updated_at} >= {provider_updated_at_ns})")
-                    continue
 
             # Transform bar to AssetPrice
             from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
@@ -746,31 +1014,12 @@ class DataServiceV2:
 
             asset_prices.append(asset_price)
 
-        # Batch save to database
+        # Upsert to database (insert new or update existing)
         saved_count = 0
-        deleted_count = 0
         if asset_prices:
-            # If force_refresh, delete existing records for this date first
-            if force_refresh:
-                from sqlmodel import delete as sql_delete
-                asset_ids = [p.asset_id for p in asset_prices]
-
-                # Delete all records for these assets on this date
-                delete_statement = sql_delete(AssetPriceSQLModel).where(
-                    AssetPriceSQLModel.asset_id.in_(asset_ids),
-                    AssetPriceSQLModel.trade_date == target_date
-                )
-                result = self.session.exec(delete_statement)
-                deleted_count = result.rowcount if hasattr(result, 'rowcount') else 0
-                self.session.commit()
-                logger.info(f"Force refresh: deleted {deleted_count} existing records for {target_date}")
-
-            saved_count = self.batch_save_asset_prices(asset_prices)
-
-            if force_refresh:
-                logger.info(f"Backfilled {saved_count} prices for {target_date} (force refresh: deleted {deleted_count} old records)")
-            else:
-                logger.info(f"Backfilled {saved_count} prices for {target_date} (skipped {len(asset_prices) - saved_count} duplicates, {stats_skipped_older} older data)")
+            # Use bulk_upsert to handle both inserts and updates
+            saved_count = self.asset_price_repository.bulk_upsert(asset_prices)
+            logger.info(f"Backfilled {saved_count} prices for {target_date}")
 
             # Record metadata
             self.record_bulk_operation_metadata(
@@ -805,7 +1054,7 @@ class DataServiceV2:
         Returns:
             NewsResult object with processing details
         """
-        from models.dataclass.results import NewsResult
+        from models.result.news_result import NewsResult
         from models.sqlmodel.sentiment_event_sqlmodel import SentimentEventSQLModel
         from datetime import datetime, date, time as dt_time
         from decimal import Decimal
@@ -957,12 +1206,6 @@ class DataServiceV2:
             SentimentScore object or None
         """
         from analysis.sentiment_analyzer import SentimentAnalyzer
-        from models.sqlmodel.sentiment_event_sqlmodel import SentimentEventSQLModel
-        from models.dataclass.sentiment_event import SentimentEvent
-        from sqlmodel import select
-        from datetime import date, timedelta, time as dt_time
-        import json
-        from decimal import Decimal
 
         symbol = symbol.upper()
 
@@ -972,42 +1215,21 @@ class DataServiceV2:
             logger.warning(f"Asset {symbol} not found in database")
             return None
 
-        # Query sentiment events using SQLModel
-        start_date = date.today() - timedelta(days=time_window_days)
-
-        statement = select(SentimentEventSQLModel).where(
-            SentimentEventSQLModel.asset_id == asset.id,
-            SentimentEventSQLModel.event_date >= start_date
-        ).order_by(SentimentEventSQLModel.event_date.desc())  # type: ignore
-
-        events_sql = self.session.exec(statement).all()
-
-        # Limit to most recent events
-        events_sql = events_sql[:limit] if events_sql else []
+        # Get sentiment events using repository
+        events_sql = self.sentiment_event_repository.find_recent_by_asset(
+            asset.id,
+            days=time_window_days,
+            limit=limit
+        )
 
         # Convert SQLModel objects to SentimentEvent dataclass objects
         sentiment_events = []
         for event_sql in events_sql:
             try:
-                # Parse details JSON
-                details = json.loads(event_sql.details) if event_sql.details else {}
-
-                # Create SentimentEvent dataclass
-                sentiment_event = SentimentEvent(
-                    id=event_sql.id,
-                    asset_id=event_sql.asset_id,
-                    sentiment_type_id=event_sql.sentiment_type_id,
-                    event_date=event_sql.event_date,
-                    event_time=event_sql.event_time,
-                    session=event_sql.session,
-                    value=Decimal(str(event_sql.value)) if event_sql.value else Decimal("0"),
-                    magnitude=event_sql.magnitude or "small",
-                    details=details,
-                    created_at=event_sql.created_at
-                )
+                sentiment_event = convert_sentiment_event_sqlmodel_to_dataclass(event_sql)
                 sentiment_events.append(sentiment_event)
             except Exception as e:
-                logger.warning(f"Failed to parse sentiment event {event_sql.id}: {e}")
+                logger.warning(f"Failed to convert sentiment event {event_sql.id}: {e}")
                 continue
 
         if not sentiment_events:
@@ -1050,54 +1272,29 @@ class DataServiceV2:
         Returns:
             DatabaseStats object
         """
-        from models.database_stats import DatabaseStats
-        from models.sqlmodel.asset_sqlmodel import AssetSQLModel
-        from models.sqlmodel.market_sqlmodel import MarketSQLModel
-        from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
-        from models.sqlmodel.universe_sqlmodel import UniverseSQLModel, UniverseMembershipSQLModel
-        from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
-        from sqlmodel import func, select
+        from models.result.database_result import DatabaseStats
 
-        # Get table counts using SQLModel
-        table_counts = {}
-
-        # Count assets
-        stmt = select(func.count(AssetSQLModel.id))
-        table_counts["assets"] = self.session.exec(stmt).first() or 0
-
-        # Count markets
-        stmt = select(func.count(MarketSQLModel.id))
-        table_counts["markets"] = self.session.exec(stmt).first() or 0
-
-        # Count asset_prices
-        stmt = select(func.count(AssetPriceSQLModel.id))
-        table_counts["asset_prices"] = self.session.exec(stmt).first() or 0
-
-        # Count universes
-        stmt = select(func.count(UniverseSQLModel.id))
-        table_counts["universes"] = self.session.exec(stmt).first() or 0
-
-        # Count universe_memberships
-        stmt = select(func.count(UniverseMembershipSQLModel.id))
-        table_counts["universe_memberships"] = self.session.exec(stmt).first() or 0
-
-        # Count fundamentals
-        stmt = select(func.count(FundamentalsSQLModel.id))
-        table_counts["fundamentals"] = self.session.exec(stmt).first() or 0
+        # Get table counts using repositories
+        table_counts = {
+            "assets": self.asset_repository.count(),
+            "markets": self.market_repository.count_all(),
+            "asset_prices": self.asset_price_repository.count_all(),
+            "universes": self.universe_repository.count_all(),
+            "universe_memberships": self.universe_repository.count_all_memberships(),
+            "fundamentals": self.fundamentals_repository.count_all()
+        }
 
         # Get total records
         total_records = sum(table_counts.values())
 
-        # Get latest update time across all entities
+        # Get latest update time across all entities using repositories
         latest_updates = []
 
-        stmt = select(func.max(AssetSQLModel.updated_at))
-        asset_update = self.session.exec(stmt).first()
+        asset_update = self.asset_repository.get_last_updated()
         if asset_update:
             latest_updates.append(asset_update)
 
-        stmt = select(func.max(FundamentalsSQLModel.last_updated))
-        fund_update = self.session.exec(stmt).first()
+        fund_update = self.fundamentals_repository.get_last_updated()
         if fund_update:
             latest_updates.append(fund_update)
 
@@ -1214,7 +1411,7 @@ class DataServiceV2:
             provider_updated_at = ticker_snapshot.updated_ns
             if not provider_updated_at or provider_updated_at == 0:
                 logger.debug(f"Rejecting {symbol} - provider_updated_at is 0 or None")
-                return None
+                return "NO_TIMESTAMP"  # Special marker to track this specific failure
 
             # Determine trade date
             updated_seconds = provider_updated_at // 1_000_000_000
@@ -1279,8 +1476,8 @@ class DataServiceV2:
             )
 
         except Exception as e:
-            logger.error(f"Error transforming TickerSnapshot for {symbol}: {e}")
-            return None
+            logger.warning(f"Error transforming TickerSnapshot for {symbol}: {e}")
+            return "EXCEPTION"  # Special marker to track this specific failure
 
     def get_all_assets_dict(self):
         """Get all active assets as dict for quick symbol lookups.
@@ -1364,12 +1561,6 @@ class DataServiceV2:
         Returns:
             List of SentimentEvent dataclass objects
         """
-        from models.sqlmodel.sentiment_event_sqlmodel import SentimentEventSQLModel
-        from models.dataclass.sentiment_event import SentimentEvent
-        from sqlmodel import select
-        import json
-        from decimal import Decimal
-
         symbol = symbol.upper()
 
         # Get asset from database
@@ -1378,39 +1569,17 @@ class DataServiceV2:
             logger.warning(f"Asset {symbol} not found in database")
             return []
 
-        # Query sentiment events using SQLModel
-        statement = select(SentimentEventSQLModel).where(
-            SentimentEventSQLModel.asset_id == asset.id
-        ).order_by(
-            SentimentEventSQLModel.event_date.desc(),  # type: ignore
-            SentimentEventSQLModel.event_time.desc()  # type: ignore
-        ).limit(limit)
-
-        events_sql = self.session.exec(statement).all()
+        # Get sentiment events using repository
+        events_sql = self.sentiment_event_repository.find_by_asset(asset.id, limit=limit)
 
         # Convert SQLModel objects to SentimentEvent dataclass objects
         sentiment_events = []
         for event_sql in events_sql:
             try:
-                # Parse details JSON
-                details = json.loads(event_sql.details) if event_sql.details else {}
-
-                # Create SentimentEvent dataclass
-                sentiment_event = SentimentEvent(
-                    id=event_sql.id,
-                    asset_id=event_sql.asset_id,
-                    sentiment_type_id=event_sql.sentiment_type_id,
-                    event_date=event_sql.event_date,
-                    event_time=event_sql.event_time,
-                    session=event_sql.session,
-                    value=Decimal(str(event_sql.value)) if event_sql.value else Decimal("0"),
-                    magnitude=event_sql.magnitude or "small",
-                    details=details,
-                    created_at=event_sql.created_at
-                )
+                sentiment_event = convert_sentiment_event_sqlmodel_to_dataclass(event_sql)
                 sentiment_events.append(sentiment_event)
             except Exception as e:
-                logger.warning(f"Failed to parse sentiment event {event_sql.id}: {e}")
+                logger.warning(f"Failed to convert sentiment event {event_sql.id}: {e}")
                 continue
 
         return sentiment_events
@@ -1425,9 +1594,6 @@ class DataServiceV2:
         Returns:
             True if news should be refreshed, False if recent news exists
         """
-        from models.sqlmodel.sentiment_event_sqlmodel import SentimentEventSQLModel
-        from models.sqlmodel.sentiment_type_sqlmodel import SentimentTypeSQLModel
-        from sqlmodel import select, func
         from datetime import datetime, timedelta
 
         symbol = symbol.upper()
@@ -1438,23 +1604,18 @@ class DataServiceV2:
             logger.warning(f"Asset {symbol} not found in database")
             return True  # No asset = definitely stale
 
-        # Get news sentiment type IDs (any type with name LIKE 'news_%')
-        news_type_stmt = select(SentimentTypeSQLModel.id).where(
-            SentimentTypeSQLModel.name.like('news_%')  # type: ignore
-        )
-        news_type_ids = list(self.session.exec(news_type_stmt).all())
+        # Get news sentiment type IDs using repository
+        news_type_ids = self.sentiment_type_repository.find_news_types()
 
         if not news_type_ids:
             logger.debug("No news sentiment types found in database")
             return True  # No news types = definitely stale
 
-        # Get most recent created_at timestamp for this asset's news events
-        stmt = select(func.max(SentimentEventSQLModel.created_at)).where(
-            SentimentEventSQLModel.asset_id == asset.id,
-            SentimentEventSQLModel.sentiment_type_id.in_(news_type_ids)  # type: ignore
+        # Get most recent created_at timestamp for this asset's news events using repository
+        last_news_time = self.sentiment_event_repository.get_latest_news_time(
+            asset.id,
+            news_type_ids
         )
-
-        last_news_time = self.session.exec(stmt).first()
 
         if not last_news_time:
             # No news events found - definitely stale
@@ -1568,34 +1729,17 @@ class DataServiceV2:
         Returns:
             List of FedData objects ordered by observation_date DESC
         """
-        from models.sqlmodel.fed_data_sqlmodel import FedDataSQLModel
-        from models.dataclass.fed_data import FedData
-        from sqlmodel import select
-        from decimal import Decimal
-        import json
-
-        statement = select(FedDataSQLModel).where(
-            FedDataSQLModel.data_type == data_type
-        ).order_by(FedDataSQLModel.observation_date.desc()).limit(limit)  # type: ignore
-
-        feds_sql = self.session.exec(statement).all()
+        # Get FED data using repository
+        feds_sql = self.fed_data_repository.get_recent_by_type(data_type, limit=limit)
 
         # Convert SQLModel objects to FedData dataclass objects
         fed_data_list = []
         for fed_sql in feds_sql:
             try:
-                fed_data = FedData(
-                    id=fed_sql.id,
-                    data_type=fed_sql.data_type,
-                    observation_date=fed_sql.observation_date,
-                    value=Decimal(str(fed_sql.value)),
-                    details=json.loads(fed_sql.details) if fed_sql.details else {},
-                    created_at=fed_sql.created_at,
-                    updated_at=fed_sql.updated_at
-                )
+                fed_data = convert_fed_data_sqlmodel_to_dataclass(fed_sql)
                 fed_data_list.append(fed_data)
             except Exception as e:
-                logger.warning(f"Failed to parse FED data row: {e}")
+                logger.warning(f"Failed to convert FED data row: {e}")
                 continue
 
         return fed_data_list

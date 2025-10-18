@@ -10,21 +10,36 @@
 Successfully refactored TradeScout's command layer to be output-agnostic using the PresentationContext pattern:
 
 **Completed:**
-- ✅ Split monolithic `CLIOutputAdapter` into 7 specialized adapters
 - ✅ Created `PresentationContext` to manage output adapters
 - ✅ Injected all CLI adapters in `main.py`
-- ✅ Refactored screener, gap, bootstrap, and news commands
-- ✅ All commands now use `app_context.presentation.X_adapter`
-- ✅ Pattern ready for Web/JSON output (just inject different adapters)
+- ✅ Refactored ALL commands to use adapter pattern
+- ✅ Created Web adapters for API endpoints
+- ✅ Pattern fully implemented across CLI and Web
 
-**Adapters Created:**
+**CLI Adapters Created (11):**
 1. `CLIScreenerOutputAdapter` - Screener results
 2. `CLIGapAnalysisAdapter` - Gap analysis results
 3. `CLIGapPerformanceAdapter` - Gap backtest performance
-4. `CLIBootstrapOutputAdapter` - Bootstrap operations
-5. `CLIFetchOutputAdapter` - Fetch operations
-6. `CLIUpdateOutputAdapter` - Update operations
-7. `CLINewsOutputAdapter` - News/sentiment results
+4. `CLIBootstrapOutputAdapter` - Bootstrap operations (CLI-only)
+5. `CLINewsOutputAdapter` - News/sentiment results
+6. `CLIAssetOutputAdapter` - Asset information
+7. `CLIMarketOutputAdapter` - Market updates and context
+8. `CLIUniverseOutputAdapter` - Universe listings
+9. `CLIValidateOutputAdapter` - Validation results
+10. `CLIFedOutputAdapter` - Federal reserve data
+11. `CLIDatabaseOutputAdapter` - Database statistics (CLI-only)
+
+**Web Adapters Created (8):**
+1. `WebScreenerOutputAdapter` - Screener results as JSON
+2. `WebGapOutputAdapter` - Gap analysis as JSON
+3. `WebMarketOutputAdapter` - Market data as JSON
+4. `WebAssetOutputAdapter` - Asset information as JSON
+5. `WebNewsOutputAdapter` - News/sentiment as JSON
+6. `WebUniverseOutputAdapter` - Universe data as JSON
+7. `WebValidateOutputAdapter` - Validation results as JSON
+8. `WebFedOutputAdapter` - Federal reserve data as JSON
+
+**Note:** Bootstrap and Database operations are CLI-only utilities (no web adapters)
 
 ---
 
@@ -351,30 +366,27 @@ For refactoring other commands (gap, asset, market):
 
 ## Commands Status
 
-### Refactored Commands (Using PresentationContext)
+### All Commands Use PresentationContext Pattern
 
-| Command | CLI Adapter(s) | Refactored | Notes |
-|---------|----------------|------------|-------|
-| screener | CLIScreenerOutputAdapter | ✅ | Uses ScreenerResult model + injected adapter |
-| gap analyze | CLIGapAnalysisAdapter | ✅ | Uses existing GapCandidate model + injected adapter |
-| gap backtest | CLIGapPerformanceAdapter | ✅ | Uses existing performance models + injected adapter |
-| database bootstrap | CLIBootstrapOutputAdapter | ✅ | Uses BootstrapResult model + injected adapter |
-| asset news | CLINewsOutputAdapter | ✅ | Uses NewsResult model + injected adapter |
-| fetch operations | CLIFetchOutputAdapter | ✅ | Uses FetchResult model (ready for use) |
-| update operations | CLIUpdateOutputAdapter | ✅ | Uses UpdateResult model (ready for use) |
+| Domain | CLI Adapter | Web Adapter | Result Model(s) | Status |
+|--------|-------------|-------------|-----------------|--------|
+| **Screener** | CLIScreenerOutputAdapter | WebScreenerOutputAdapter | ScreenerResult | ✅ Complete |
+| **Gap Analysis** | CLIGapAnalysisAdapter | WebGapOutputAdapter | GapAnalysisResult | ✅ Complete |
+| **Gap Backtest** | CLIGapPerformanceAdapter | WebGapOutputAdapter | GapPerformanceResult | ✅ Complete |
+| **Market** | CLIMarketOutputAdapter | WebMarketOutputAdapter | MarketUpdateResult, MarketContextResult, MarketBackfillResult | ✅ Complete |
+| **Asset** | CLIAssetOutputAdapter | WebAssetOutputAdapter | AssetInfoResult, PriceDataResult, MarketContextResult, SentimentEventsResult | ✅ Complete |
+| **News** | CLINewsOutputAdapter | WebNewsOutputAdapter | NewsResult | ✅ Complete |
+| **Universe** | CLIUniverseOutputAdapter | WebUniverseOutputAdapter | UniverseListResult, UniverseInfoResult | ✅ Complete |
+| **Validate** | CLIValidateOutputAdapter | WebValidateOutputAdapter | VolumeValidationResult | ✅ Complete |
+| **Fed** | CLIFedOutputAdapter | WebFedOutputAdapter | FedDataResult | ✅ Complete |
+| **Bootstrap** | CLIBootstrapOutputAdapter | N/A (CLI-only) | BootstrapResult | ✅ Complete |
+| **Database** | CLIDatabaseOutputAdapter | N/A (CLI-only) | DatabaseStats | ✅ Complete |
 
-### Utility Commands (Simple Console Output)
-
-These commands use simple console.print() for status messages and don't need complex adapters:
-
-| Command | Type | Notes |
-|---------|------|-------|
-| asset local/info | Utility | Simple info display, console.print() is appropriate |
-| market commands | Utility | Simple status/info display |
-| database init/reset | Utility | Simple status messages |
-| universe commands | Utility | Simple CRUD operations |
-| validate commands | Utility | Simple validation output |
-| fed commands | Utility | Simple data fetch |
+**Architecture:**
+- All commands build result models (output-agnostic data)
+- CLI commands use CLI adapters (Rich formatting)
+- Web endpoints use Web adapters (JSON serialization)
+- Same business logic works for both CLI and Web
 
 ---
 

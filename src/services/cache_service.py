@@ -242,4 +242,4 @@ class CacheConfig:
         elif metadata_type == DataUpdateMetadataType.PROVIDERS:
             return config["markets_ttl_hours"] * 3600  # Providers change rarely like markets
         else:
-            return 3600  # Default: 1 hour
+            return config["default_ttl_seconds"]

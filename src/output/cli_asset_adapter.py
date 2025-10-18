@@ -11,7 +11,7 @@ from rich.console import Console
 from rich.table import Table
 from rich import box
 
-from models.dataclass.asset_result import MarketContextResult, AssetInfoResult, PriceDataResult, SentimentEventsResult
+from models.result.asset_result import MarketContextResult, AssetInfoResult, PriceDataResult, SentimentEventsResult
 
 
 console = Console()
@@ -81,6 +81,29 @@ class CLIAssetOutputAdapter:
             asset_table.add_row("Universes", ", ".join(result.universes))
         else:
             asset_table.add_row("Universes", "[dim]none[/dim]")
+
+        # Add fundamentals section if available
+        if result.fundamentals:
+            fund = result.fundamentals
+            asset_table.add_row("", "")  # Separator row
+            asset_table.add_row("[bold cyan]Fundamentals[/bold cyan]", "")
+
+            if fund.market_cap:
+                asset_table.add_row("Market Cap", fund.market_cap_display)
+            if fund.shares_outstanding:
+                asset_table.add_row("Shares Out", fund.shares_outstanding_display)
+            if fund.sector:
+                asset_table.add_row("Sector", fund.sector)
+            if fund.industry:
+                asset_table.add_row("Industry", fund.industry)
+            if fund.avg_volume_30d:
+                asset_table.add_row("Avg Volume", f"{fund.avg_volume_30d:,}")
+            if fund.beta:
+                asset_table.add_row("Beta", f"{fund.beta:.2f}")
+            if fund.pe_ratio:
+                asset_table.add_row("P/E Ratio", f"{fund.pe_ratio:.2f}")
+            if fund.dividend_yield:
+                asset_table.add_row("Div Yield", f"{fund.dividend_yield:.2%}")
 
         console.print(asset_table)
 
@@ -248,5 +271,11 @@ class CLIAssetOutputAdapter:
             sentiment_table.columns[1].footer = ""
             sentiment_table.columns[2].footer = f"[bold]{score_str} ({result.sentiment_score.sentiment_label})[/bold]"
             sentiment_table.columns[3].footer = f"[dim]{result.sentiment_score.articles_analyzed} articles within {result.time_window_days}-day window, {result.sentiment_score.confidence_level} confidence[/dim]"
+        else:
+            # No score available (no articles within time window)
+            sentiment_table.columns[0].footer = "[bold]Overall:[/bold]"
+            sentiment_table.columns[1].footer = ""
+            sentiment_table.columns[2].footer = f"[dim]N/A[/dim]"
+            sentiment_table.columns[3].footer = f"[dim]No articles within {result.time_window_days}-day window[/dim]"
 
         console.print(sentiment_table)

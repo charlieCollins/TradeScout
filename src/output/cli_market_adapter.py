@@ -9,7 +9,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 
-from models.dataclass.market_result import MarketUpdateResult, MarketBackfillResult, MarketContextResult
+from models.result.market_result import MarketUpdateResult, MarketBackfillResult, MarketContextResult
 
 
 console = Console()

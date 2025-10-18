@@ -302,6 +302,18 @@ class FundamentalsRepository:
         statement = select(FundamentalsSQLModel)
         return len(list(self.session.exec(statement).all()))
 
+    def get_last_updated(self) -> Optional["datetime"]:
+        """Get the most recent update timestamp across all fundamentals.
+
+        Returns:
+            Latest last_updated timestamp or None
+        """
+        from datetime import datetime
+        from sqlmodel import func
+
+        stmt = select(func.max(FundamentalsSQLModel.last_updated))
+        return self.session.exec(stmt).first()
+
     def count_by_sector(self, sector: str) -> int:
         """Count fundamentals in a specific sector.
 

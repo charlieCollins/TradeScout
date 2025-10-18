@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 import pytz
 
+from utils.config_loader import ConfigLoader
 from screener.template_resolver import TemplateResolver
 from models.dataclass.market_context import MarketContext
 
@@ -76,7 +77,7 @@ class ScreenerEngine:
         if self.config:
             universe = data_source.get("universe", self.config.get_active_universe())
         else:
-            universe = data_source.get("universe", "default_universe")
+            universe = data_source.get("universe", "default")
         require_recent_trading = data_source.get("require_recent_trading", True)
 
         # Count excluded assets (before filtering by date)
@@ -89,7 +90,11 @@ class ScreenerEngine:
         filters = screener_def.get("filters", [])
         sort = screener_def.get("sort", [])
         display = screener_def.get("display", {})
-        limit = display.get("limit", 50)
+
+        # Load default limit from config
+        defaults_config = ConfigLoader().load_yaml("screener_defaults.yaml")
+        default_limit = defaults_config["screener_defaults"]["display"]["default_limit"]
+        limit = display.get("limit", default_limit)
 
         # Execute query through screener repository
         results = self.data_provider.screener_repository.execute_screener_query(
