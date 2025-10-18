@@ -1,4 +1,7 @@
-"""Display formatter for screener results."""
+"""CLI output adapter for screener results using Rich formatting.
+
+Formats screener results for terminal display with Rich tables and styling.
+"""
 
 import sys
 from datetime import datetime
@@ -11,21 +14,54 @@ from rich.text import Text
 from screener.template_resolver import TemplateResolver
 
 
-class ScreenerDisplay:
-    """Format and display screener results."""
+class CLIScreenerOutputAdapter:
+    """Format and display screener results for CLI using Rich."""
 
     def __init__(self):
-        """Initialize display formatter."""
+        """Initialize CLI screener output adapter."""
         self.console = Console()
+
+    def display_screener_results(self, result):
+        """Display screener results from a ScreenerResult model.
+
+        This is the main entry point for output-agnostic screener commands.
+        Commands create a ScreenerResult and pass it to this method.
+
+        Args:
+            result: ScreenerResult model containing all screener data
+        """
+        from models.dataclass.screener_result import ScreenerResult
+
+        # Extract session from market context
+        session = result.market_context.session_name
+
+        # Call existing display method
+        self.display_results(
+            results=result.results,
+            screener_def=result.screener_def,
+            session=session,
+            snapshot_time=result.snapshot_time,
+            sessions_text=result.sessions_text,
+            warnings=result.warnings,
+            market_context=result.market_context,
+            data_date_summary=result.data_date_summary,
+            screener_name=result.screener_name,
+            excluded_count=result.excluded_count
+        )
 
     def display_results(
         self,
         results: List[Dict[str, Any]],
         screener_def: Dict,
         session: str,
+        date: Optional[str] = None,
         snapshot_time: Optional[str] = None,
         sessions_text: Optional[str] = None,
-        warnings: Optional[List[str]] = None
+        warnings: Optional[List[str]] = None,
+        market_context: Optional[Any] = None,
+        data_date_summary: Optional[Dict[str, Any]] = None,
+        screener_name: Optional[str] = None,
+        excluded_count: Optional[int] = None
     ):
         """Display screener results in a formatted table.
 
@@ -33,11 +69,26 @@ class ScreenerDisplay:
             results: List of stock results
             screener_def: Screener configuration with display settings
             session: Current market session for context-aware columns
+            date: Date string (deprecated, use market_context)
             snapshot_time: Optional snapshot time string to display
             sessions_text: Optional sessions info to display
             warnings: Optional list of warning messages to display
+            market_context: MarketContext with expected data date
+            data_date_summary: Summary of actual data dates
+            screener_name: Name of screener being run
+            excluded_count: Number of assets excluded due to no data
         """
-        # Show last snapshot time first
+        # Show screener running message
+        if screener_name:
+            self.console.print(f"[yellow]📊 Running '{screener_name}' screener...[/yellow]")
+
+        # Show exclusion message if assets were filtered out by date
+        if excluded_count and excluded_count > 0 and market_context:
+            self.console.print(
+                f"[yellow]🗑️  {excluded_count} assets excluded (no price data for {market_context.expected_data_date})[/yellow]"
+            )
+
+        # Show last snapshot time
         if snapshot_time:
             self.console.print(f"[dim]{snapshot_time}[/dim]")
         if sessions_text:
@@ -52,9 +103,13 @@ class ScreenerDisplay:
             self.console.print("[yellow]No stocks match the screener criteria.[/yellow]")
             return
 
-        # Get display columns using template resolver for context-aware screeners
+        # Get display columns and resolved config using template resolver
         resolver = TemplateResolver(screener_def, session)
         columns_config = resolver.resolve_display_columns()
+        resolved_config = resolver.get_resolved_config()
+
+        # Display resolved configuration header
+        self._display_config_header(resolved_config, date, market_context, data_date_summary)
 
         # Create table
         title = f"{screener_def.get('name', 'Screener')} - {screener_def.get('description', '')}"
@@ -94,6 +149,64 @@ class ScreenerDisplay:
         # Show summary
         self.console.print(f"\n[dim]Showing {len(results)} results[/dim]")
 
+    def _display_config_header(
+        self,
+        resolved_config: Dict[str, Any],
+        date: Optional[str] = None,
+        market_context: Optional[Any] = None,
+        data_date_summary: Optional[Dict[str, Any]] = None
+    ):
+        """Display resolved configuration for current session.
+
+        Args:
+            resolved_config: Resolved configuration from TemplateResolver
+            date: Date string (deprecated, use market_context)
+            market_context: MarketContext with expected data date
+            data_date_summary: Summary of actual data dates from database
+        """
+        session = resolved_config.get("session", "unknown")
+        field_mapping = resolved_config.get("field_mapping", {})
+        thresholds = resolved_config.get("thresholds", {})
+
+        # Display session
+        self.console.print(f"[bold cyan]Session:[/bold cyan] {session}")
+
+        # Display data date validation if available
+        if market_context and data_date_summary is not None:
+            self._display_data_date_validation(market_context, data_date_summary)
+
+        # Display field mappings if present
+        if field_mapping:
+            self.console.print("[bold cyan]Field Mappings:[/bold cyan]")
+            for field_name, field_expr in field_mapping.items():
+                self.console.print(f"  [dim]{field_name}:[/dim] {field_expr}")
+
+        # Display thresholds if present
+        if thresholds:
+            self.console.print("[bold cyan]Thresholds:[/bold cyan]")
+            for threshold_name, threshold_value in thresholds.items():
+                self.console.print(f"  [dim]{threshold_name}:[/dim] {threshold_value}")
+
+        self.console.print()  # Empty line after config
+
+    def _display_data_date_validation(
+        self,
+        market_context: Any,
+        data_date_summary: Dict[str, Any]
+    ):
+        """Display data date validation showing what data was actually used.
+
+        Args:
+            market_context: MarketContext with expected_data_date property
+            data_date_summary: Summary from AssetPriceRepository.get_data_date_summary()
+                Note: This shows ALL data in database, not just what screener used
+        """
+        expected_date = market_context.expected_data_date
+
+        # Show what date the screener is querying for
+        self.console.print(
+            f"[bold cyan]Querying Data For:[/bold cyan] {expected_date}"
+        )
 
     def _get_field_value(self, result: Dict, field: str) -> Any:
         """Get field value from result, handling computed fields.
@@ -214,3 +327,21 @@ class ScreenerDisplay:
                 return str(value)
         except (ValueError, TypeError):
             return str(value)
+
+    def display_screener_list(self, result):
+        """Display list of available screeners.
+
+        Args:
+            result: ScreenerListResult containing list of screeners
+        """
+        from models.dataclass.screener_result import ScreenerListResult
+
+        table = Table(title="Available Screeners", show_header=True)
+        table.add_column("Screener", style="cyan", no_wrap=True)
+        table.add_column("Description", style="white")
+
+        for screener in result.screeners:
+            table.add_row(screener.name, screener.description)
+
+        self.console.print(table)
+        self.console.print("\n[dim]Screeners are loaded from configs/screeners/*.yaml[/dim]")

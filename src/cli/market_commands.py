@@ -79,10 +79,8 @@ def update(app_context, force):
         logger.exception("Market snapshot update failed")
         sys.exit(1)
 
-    # Display results
-    console.print("")
-
-    # Get timing information
+    # Build result
+    from models.dataclass.market_result import MarketUpdateResult
     from models.dataclass.data_update_metadata import DataUpdateMetadataType
     from services.cache_service import CacheConfig
 
@@ -91,81 +89,135 @@ def update(app_context, force):
         operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS.value
     )
 
-    if stats.data_was_fresh:
-        # Data was fresh - show timing details
-        console.print("[green]✅ Data is fresh (within TTL), no update needed[/green]")
-        console.print("")
+    # Calculate update duration
+    end_time = datetime.now()
+    duration_seconds = (end_time - start_time).total_seconds()
 
-        info_table = Table(show_header=False, box=None, padding=(0, 1))
-        info_table.add_column("Info", style="dim")
-        info_table.add_column("Value", justify="right")
+    # Get timing information
+    last_snapshot_time = None
+    age_minutes = None
+    if metadata and metadata.completed_at:
+        last_snapshot_time = metadata.completed_at
+        age = datetime.now() - metadata.completed_at
+        age_minutes = age.total_seconds() / 60
 
-        if metadata and metadata.completed_at:
-            age = datetime.now() - metadata.completed_at
-            age_minutes = age.total_seconds() / 60
-            info_table.add_row("Last snapshot", metadata.completed_at.strftime("%Y-%m-%d %H:%M:%S"))
-            info_table.add_row("Age", f"{age_minutes:.1f} minutes")
-            info_table.add_row("TTL setting", f"{ttl_minutes:.0f} minutes")
+    # Get total records count
+    total_historical_records = None
+    try:
+        total_historical_records = data_service.asset_price_repository.count_all()
+    except Exception:
+        pass
 
-        console.print(info_table)
-        console.print("")
-        console.print("[dim]Use --force to fetch fresh data anyway[/dim]")
-        return
+    # Create result and display
+    result = MarketUpdateResult(
+        data_was_fresh=stats.data_was_fresh,
+        total_tickers=stats.total_tickers,
+        matched_symbols=stats.matched_symbols,
+        unmatched_symbols=stats.unmatched_symbols,
+        transformed=stats.transformed,
+        saved=stats.saved,
+        duplicates=stats.duplicates,
+        invalid=stats.invalid,
+        duration_seconds=duration_seconds,
+        completed_at=end_time,
+        last_snapshot_time=last_snapshot_time,
+        age_minutes=age_minutes,
+        ttl_minutes=ttl_minutes,
+        total_historical_records=total_historical_records
+    )
+    app_context.presentation.market_adapter.display_market_update_result(result)
 
-    if stats.total_tickers == 0:
-        console.print("[red]❌ API returned no data[/red]")
-        return
+
+@market.command()
+@click.argument("date")
+@click.option("--force", is_flag=True, help="Force refresh, overwrite existing data even if older")
+@pass_config
+def backfill(app_context, date, force):
+    """
+    Backfill market data for a specific date using daily bars.
+
+    DATE should be in YYYY-MM-DD format (e.g., 2025-10-14).
+
+    This fetches end-of-day bars for all stocks that traded on the specified date
+    and saves data for all symbols in our database. Only updates records if the
+    new provider_updated_at is newer than existing data (unless --force is used).
+
+    Example:
+        tradescout market backfill 2025-10-14
+        tradescout market backfill 2025-10-14 --force
+    """
+    from datetime import datetime, date as date_obj
+
+    start_time = datetime.now()
+
+    # Parse date
+    try:
+        target_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        console.print(f"[red]❌ Invalid date format: {date}. Use YYYY-MM-DD (e.g., 2025-10-14)[/red]")
+        sys.exit(1)
+
+    # Display market context at the top
+    display_market_context(app_context)
+
+    # Initialize data service
+    try:
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        data_service = app_context.get_data_service_v2()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to initialize data provider: {e}[/red]")
+        sys.exit(1)
+
+    # Backfill market data
+    console.print(f"[bold blue]Backfilling market data for {target_date}...[/bold blue]")
+
+    try:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            backfill_task = progress.add_task("Processing grouped daily bars...", total=None)
+
+            stats = data_service.backfill_market_data(target_date=target_date, force_refresh=force)
+
+            progress.update(backfill_task, completed=True)
+
+    except Exception as e:
+        console.print(f"[red]❌ Failed to backfill market data: {e}[/red]")
+        logger.exception("Market backfill failed")
+        sys.exit(1)
+
+    # Build result
+    from models.dataclass.market_result import MarketBackfillResult
 
     # Calculate update duration
     end_time = datetime.now()
     duration_seconds = (end_time - start_time).total_seconds()
 
-    # Show summary
-    console.print(f"[green]✅ Received {stats.total_tickers:,} tickers from Polygon[/green]")
-    console.print("")
-
-    if stats.saved > 0:
-        console.print(f"[green]✅ Added {stats.saved:,} new price records to database[/green]")
-        if stats.duplicates > 0:
-            console.print(f"[dim]   ├─ Skipped {stats.duplicates:,} duplicates (already had this data)[/dim]")
-    else:
-        console.print(f"[yellow]⚠️  No new data - all {stats.duplicates:,} records already in database[/yellow]")
-
     # Get total records count
+    total_historical_records = None
     try:
         total_historical_records = data_service.asset_price_repository.count_all()
-        console.print(f"[dim]   Total historical price records in database: {total_historical_records:,}[/dim]")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not get total price record count: {e}")
 
-    # Show processing stats
-    console.print("")
-    console.print("[bold]Market Update Complete[/bold]")
-
-    table = Table(show_header=False, box=None, padding=(0, 1))
-    table.add_column("Metric", style="dim")
-    table.add_column("Value", justify="right")
-
-    table.add_row("Tickers from Polygon", f"{stats.total_tickers:,}")
-    table.add_row("Matched to our assets", f"{stats.matched_symbols:,}")
-    table.add_row("Unmatched symbols", f"{stats.unmatched_symbols:,}")
-    table.add_row("Successfully transformed", f"{stats.transformed:,}")
-    table.add_row("  ├─ New records added", f"{stats.saved:,}")
-    table.add_row("  ├─ Duplicates skipped", f"{stats.duplicates:,}")
-    table.add_row("  └─ Invalid/rejected", f"{stats.invalid:,}")
-    table.add_row("Update duration", f"{duration_seconds:.1f}s")
-    table.add_row("Completed at", end_time.strftime("%Y-%m-%d %H:%M:%S"))
-
-    # Add timing information
-    if metadata and metadata.completed_at:
-        table.add_row("", "")  # Blank line separator
-        age = datetime.now() - metadata.completed_at
-        age_minutes = age.total_seconds() / 60
-        table.add_row("Last snapshot", metadata.completed_at.strftime("%Y-%m-%d %H:%M:%S"))
-        table.add_row("Age", f"{age_minutes:.1f} minutes")
-        table.add_row("TTL setting", f"{ttl_minutes:.0f} minutes")
-
-    console.print(table)
+    # Create result and display
+    result = MarketBackfillResult(
+        target_date=target_date,
+        force_refresh=force,
+        total_tickers=stats.total_tickers,
+        matched_symbols=stats.matched_symbols,
+        unmatched_symbols=stats.unmatched_symbols,
+        transformed=stats.transformed,
+        saved=stats.saved,
+        duplicates=stats.duplicates,
+        invalid=stats.invalid,
+        duration_seconds=duration_seconds,
+        completed_at=end_time,
+        total_historical_records=total_historical_records
+    )
+    app_context.presentation.market_adapter.display_market_backfill_result(result)
 
 
 @market.command()
@@ -174,6 +226,8 @@ def context(app_context):
     """Show current market context, universe composition, and last snapshot status"""
 
     try:
+        from models.dataclass.market_result import MarketContextResult
+
         # Get universe statistics using data provider
         active_universe = app_context.get_active_universe()
         data_service = app_context.get_data_service_v2()
@@ -185,96 +239,13 @@ def context(app_context):
         universe_stats = data_service.get_universe_stats(active_universe)
         total_universe = universe_stats.total_members if universe_stats else 0
 
-        # Get market context - using NYSE as representative since NASDAQ and NYSE share same sessions
+        # Get market context - uses the universe's primary market (first market listed)
         ctx = app_context.market_context
 
-        # Create main context table
-        table = Table(
-            title=f"📊 {active_universe.title()} Market Context", show_header=True
-        )
-        table.add_column("Property", style="cyan", width=25)
-        table.add_column("Value", style="white")
-
-        # Show universe composition - use abbreviated names for conciseness
-        market_names = []
-        for code, name, _ in universe_markets:
-            if code == "XNYS":
-                market_names.append("NYSE")
-            elif code == "XNAS":
-                market_names.append("NASDAQ")
-            else:
-                market_names.append(f"{name} ({code})")
-
-        markets_str = ", ".join(market_names)
-        table.add_row("Universe Markets", markets_str)
-        table.add_row("Total Universe Assets", f"{total_universe:,}")
-
-        # Add market distribution with abbreviated names
-        for code, name, count in universe_markets:
-            pct = (count / total_universe * 100) if total_universe > 0 else 0
-            if code == "XNYS":
-                display_name = "NYSE"
-            elif code == "XNAS":
-                display_name = "NASDAQ"
-            else:
-                display_name = code
-            table.add_row(f"  └─ {display_name}", f"{count:,} ({pct:.1f}%)")
-
-        table.add_row("", "")  # Separator
-
-        # Trading status (same for both NASDAQ and NYSE)
-        table.add_row("Is Trading Day", "✅ Yes" if ctx.is_trading_day else "❌ No")
-        table.add_row("Previous Trading Date", str(ctx.previous_trading_date))
-        table.add_row("Current Session", ctx.current_session.value)
-
-        # Add additional context
-        table.add_row("Day Type", ctx.day_type.value.replace("_", " ").title())
-        table.add_row("Current Date", str(ctx.current_date))
-        table.add_row("Current Time", ctx.current_time.strftime("%Y-%m-%d %H:%M:%S %Z"))
-        table.add_row("Session Name (for screeners)", ctx.session_name)
-
-        # Market status indicators
-        table.add_row("Market Open", "✅ Yes" if ctx.is_market_open else "❌ No")
-        table.add_row("Regular Hours", "✅ Yes" if ctx.is_regular_hours else "❌ No")
-        table.add_row("Extended Hours", "✅ Yes" if ctx.is_extended_hours else "❌ No")
-
-        if ctx.next_trading_date:
-            table.add_row("Next Trading Date", str(ctx.next_trading_date))
-
-        console.print(table)
-
-        # Show session times
-        session_times = ctx.get_session_times()
-        if any(session_times.values()):
-            console.print()
-            times_table = Table(title="🕐 Session Times (Today)", show_header=True)
-            times_table.add_column("Session", style="cyan")
-            times_table.add_column("Time", style="white")
-
-            for session_name, time_val in session_times.items():
-                formatted_name = session_name.replace("_", " ").title()
-                if time_val:
-                    formatted_time = time_val.strftime("%H:%M")
-                else:
-                    formatted_time = "N/A"
-                times_table.add_row(formatted_name, formatted_time)
-
-            console.print(times_table)
-
-        # Show timezone info
-        console.print()
-        console.print(
-            Panel(
-                f"Market Timezone: {ctx.market.timezone}\n"
-                f"Currency: {ctx.market.currency}\n"
-                f"Extended Hours Support: {'Yes' if ctx.market.has_extended_hours else 'No'}",
-                title="Market Details",
-            )
-        )
-
-        # Show last market snapshot run metadata
-        console.print()
-        console.print("[bold]Last Market Snapshot Update:[/bold]")
+        # Get last snapshot metadata
+        last_snapshot_status = None
+        last_snapshot_time = None
+        last_snapshot_age_str = None
 
         try:
             # Query metadata using repository
@@ -284,41 +255,34 @@ def context(app_context):
             )
 
             if metadata and metadata.completed_at:
-                completed_at = metadata.completed_at
-                status = metadata.status
+                last_snapshot_time = metadata.completed_at
+                last_snapshot_status = metadata.status
 
                 # Calculate age
-                age = datetime.now() - completed_at
+                age = datetime.now() - last_snapshot_time
                 if age.total_seconds() < 60:
-                    age_str = f"{age.total_seconds():.0f} seconds ago"
+                    last_snapshot_age_str = f"{age.total_seconds():.0f} seconds ago"
                 elif age.total_seconds() < 3600:
-                    age_str = f"{age.total_seconds() / 60:.1f} minutes ago"
+                    last_snapshot_age_str = f"{age.total_seconds() / 60:.1f} minutes ago"
                 elif age.total_seconds() < 86400:
-                    age_str = f"{age.total_seconds() / 3600:.1f} hours ago"
+                    last_snapshot_age_str = f"{age.total_seconds() / 3600:.1f} hours ago"
                 else:
-                    age_str = f"{age.total_seconds() / 86400:.1f} days ago"
-
-                status_display = {
-                    "completed": "[green]✅ Completed[/green]",
-                    "failed": "[red]❌ Failed[/red]",
-                    "running": "[blue]🔄 Running[/blue]",
-                }.get(status, status)
-
-                snapshot_table = Table(box=box.ROUNDED, show_header=False)
-                snapshot_table.add_column("", style="bold", width=20)
-                snapshot_table.add_column("", style="", width=40)
-                snapshot_table.add_row("Status", status_display)
-                snapshot_table.add_row("Last Update", completed_at.strftime("%Y-%m-%d %H:%M:%S"))
-                snapshot_table.add_row("Data Age", age_str)
-                console.print(snapshot_table)
-            else:
-                console.print("[yellow]No market snapshot data available[/yellow]")
-                console.print(
-                    "[dim]Run 'tradescout market update' to fetch market data[/dim]"
-                )
+                    last_snapshot_age_str = f"{age.total_seconds() / 86400:.1f} days ago"
 
         except Exception as e:
-            console.print(f"[yellow]Unable to fetch snapshot metadata: {e}[/yellow]")
+            logger.warning(f"Unable to fetch snapshot metadata: {e}")
+
+        # Create result and display
+        result = MarketContextResult(
+            universe_name=active_universe,
+            universe_markets=universe_markets,
+            total_universe=total_universe,
+            market_context=ctx,
+            last_snapshot_status=last_snapshot_status,
+            last_snapshot_time=last_snapshot_time,
+            last_snapshot_age_str=last_snapshot_age_str
+        )
+        app_context.presentation.market_adapter.display_market_context(result)
 
     except Exception as e:
         console.print(f"❌ Error getting market context: {e}")

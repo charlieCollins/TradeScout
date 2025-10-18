@@ -1,4 +1,8 @@
-"""Database command group for database management and data initialization."""
+"""Database command group for database management and data initialization.
+
+NOTE: These commands are CLI-only utilities and do not need output adapters.
+Database operations (init, reset, bootstrap) are not intended for web/API exposure.
+"""
 
 import sys
 import json
@@ -348,7 +352,7 @@ def bootstrap_markets(app_context):
 @pass_config
 def bootstrap_tickers(app_context, limit, force):
     """Initialize/update ticker data from Polygon API."""
-    from output.cli_adapter import CLIOutputAdapter, CLIProgressReporter
+    from output.cli_progress_reporter import CLIProgressReporter
 
     console.print("[blue]Initializing tickers from Polygon...[/blue]")
 
@@ -366,17 +370,16 @@ def bootstrap_tickers(app_context, limit, force):
         from services.bootstrap_service import BootstrapService
         bootstrap_service = BootstrapService(data_service)
 
-        # Create CLI output adapters
+        # Create CLI progress reporter
         progress_reporter = CLIProgressReporter(console=console)
-        output_adapter = CLIOutputAdapter(console=console)
 
         # Bootstrap assets with progress reporting
         result = bootstrap_service.bootstrap_assets(
             market="stocks", active=True, progress=progress_reporter
         )
 
-        # Display results using adapter
-        output_adapter.display_bootstrap_result(result)
+        # Display results using injected adapter from presentation context
+        app_context.presentation.bootstrap_adapter.display_bootstrap_result(result)
 
     except Exception as e:
         console.print(f"[red]❌ Failed to bootstrap assets: {e}[/red]")
@@ -472,7 +475,7 @@ def bootstrap_universes(app_context, force):
 @pass_config
 def bootstrap_fundamentals(app_context, symbol, force, limit):
     """Bootstrap fundamentals data from Polygon API ticker overview."""
-    from output.cli_adapter import CLIOutputAdapter, CLIProgressReporter
+    from output.cli_progress_reporter import CLIProgressReporter
 
     if symbol:
         console.print(f"[blue]Bootstrapping fundamentals for {symbol}...[/blue]")
@@ -494,17 +497,16 @@ def bootstrap_fundamentals(app_context, symbol, force, limit):
         else:
             console.print(f"[blue]Processing all assets from database[/blue]")
 
-        # Create CLI output adapters
+        # Create CLI progress reporter
         progress_reporter = CLIProgressReporter(console=console)
-        output_adapter = CLIOutputAdapter(console=console)
 
         # Bootstrap fundamentals with progress reporting
         result = bootstrap_service.bootstrap_fundamentals(
             limit=limit, progress=progress_reporter
         )
 
-        # Display results using adapter
-        output_adapter.display_bootstrap_result(result)
+        # Display results using injected adapter from presentation context
+        app_context.presentation.bootstrap_adapter.display_bootstrap_result(result)
 
         # Show current database stats
         fundamentals_stats = data_service.get_fundamentals_stats()

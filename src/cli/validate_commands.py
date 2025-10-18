@@ -67,7 +67,7 @@ def volume(app_context, count: int, symbols: Optional[str]):
         trading_date = (
             market_context.current_date
             if market_context.is_trading_day
-            else market_context.prev_trading_date
+            else market_context.previous_trading_date
         )
 
         # Display session info
@@ -96,21 +96,14 @@ def volume(app_context, count: int, symbols: Optional[str]):
 
             test_asset_ids = candidate_asset_ids
 
-        # Build results table
-        table = Table(show_header=True, header_style="bold cyan")
-        table.add_column("Symbol", style="bold")
-        table.add_column("Snap Vol", justify="right")
-
-        if session in ["premarket", "afterhours"]:
-            table.add_column("Snap Time", justify="right")
-            table.add_column("Agg Vol", justify="right")
-            table.add_column("Agg Time", justify="right")
-            table.add_column("Diff %", justify="right")
-            table.add_column("Status")
+        from models.dataclass.validate_result import VolumeValidationResult, VolumeValidationRow
 
         # Track successful tests for extended hours
         successful_tests = 0
         target_tests = count if not symbols else len(test_asset_ids)
+
+        # Collect validation rows
+        validation_rows = []
 
         # Test each asset
         for symbol, asset_id, price_id in test_asset_ids:
@@ -137,10 +130,15 @@ def volume(app_context, count: int, symbols: Optional[str]):
 
             # For regular/closed, just show snapshot (no aggregates needed)
             if session in ["regular", "closed"]:
-                table.add_row(
-                    symbol,
-                    f"{snapshot_vol:,}",
-                )
+                validation_rows.append(VolumeValidationRow(
+                    symbol=symbol,
+                    snapshot_volume=snapshot_vol,
+                    snapshot_time=None,
+                    aggregates_volume=None,
+                    aggregates_time=None,
+                    diff_percent=None,
+                    status=None
+                ))
                 successful_tests += 1
                 continue
 
@@ -178,35 +176,31 @@ def volume(app_context, count: int, symbols: Optional[str]):
                 # Calculate difference (skip if snapshot_vol is None for after-hours)
                 if snapshot_vol is None:
                     # After-hours: no snapshot volume available
-                    diff_pct_display = "N/A"
-                    status = "[yellow]⚠️ Snap N/A[/yellow]"
-                    snap_vol_display = "N/A"
+                    diff_pct = None
+                    status = "snap_na"
                 elif agg_volume > 0:
                     diff_pct = ((snapshot_vol - agg_volume) / agg_volume) * 100
-                    diff_pct_display = f"{diff_pct:+.1f}%"
-                    snap_vol_display = f"{snapshot_vol:,}"
 
                     # Determine status (within 25% = good, considering our AAPL test)
                     if abs(diff_pct) <= 25:
-                        status = "[green]✅ Good[/green]"
+                        status = "good"
                     elif abs(diff_pct) <= 50:
-                        status = "[yellow]⚠️ OK[/yellow]"
+                        status = "ok"
                     else:
-                        status = "[red]❌ High[/red]"
+                        status = "high"
                 else:
-                    diff_pct_display = "0.0%"
-                    snap_vol_display = f"{snapshot_vol:,}"
-                    status = "[yellow]⚠️ OK[/yellow]"
+                    diff_pct = 0.0
+                    status = "ok"
 
-                table.add_row(
-                    symbol,
-                    snap_vol_display,
-                    snapshot_time.strftime("%H:%M:%S"),
-                    f"{agg_volume:,}",
-                    last_bar_time.strftime("%H:%M:%S"),
-                    diff_pct_display,
-                    status,
-                )
+                validation_rows.append(VolumeValidationRow(
+                    symbol=symbol,
+                    snapshot_volume=snapshot_vol,
+                    snapshot_time=snapshot_time,
+                    aggregates_volume=agg_volume,
+                    aggregates_time=last_bar_time,
+                    diff_percent=diff_pct,
+                    status=status
+                ))
                 successful_tests += 1
 
             except Exception as e:
@@ -214,26 +208,14 @@ def volume(app_context, count: int, symbols: Optional[str]):
                 # Skip symbols with errors
                 continue
 
-        console.print(table)
-
-        # Summary
-        console.print("\n[bold]Legend:[/bold]")
-        console.print("  [green]✅ Good[/green]  - Within ±25% (acceptable for screening)")
-        console.print("  [yellow]⚠️ OK[/yellow]    - Within ±50% (monitor)")
-        console.print("  [red]❌ High[/red]  - Over ±50% (investigate)")
-
-        if session == "premarket":
-            console.print(
-                f"\n[dim]Note: Premarket uses snapshot (min.av) for screening, "
-                "Aggregates API for final validation.[/dim]"
-            )
-        elif session == "afterhours":
-            console.print(
-                f"\n[yellow]⚠️  Note: Snapshot volume NOT available for after-hours (min.av frozen at 4 PM).[/yellow]"
-            )
-            console.print(
-                f"[dim]   After-hours MUST use Aggregates API for volume (no snapshot alternative).[/dim]"
-            )
+        # Create result and display
+        result = VolumeValidationResult(
+            session=session,
+            trading_date=trading_date,
+            is_extended_hours=(session in ["premarket", "afterhours"]),
+            rows=validation_rows
+        )
+        app_context.presentation.validate_adapter.display_volume_validation_result(result)
 
     except Exception as e:
         logger.error(f"Volume validation failed: {e}", exc_info=True)

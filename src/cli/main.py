@@ -38,6 +38,39 @@ def main(app_context, db_path: str, debug: bool):
     app_context.db_path = db_path
     app_context.verbose = debug  # Enable verbose when debug is set
 
+    # Add src to path for imports
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
+    # Inject CLI presentation layer (makes commands output-agnostic)
+    if app_context.presentation is None:
+        from utils.presentation_context import PresentationContext
+        from output.cli_screener_adapter import CLIScreenerOutputAdapter
+        from output.cli_bootstrap_adapter import CLIBootstrapOutputAdapter
+        from output.cli_fetch_adapter import CLIFetchOutputAdapter
+        from output.cli_update_adapter import CLIUpdateOutputAdapter
+        from output.cli_news_adapter import CLINewsOutputAdapter
+        from output.cli_gap_adapter import CLIGapAnalysisAdapter, CLIGapPerformanceAdapter
+        from output.cli_asset_adapter import CLIAssetOutputAdapter
+        from output.cli_market_adapter import CLIMarketOutputAdapter
+        from output.cli_universe_adapter import CLIUniverseOutputAdapter
+        from output.cli_validate_adapter import CLIValidateOutputAdapter
+        from output.cli_fed_adapter import CLIFedOutputAdapter
+
+        app_context.presentation = PresentationContext(
+            screener_adapter=CLIScreenerOutputAdapter(),
+            gap_analysis_adapter=CLIGapAnalysisAdapter(),
+            gap_performance_adapter=CLIGapPerformanceAdapter(),
+            bootstrap_adapter=CLIBootstrapOutputAdapter(),
+            fetch_adapter=CLIFetchOutputAdapter(),
+            update_adapter=CLIUpdateOutputAdapter(),
+            news_adapter=CLINewsOutputAdapter(),
+            asset_adapter=CLIAssetOutputAdapter(),
+            market_adapter=CLIMarketOutputAdapter(),
+            universe_adapter=CLIUniverseOutputAdapter(),
+            validate_adapter=CLIValidateOutputAdapter(),
+            fed_adapter=CLIFedOutputAdapter(),
+        )
+
     # Setup logging
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(
@@ -50,9 +83,6 @@ def main(app_context, db_path: str, debug: bool):
         console.print(f"[red]❌ Database not found: {app_context.db_path}[/red]")
         console.print("[yellow]Run 'tradescout database init' to create database[/yellow]")
         sys.exit(1)
-
-    # Add src to path for imports
-    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def create_header(title: str, symbol: str = None) -> Panel:

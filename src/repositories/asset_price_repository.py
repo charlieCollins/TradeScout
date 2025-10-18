@@ -5,7 +5,7 @@ It wraps the DAO layer (AssetPriceSQLModel) with business queries for gap tradin
 """
 
 import logging
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import date, datetime, timedelta
 from sqlmodel import Session, select, desc
 from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
@@ -43,6 +43,9 @@ class AssetPriceRepository:
 
         Business query: Used by gap analysis to get current snapshot.
 
+        Orders by provider_updated_at (when Polygon says data is from) first,
+        then updated_at (when we inserted it) as tiebreaker.
+
         Args:
             symbol: Stock symbol (e.g., 'AAPL')
 
@@ -51,22 +54,10 @@ class AssetPriceRepository:
         """
         statement = select(AssetPriceSQLModel).where(
             AssetPriceSQLModel.symbol == symbol.upper()
-        ).order_by(desc(AssetPriceSQLModel.updated_at)).limit(1)
-
-        return self.session.exec(statement).first()
-
-    def get_latest_by_asset_id(self, asset_id: int) -> Optional[AssetPriceSQLModel]:
-        """Get most recent price data for an asset.
-
-        Args:
-            asset_id: Asset database ID
-
-        Returns:
-            Most recent AssetPrice or None
-        """
-        statement = select(AssetPriceSQLModel).where(
-            AssetPriceSQLModel.asset_id == asset_id
-        ).order_by(desc(AssetPriceSQLModel.updated_at)).limit(1)
+        ).order_by(
+            desc(AssetPriceSQLModel.provider_updated_at),
+            desc(AssetPriceSQLModel.updated_at)
+        ).limit(1)
 
         return self.session.exec(statement).first()
 
@@ -500,3 +491,70 @@ class AssetPriceRepository:
 
         results = self.session.exec(statement).all()
         return [(row[0], row[1], row[2]) for row in results]
+
+    def get_data_date_summary(self, sample_size: int = 100) -> Dict[str, Any]:
+        """Get summary of what trade_dates exist in asset_prices table.
+
+        Business query: Data validation - shows what date(s) the price data is actually from.
+        Used to compare against expected data date from MarketContext.
+
+        Args:
+            sample_size: Number of random records to sample (default 100)
+
+        Returns:
+            Dictionary with:
+            - has_data: bool (any data exists)
+            - total_records: int
+            - unique_dates: List[date] (sorted, most recent first)
+            - min_date: Optional[date]
+            - max_date: Optional[date]
+            - is_uniform: bool (all sampled records have same date)
+        """
+        from sqlmodel import func
+
+        # Check if any data exists
+        count_statement = select(func.count(AssetPriceSQLModel.id))
+        total_records = self.session.exec(count_statement).one()
+
+        if total_records == 0:
+            return {
+                "has_data": False,
+                "total_records": 0,
+                "unique_dates": [],
+                "min_date": None,
+                "max_date": None,
+                "is_uniform": True
+            }
+
+        # Get unique dates from a sample of records
+        # Use ORDER BY RANDOM() to get a random sample
+        sample_statement = (
+            select(AssetPriceSQLModel.trade_date)
+            .order_by(func.random())
+            .limit(sample_size)
+        )
+        sample_dates = list(self.session.exec(sample_statement).all())
+
+        # Get overall min/max dates
+        date_range_statement = select(
+            func.min(AssetPriceSQLModel.trade_date).label('min_date'),
+            func.max(AssetPriceSQLModel.trade_date).label('max_date')
+        )
+        date_range_result = self.session.exec(date_range_statement).first()
+        min_date = date_range_result[0] if date_range_result else None
+        max_date = date_range_result[1] if date_range_result else None
+
+        # Get unique dates from sample, sorted most recent first
+        unique_dates = sorted(set(sample_dates), reverse=True)
+
+        # Check if all sampled dates are the same (uniform data)
+        is_uniform = len(unique_dates) == 1
+
+        return {
+            "has_data": True,
+            "total_records": total_records,
+            "unique_dates": unique_dates,
+            "min_date": min_date,
+            "max_date": max_date,
+            "is_uniform": is_uniform
+        }

@@ -73,13 +73,14 @@ class ScreenerConfig:
         """List all available screener names and descriptions.
 
         Returns:
-            List of dictionaries with 'name' and 'description' keys
+            List of dictionaries with 'name', 'description', and 'enabled' keys
         """
         screener_list = []
         for name, config in sorted(self.screeners.items()):
             screener_list.append({
                 "name": name,
-                "description": config.get("description", "No description")
+                "description": config.get("description", "No description"),
+                "enabled": config.get("enabled", True)
             })
         return screener_list
 

@@ -15,12 +15,21 @@ Features:
 import logging
 import os
 from typing import Optional
-from typing import List
+from typing import List, Dict, Any
+from pathlib import Path
+from dotenv import load_dotenv
 from fastapi import FastAPI, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlmodel import Session, SQLModel, create_engine
 from services.data_service_v2 import DataServiceV2
+from screener.screener_config import ScreenerConfig
+from screener.screener_engine import ScreenerEngine
+from utils.app_context import AppContext
 from models.sqlmodel.asset_sqlmodel import AssetSQLModel
+
+# Load environment variables from .env file
+load_dotenv()
 from models.sqlmodel.market_sqlmodel import MarketSQLModel
 from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
 from models.sqlmodel.provider_sqlmodel import ProviderSQLModel
@@ -52,6 +61,11 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc"
 )
+
+# Mount static files for web interface
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # ============================================================================
 # Database Setup
@@ -120,37 +134,38 @@ def get_data_service(
     return DataServiceV2(session, polygon_api_key, db_path=DB_PATH)
 
 
+def get_app_context() -> AppContext:
+    """Dependency: Provide AppContext for screeners.
+
+    AppContext provides:
+    - Market context (session, trading day status)
+    - Data service access
+    - Configuration
+    """
+    return AppContext(db_path=DB_PATH)
+
+
 # ============================================================================
 # API Endpoints
 # ============================================================================
 
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    """Root endpoint - API information."""
-    return {
-        "name": "TradeScout API",
-        "version": "2.0.0-alpha",
-        "architecture": "Repository + DAO + Cache-Aside",
-        "documentation": {
-            "swagger": "/docs",
-            "redoc": "/redoc"
-        },
-        "endpoints": {
-            "assets": "/api/assets/{symbol}",
-            "markets": "/api/markets",
-            "market_by_code": "/api/markets/{code}",
-            "fundamentals": "/api/fundamentals/{asset_id}",
-            "providers": "/api/providers",
-            "provider_by_name": "/api/providers/{name}",
-            "universes": "/api/universes",
-            "universe_by_name": "/api/universes/{name}",
-            "universe_memberships": "/api/universes/{name}/memberships",
-            "active_universe": "/api/universes/active/current",
-            "prices_latest": "/api/prices/{symbol}/latest",
-            "prices_with_gaps": "/api/prices/gaps",
-            "health": "/health"
-        }
-    }
+    """Serve the web interface."""
+    html_path = os.path.join(STATIC_DIR, "index.html")
+    if os.path.exists(html_path):
+        return FileResponse(html_path)
+    else:
+        # Fallback to API info if static files not available
+        return JSONResponse({
+            "name": "TradeScout API",
+            "version": "2.0.0-alpha",
+            "message": "Web interface not found. Check static files are deployed.",
+            "documentation": {
+                "swagger": "/docs",
+                "redoc": "/redoc"
+            }
+        })
 
 
 @app.get("/health")
@@ -690,6 +705,136 @@ async def find_prices_with_gaps(
     return prices
 
 
+@app.get(
+    "/api/screeners",
+    response_model=List[Dict[str, Any]],
+    summary="List available screeners",
+    description="""
+    Get list of all available screeners with their configurations.
+
+    **Example:**
+    ```
+    GET /api/screeners
+    ```
+
+    **Returns:** List of screener objects with name, description, and enabled status
+    """
+)
+async def list_screeners():
+    """List all available screeners.
+
+    Returns:
+        List of screener configurations
+    """
+    logger.info("GET /api/screeners")
+    try:
+        screener_config = ScreenerConfig()
+        screeners = screener_config.list_available_screeners()
+        return screeners
+    except Exception as e:
+        logger.error(f"Error loading screeners: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error loading screeners: {str(e)}"
+        )
+
+
+@app.get(
+    "/api/screeners/{name}/run",
+    response_model=Dict[str, Any],
+    summary="Run a screener",
+    description="""
+    Execute a screener and return results.
+
+    **Parameters:**
+    - `name`: Screener name (e.g., gainers, losers, momentum)
+
+    **Example:**
+    ```
+    GET /api/screeners/gainers/run
+    GET /api/screeners/losers/run
+    ```
+
+    **Returns:** Screener results with market context and matching stocks
+    """
+)
+async def run_screener(
+    name: str,
+    app_context: AppContext = Depends(get_app_context)
+):
+    """Run a screener by name.
+
+    Args:
+        name: Screener name
+        app_context: Injected AppContext
+
+    Returns:
+        Screener results with context and data
+
+    Raises:
+        HTTPException: 404 if screener not found, 400 if not valid for session
+    """
+    logger.info(f"GET /api/screeners/{name}/run")
+
+    try:
+        # Load screener configuration
+        screener_config = ScreenerConfig()
+        screener_def = screener_config.get_screener(name)
+
+        # Get market context
+        market_context = app_context.market_context
+        data_service = app_context.get_data_service_v2()
+
+        # Execute screener
+        screener_engine = ScreenerEngine(data_service, app_context)
+        results = screener_engine.execute_screener(screener_def, market_context)
+
+        # Get display columns and resolved config from YAML
+        from screener.template_resolver import TemplateResolver
+        resolver = TemplateResolver(screener_def, market_context.session_name)
+        display_columns = resolver.resolve_display_columns()
+        resolved_config = resolver.get_resolved_config()
+
+        # Return results with context, display config, and resolved configuration
+        return {
+            "screener": name,
+            "description": screener_def.get("description", ""),
+            "market_context": {
+                "session": market_context.session_name,
+                "market": market_context.market.name,
+                "market_code": market_context.market.code,
+                "date": str(market_context.current_date),
+                "is_trading_day": market_context.is_trading_day,
+            },
+            "universe": {
+                "name": app_context.get_data_service_v2().get_active_universe().name,
+                "total_symbols": len(app_context.get_data_service_v2().get_active_universe_symbols())
+            },
+            "resolved_config": resolved_config,
+            "display_columns": display_columns,
+            "results": results,
+            "count": len(results)
+        }
+
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Screener '{name}' not found"
+        )
+    except ValueError as e:
+        # Session validation errors
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        logger.error(f"Error running screener '{name}': {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error running screener: {str(e)}"
+        )
+
+
 # ============================================================================
 # Error Handlers
 # ============================================================================
@@ -714,24 +859,28 @@ async def global_exception_handler(request, exc):
 @app.on_event("startup")
 async def startup_event():
     """Run startup checks."""
-    logger.info("TradeScout API starting up...")
+    logger.info("TradeScout Web Interface starting up...")
 
     # Check database exists
     if not os.path.exists(DB_PATH):
-        logger.warning(
-            f"Database not found at {DB_PATH}. "
-            "Run: ./tradescout database init"
+        logger.error(
+            f"❌ Database not found at {DB_PATH}"
         )
+        logger.error("   Run: ./tradescout database init")
+    else:
+        logger.info(f"✓ Database found: {DB_PATH}")
 
     # Check API key configured
-    if not os.getenv("POLYGON_API_KEY"):
-        logger.warning(
-            "POLYGON_API_KEY not set. "
-            "API calls will fail."
-        )
+    api_key = os.getenv("POLYGON_API_KEY")
+    if not api_key or len(api_key) < 10:
+        logger.error("❌ POLYGON_API_KEY not configured")
+        logger.error("   Set environment variable: export POLYGON_API_KEY='your_key'")
+    else:
+        logger.info(f"✓ Polygon API key configured ({api_key[:4]}...{api_key[-4:]})")
 
-    logger.info("✅ TradeScout API ready")
-    logger.info(f"📚 Docs available at http://localhost:8000/docs")
+    logger.info("✅ TradeScout Web Interface ready")
+    logger.info(f"🌐 Web Interface: http://localhost:8000")
+    logger.info(f"📚 API Docs: http://localhost:8000/docs")
 
 
 @app.on_event("shutdown")

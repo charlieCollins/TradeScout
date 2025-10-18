@@ -32,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from analysis.gap_analyzer import GapAnalyzer, GapCandidate
 from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
 from api.config.api_keys import POLYGON_API_KEY
-from output.gap_display import GapAnalysisDisplay, GapPerformanceDisplay
+# Gap adapters injected via app_context.presentation (no direct imports needed)
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -92,51 +92,21 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
 
         console.print(f"  [green]✓ Valid session for gap analysis[/green]\n")
 
-        # Check data freshness and update if needed
-        console.print("[bold cyan]⏰ Checking Data Freshness...[/bold cyan]")
+        # Always fetch fresh market data for gap analysis
+        console.print("[bold cyan]📡 Fetching Fresh Market Data...[/bold cyan]")
         data_service = app_context.get_data_service_v2()
 
-        # Get TTL for market snapshots from config
-        from services.cache_service import CacheConfig
-        from models.dataclass.data_update_metadata import DataUpdateMetadataType
-        ttl_seconds = CacheConfig.get_ttl(DataUpdateMetadataType.MARKET_SNAPSHOTS)
-        ttl_minutes = ttl_seconds / 60
+        # Force refresh market snapshot (always gets latest data)
+        stats = data_service.update_market_snapshot(force_refresh=True)
 
-        # Get most recent snapshot time
-        last_update = data_service.get_last_price_update_time()
-
-        if last_update:
-            from datetime import datetime as dt
-            now = dt.now(last_update.tzinfo) if last_update.tzinfo else dt.now()
-            age_minutes = (now - last_update).total_seconds() / 60
-
-            console.print(f"  Last snapshot: {age_minutes:.1f} minutes ago")
-
-            if age_minutes > ttl_minutes:
-                console.print(f"  [yellow]⚠ Data is {age_minutes:.1f} min old (TTL: {ttl_minutes:.0f} min), running market update...[/yellow]")
-
-                # Force refresh market snapshot (triggers new API call)
-                stats = data_service.update_market_snapshot(force_refresh=True)
-
-                if stats and stats.saved > 0:
-                    console.print(f"  [green]✓ Market data updated ({stats.total_tickers:,} tickers, {stats.saved:,} new records)[/green]\n")
-                elif stats and stats.duplicates > 0:
-                    console.print(f"  [green]✓ Market data refreshed ({stats.total_tickers:,} tickers, all current)[/green]\n")
-                else:
-                    console.print(f"  [yellow]⚠ Market update returned no data, continuing with stale data[/yellow]\n")
-            else:
-                console.print(f"  [green]✓ Data is fresh (<5 min)[/green]\n")
-        else:
-            console.print(f"  [yellow]⚠ No market data found, running update...[/yellow]")
-
-            # Force refresh market snapshot
-            stats = data_service.update_market_snapshot(force_refresh=True)
-
-            if stats and stats.total_tickers > 0:
+        if stats and stats.total_tickers > 0:
+            if stats.saved > 0:
                 console.print(f"  [green]✓ Market data updated ({stats.total_tickers:,} tickers, {stats.saved:,} new records)[/green]\n")
             else:
-                console.print(f"  [red]❌ Failed to fetch market data[/red]")
-                return
+                console.print(f"  [green]✓ Market data refreshed ({stats.total_tickers:,} tickers, all current)[/green]\n")
+        else:
+            console.print(f"  [red]❌ Failed to fetch market data[/red]")
+            return
 
         # Step 2: Get active universe
         active_universe = data_service.get_active_universe()
@@ -179,7 +149,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         # Step 4: Validate volume for each candidate
         console.print("[bold cyan]📈 Validating Volume (Aggregates API)...[/bold cyan]")
 
-        trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
+        trading_date = market_context.current_date if market_context.is_trading_day else market_context.previous_trading_date
         validated_candidates = []
 
         for candidate in candidates:
@@ -201,7 +171,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
             console.print(f"   Consider lowering --min-volume-ratio threshold\n")
 
             # Show the candidates table so user can see what was found and why rejected
-            gap_display = GapAnalysisDisplay()
+            gap_display = app_context.presentation.gap_analysis_adapter
             gap_display.display_candidates_table(candidates, market_context)
 
             # Ask if user wants to save to database
@@ -214,7 +184,8 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
                     data_service=data_service,
                     market_context=market_context,
                     analysis_timestamp=datetime.now(),
-                    min_volume_ratio=min_volume_ratio
+                    min_volume_ratio=min_volume_ratio,
+                    analyzer=analyzer
                 )
                 if saved_count > 0:
                     console.print(f"  [green]✓ Saved {saved_count} gap results (all rejected)[/green]\n")
@@ -288,7 +259,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
             console.print("   Exhaustion gaps have high reversal risk\n")
 
             # Display the exhaustion gaps BEFORE asking to save
-            gap_display = GapAnalysisDisplay()
+            gap_display = app_context.presentation.gap_analysis_adapter
             gap_display.display_candidates_table(validated_candidates, market_context)
 
             # Ask if user wants to save to database
@@ -301,7 +272,8 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
                     data_service=data_service,
                     market_context=market_context,
                     analysis_timestamp=datetime.now(),
-                    min_volume_ratio=min_volume_ratio
+                    min_volume_ratio=min_volume_ratio,
+                    analyzer=analyzer
                 )
                 if saved_count > 0:
                     console.print(f"  [green]✓ Saved {saved_count} gap results (all rejected - exhaustion)[/green]\n")
@@ -340,7 +312,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         console.print(f"  [green]✓ Quality scores calculated[/green]\n")
 
         # Step 8: Display results BEFORE asking to save
-        gap_display = GapAnalysisDisplay()
+        gap_display = app_context.presentation.gap_analysis_adapter
         gap_display.display_candidates_table(filtered_candidates, market_context)
 
         # Display summary and recommendations
@@ -357,7 +329,8 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
                 data_service=data_service,
                 market_context=market_context,
                 analysis_timestamp=datetime.now(),
-                min_volume_ratio=min_volume_ratio
+                min_volume_ratio=min_volume_ratio,
+                analyzer=analyzer
             )
 
             if saved_count > 0:
@@ -395,7 +368,8 @@ def _prepare_and_save_candidates(
     data_service,
     market_context,
     analysis_timestamp: datetime,
-    min_volume_ratio: float
+    min_volume_ratio: float,
+    analyzer
 ) -> int:
     """Prepare candidates for database storage and save them.
 
@@ -407,6 +381,7 @@ def _prepare_and_save_candidates(
         market_context: Current market context
         analysis_timestamp: Timestamp when analysis was performed
         min_volume_ratio: Minimum volume ratio threshold used
+        analyzer: GapAnalyzer instance for gap classification
 
     Returns:
         Number of candidates saved to database
@@ -414,7 +389,7 @@ def _prepare_and_save_candidates(
     try:
         from models.sqlmodel.gap_candidate_sqlmodel import GapCandidateSQLModel
 
-        trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
+        trading_date = market_context.current_date if market_context.is_trading_day else market_context.previous_trading_date
         is_friday = trading_date.weekday() == 4
 
         saved_count = 0
@@ -436,7 +411,7 @@ def _prepare_and_save_candidates(
             candidate.is_friday_gap = is_friday
 
             # Classify academic gap type
-            candidate.academic_gap_type = gap_analyzer.classify_academic_gap_type(candidate)
+            candidate.academic_gap_type = analyzer.classify_academic_gap_type(candidate)
 
             # Set filter flags
             candidate.passed_gap_filter = True  # All candidates passed gap filter
@@ -715,11 +690,7 @@ def results_command(app_context, num_days, num_results_per_day, session, status)
     """
     from datetime import date, timedelta
     from collections import defaultdict
-
-    console.print(Panel.fit(
-        "[bold cyan]Gap Analysis Results - Historical Data[/bold cyan]",
-        border_style="cyan"
-    ))
+    from models.dataclass.gap_result import GapResultRow, GapResultsByDate, GapResultsListResult
 
     # Get DataServiceV2
     data_service = app_context.get_data_service_v2()
@@ -758,107 +729,67 @@ def results_command(app_context, num_days, num_results_per_day, session, status)
     results_by_date = defaultdict(list)
     for result in all_results:
         results_by_date[result['trading_date']].append(result)
-    
-    # Show last num_days trading days
+
+    # Build result model
     dates_shown = 0
     total_results_shown = 0
     total_results_hidden = 0
-    
+    results_by_date_list = []
+
     for trading_date in sorted(results_by_date.keys(), reverse=True):
         if dates_shown >= num_days:
             break
-        
+
         day_results = results_by_date[trading_date]
         results_to_show = day_results[:num_results_per_day]
         hidden_count = len(day_results) - len(results_to_show)
-        
-        # Header for this date
-        console.print(f"\n[bold blue]═══ {trading_date} ═══[/bold blue]")
-        console.print(f"[dim]{len(day_results)} total results[/dim]")
-        
-        # Create table
-        table = Table(show_header=True, header_style="bold cyan", show_lines=True)
-        table.add_column("Symbol", style="bold", width=8)
-        table.add_column("Session", width=10)
-        table.add_column("Gap %", justify="right", width=8)
-        table.add_column("Type", width=12)
-        table.add_column("Vol Ratio", justify="right", width=10)
-        table.add_column("MCap", justify="right", width=8)
-        table.add_column("Status", width=10)
-        table.add_column("Rejection", width=30)
-        
+
+        # Build GapResultRow objects
+        gap_result_rows = []
         for result in results_to_show:
-            # Format fields
-            session_icon = "🌅" if result['session_type'] == 'premarket' else "🌙"
-            session_text = f"{session_icon} {result['session_type'][:2].upper()}"
-            
-            gap_text = f"{result['gap_percentage']:+.1f}%"
-            if result['gap_percentage'] >= 10:
-                gap_style = "bold green"
-            elif result['gap_percentage'] >= 5:
-                gap_style = "green"
-            else:
-                gap_style = "dim green"
+            gap_result_rows.append(GapResultRow(
+                symbol=result['symbol'],
+                name=result['name'],
+                session_type=result['session_type'],
+                gap_percentage=result['gap_percentage'],
+                academic_gap_type=result.get('academic_gap_type', 'unknown'),
+                volume_ratio=result['volume_ratio'] if result['volume_ratio'] else 0,
+                market_cap=result['market_cap'] if result['market_cap'] else 0,
+                status=result['status'],
+                rejection_reason=result['rejection_reason'] if result['rejection_reason'] else ""
+            ))
 
-            # Academic gap type with short labels
-            gap_type = result.get('academic_gap_type', 'unknown')
-            if gap_type == 'common':
-                type_text = Text("Common", style="dim")
-            elif gap_type == 'breakaway_continuation':
-                type_text = Text("Break/Cont", style="cyan")
-            elif gap_type == 'exhaustion_candidate':
-                type_text = Text("Exhaust?", style="yellow")
-            else:
-                type_text = Text("—", style="dim")
+        # Build GapResultsByDate
+        results_by_date_list.append(GapResultsByDate(
+            trading_date=trading_date,
+            results=gap_result_rows,
+            total_count=len(day_results),
+            shown_count=len(results_to_show)
+        ))
 
-            vol_ratio = result['volume_ratio'] if result['volume_ratio'] else 0
-            vol_text = f"{vol_ratio:.2f}x" if vol_ratio > 0 else "N/A"
-            vol_style = "green" if vol_ratio >= 1.5 else "red"
-            
-            mcap = result['market_cap'] if result['market_cap'] else 0
-            mcap_text = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
-            
-            status_color = "green" if result['status'] == 'passed' else "red"
-            status_text = Text(result['status'].upper(), style=status_color)
-            
-            rejection = result['rejection_reason'] if result['rejection_reason'] else "—"
-            
-            table.add_row(
-                result['symbol'],
-                session_text,
-                Text(gap_text, style=gap_style),
-                type_text,
-                Text(vol_text, style=vol_style),
-                mcap_text,
-                status_text,
-                rejection[:30]
-            )
-        
-        console.print(table)
-        
-        if hidden_count > 0:
-            console.print(f"[dim]  ... and {hidden_count} more results not shown[/dim]")
-        
         dates_shown += 1
         total_results_shown += len(results_to_show)
         total_results_hidden += hidden_count
-    
-    # Summary
-    console.print(f"\n[bold]Summary:[/bold]")
-    console.print(f"  Days shown: {dates_shown}")
-    console.print(f"  Results displayed: {total_results_shown}")
-    if total_results_hidden > 0:
-        console.print(f"  Results hidden: {total_results_hidden} (use --num-results-per-day to see more)")
-    
+
     # Statistics
     total_count = len(all_results)
     passed_count = sum(1 for r in all_results if r['status'] == 'passed')
     rejected_count = sum(1 for r in all_results if r['status'] == 'rejected')
-    
-    console.print(f"\n[bold]Database Statistics ({start_date} to {end_date}):[/bold]")
-    console.print(f"  Total results: {total_count}")
-    console.print(f"  Passed: {passed_count} ({100*passed_count/total_count:.1f}%)" if total_count > 0 else "  Passed: 0")
-    console.print(f"  Rejected: {rejected_count} ({100*rejected_count/total_count:.1f}%)" if total_count > 0 else "  Rejected: 0")
+
+    # Build final result and display
+    result = GapResultsListResult(
+        results_by_date=results_by_date_list,
+        dates_shown=dates_shown,
+        total_results_shown=total_results_shown,
+        total_results_hidden=total_results_hidden,
+        start_date=start_date,
+        end_date=end_date,
+        total_count=total_count,
+        passed_count=passed_count,
+        rejected_count=rejected_count
+    )
+
+    app_context.presentation.gap_analysis_adapter.display_gap_results_list(result)
 
 
 @gap.command('backtest')
@@ -960,7 +891,7 @@ def backtest_command(app_context, date, num_days, force, dry_run):
                 })
 
         if all_performance_data:
-            perf_display = GapPerformanceDisplay()
+            perf_display = app_context.presentation.gap_performance_adapter
             perf_display.display_performance_statistics(all_performance_data)
             console.print("")  # Extra spacing
 
@@ -986,7 +917,7 @@ def backtest_command(app_context, date, num_days, force, dry_run):
         if current_date != trading_date:
             if current_date and date_results:
                 # Display previous date results
-                perf_display = GapPerformanceDisplay()
+                perf_display = app_context.presentation.gap_performance_adapter
                 perf_display.display_date_performance(current_date, date_results)
                 date_results = []
             current_date = trading_date
@@ -1148,13 +1079,13 @@ def backtest_command(app_context, date, num_days, force, dry_run):
 
     # Display last date results
     if current_date and date_results:
-        perf_display = GapPerformanceDisplay()
+        perf_display = app_context.presentation.gap_performance_adapter
         perf_display.display_date_performance(current_date, date_results)
 
     # Display overall statistics
     if all_performance_for_stats:
         console.print("")  # Spacing
-        perf_display = GapPerformanceDisplay()
+        perf_display = app_context.presentation.gap_performance_adapter
         perf_display.display_performance_statistics(all_performance_for_stats)
 
     # Summary

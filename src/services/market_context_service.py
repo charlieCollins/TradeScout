@@ -48,6 +48,22 @@ class MarketContextService:
         """
         return self._compute_context(market_code)
 
+    def get_historical_context(self, date: date, market_code: str = "XNYS") -> MarketContext:
+        """
+        Get market context for a specific historical date.
+
+        Creates a MarketContext for a past date without making live API calls.
+        Used for backtesting and historical analysis.
+
+        Args:
+            date: The reference date to create context for
+            market_code: Market code (e.g., 'XNYS', 'XNAS')
+
+        Returns:
+            MarketContext configured for the historical date
+        """
+        return self._compute_historical_context(market_code, date)
+
     def _compute_context(self, market_code: str) -> MarketContext:
         """Compute market context from data sources (markets table, holidays, API status)."""
         try:
@@ -105,22 +121,96 @@ class MarketContextService:
             # Re-raise the exception - no fallbacks
             raise
 
+    def _compute_historical_context(self, market_code: str, reference_date: date) -> MarketContext:
+        """Compute market context for a specific historical date.
+
+        Args:
+            market_code: Market code (e.g., 'XNYS', 'XNAS')
+            reference_date: The date to create context for
+
+        Returns:
+            MarketContext configured for the historical date
+        """
+        try:
+            # 1. Get Market model from database
+            market = self._get_market(market_code)
+            if not market:
+                raise RuntimeError(f"Market {market_code} not found in database")
+
+            # 2. Get reference time in market timezone (use end of day for historical)
+            tz = pytz.timezone(market.timezone)
+            reference_time = datetime.combine(reference_date, dt_time(23, 59, 59))
+            reference_time = tz.localize(reference_time)
+
+            # 3. For historical dates, we don't have live market status
+            # Create a mock market status (not used for historical context)
+            market_status = None
+
+            # 4. Determine day type for the reference date
+            day_type = self._determine_day_type_for_date(reference_date)
+            is_trading_day = day_type in [
+                TradingDayType.REGULAR_TRADING,
+                TradingDayType.EARLY_CLOSE
+            ]
+
+            # 5. Get previous trading day from the reference date
+            previous_trading_date = self._find_previous_trading_day_from_date(reference_date)
+
+            # 6. For historical dates, session is always "closed" (we're looking at past data)
+            # The entire day is in the past, so treat it as closed
+            current_session = MarketSession.CLOSED_POST
+
+            # 7. Get next trading day from the reference date
+            next_trading_date = self._find_next_trading_day_from_date(reference_date)
+
+            context = MarketContext(
+                market=market,
+                is_trading_day=is_trading_day,
+                previous_trading_date=previous_trading_date,
+                current_session=current_session,
+                day_type=day_type,
+                current_date=reference_date,
+                current_time=reference_time,
+                next_trading_date=next_trading_date,
+                raw_market_status=market_status
+            )
+
+            logger.info(f"Historical Market Context for {reference_date}: {context}")
+            return context
+
+        except Exception as e:
+            logger.error(f"Failed to create historical market context for {reference_date}: {e}")
+            raise
+
     def _get_market(self, market_code: str) -> Optional[Market]:
         """Fetch Market using data provider."""
         return self.data_provider.get_market_by_code(market_code)
 
     def _determine_day_type(self, market_status: "MarketStatusSnapshot", today: date) -> TradingDayType:
         """Determine what type of day today is using Polygon holiday API."""
+        return self._determine_day_type_for_date(today)
+
+    def _determine_day_type_for_date(self, check_date: date) -> TradingDayType:
+        """Determine what type of day a specific date is using Polygon holiday API.
+
+        This version doesn't require market_status, useful for historical dates.
+
+        Args:
+            check_date: The date to check
+
+        Returns:
+            TradingDayType for this date
+        """
         # Check if it's a weekend
-        if today.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        if check_date.weekday() >= 5:  # Saturday = 5, Sunday = 6
             return TradingDayType.CLOSED_WEEKEND
 
         # Check against Polygon's official holiday calendar (cached)
         holidays = self.data_provider.get_market_holidays()
-        today_str = today.strftime('%Y-%m-%d')
+        date_str = check_date.strftime('%Y-%m-%d')
 
         for holiday in holidays:
-            if holiday.date == today_str:
+            if holiday.date == date_str:
                 if holiday.status == 'early-close':
                     return TradingDayType.EARLY_CLOSE
                 elif holiday.status == 'closed':
@@ -131,10 +221,23 @@ class MarketContextService:
 
     def _find_previous_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> date:
         """Find the most recent trading day before today using Polygon holiday API."""
+        return self._find_previous_trading_day_from_date(today)
+
+    def _find_previous_trading_day_from_date(self, from_date: date) -> date:
+        """Find the most recent trading day before a given date.
+
+        This version doesn't require market_status, useful for historical dates.
+
+        Args:
+            from_date: The date to search backwards from
+
+        Returns:
+            The previous trading day
+        """
         holidays = self.data_provider.get_market_holidays()
         holiday_dates = {h.date for h in holidays if h.status == 'closed'}
 
-        check_date = today - timedelta(days=1)
+        check_date = from_date - timedelta(days=1)
         max_days_back = 30  # Safety limit (handle long holiday periods)
 
         for _ in range(max_days_back):
@@ -148,7 +251,7 @@ class MarketContextService:
             check_date -= timedelta(days=1)
 
         # Fallback - shouldn't happen unless there's a very long holiday period
-        return today - timedelta(days=1)
+        return from_date - timedelta(days=1)
 
     def _determine_session(self, market: Market, market_status: "MarketStatusSnapshot",
                           is_trading_day: bool,
@@ -188,10 +291,23 @@ class MarketContextService:
     # TODO not sure this will actually get the next market day, it's just adding 1 day after skipping weekdays, need to validate
     def _find_next_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> Optional[date]:
         """Find the next trading day after today using Polygon holiday API."""
+        return self._find_next_trading_day_from_date(today)
+
+    def _find_next_trading_day_from_date(self, from_date: date) -> Optional[date]:
+        """Find the next trading day after a given date.
+
+        This version doesn't require market_status, useful for historical dates.
+
+        Args:
+            from_date: The date to search forward from
+
+        Returns:
+            The next trading day, or None if not found within 30 days
+        """
         holidays = self.data_provider.get_market_holidays()
         holiday_dates = {h.date for h in holidays if h.status == 'closed'}
 
-        check_date = today + timedelta(days=1)
+        check_date = from_date + timedelta(days=1)
         max_days_forward = 30  # Safety limit (handle long holiday periods)
 
         for _ in range(max_days_forward):

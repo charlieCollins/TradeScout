@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from screener.screener_config import ScreenerConfig
 from screener.screener_engine import ScreenerEngine
-from screener.screener_display import ScreenerDisplay
 
 console = Console()
 
@@ -23,16 +22,18 @@ console = Console()
 @click.command()
 @click.argument("screener_name", required=False)
 @click.option("--list", "list_screeners", is_flag=True, help="List available screeners")
+@click.option("--date", "reference_date", type=str, help="Reference date for historical screening (YYYY-MM-DD)")
 @pass_config
-def screener(app_context, screener_name: str, list_screeners: bool):
+def screener(app_context, screener_name: str, list_screeners: bool, reference_date: str):
     """
     Run market screeners to find trading opportunities.
 
     Examples:
-        tradescout screener --list           # List available screener names
-        tradescout screener gainers          # Run the 'gainers' screener
-        tradescout screener losers           # Run the 'losers' screener
-        tradescout screener gaps             # Run the 'gaps' screener
+        tradescout screener --list                    # List available screener names
+        tradescout screener gainers                   # Run gainers for current market state
+        tradescout screener gainers --date 2025-10-17 # Run gainers for Oct 17, 2025
+        tradescout screener losers                    # Run the 'losers' screener
+        tradescout screener gaps                      # Run the 'gaps' screener
     """
 
     # Display market context at the top
@@ -41,18 +42,21 @@ def screener(app_context, screener_name: str, list_screeners: bool):
     # Handle list flag
     if list_screeners:
         try:
+            from models.dataclass.screener_result import ScreenerListItem, ScreenerListResult
+
             screener_config = ScreenerConfig()
             available_screeners = screener_config.list_available_screeners()
 
-            table = Table(title="Available Screeners", show_header=True)
-            table.add_column("Screener", style="cyan", no_wrap=True)
-            table.add_column("Description", style="white")
+            # Build result model
+            screener_items = [
+                ScreenerListItem(name=s["name"], description=s["description"])
+                for s in available_screeners
+            ]
 
-            for screener in available_screeners:
-                table.add_row(screener["name"], screener["description"])
+            result = ScreenerListResult(screeners=screener_items)
 
-            console.print(table)
-            console.print("\n[dim]Screeners are loaded from configs/screeners/*.yaml[/dim]")
+            # Display using adapter
+            app_context.presentation.screener_adapter.display_screener_list(result)
             return
         except Exception as e:
             console.print(f"[red]Error loading screeners: {e}[/red]")
@@ -67,11 +71,9 @@ def screener(app_context, screener_name: str, list_screeners: bool):
     # Load and execute screener
     try:
         # Initialize components
-
         screener_config = ScreenerConfig()
         data_service = app_context.get_data_service_v2()
         screener_engine = ScreenerEngine(data_service, app_context)
-        screener_display = ScreenerDisplay()
 
         # Get screener definition
         screener_def = screener_config.get_screener(screener_name)
@@ -101,8 +103,27 @@ def screener(app_context, screener_name: str, list_screeners: bool):
         valid_sessions = screener_def.get('valid_sessions', [])
         sessions_text = f"Valid sessions: {', '.join(valid_sessions)}" if valid_sessions else ""
 
-        # Get market context from app_context (not data_service)
-        market_context = app_context.market_context
+        # Get market context - either live or historical based on --date flag
+        if reference_date:
+            # Parse reference date
+            from datetime import datetime, date as date_type
+            try:
+                ref_date = datetime.strptime(reference_date, "%Y-%m-%d").date()
+            except ValueError:
+                console.print(f"[red]Invalid date format '{reference_date}'. Use YYYY-MM-DD (e.g., 2025-10-17)[/red]")
+                return
+
+            # Create historical market context for this date
+            console.print(f"[dim]Running screener for reference date: {ref_date}[/dim]")
+            market_context_service = app_context.get_market_context_service()
+            market_context = market_context_service.get_historical_context(
+                date=ref_date,
+                market_code=app_context._get_primary_market_from_universe()
+            )
+        else:
+            # Use live market context
+            market_context = app_context.market_context
+
         current_session = market_context.current_session.value
 
         # Add session-specific warnings
@@ -122,18 +143,34 @@ def screener(app_context, screener_name: str, list_screeners: bool):
         all_warnings.extend(session_warnings)
 
         # Execute screener
-        console.print(f"[yellow]📊 Running '{screener_name}' screener...[/yellow]")
-        results = screener_engine.execute_screener(screener_def, market_context)
+        results, excluded_count = screener_engine.execute_screener(screener_def, market_context)
 
-        # Display results
-        screener_display.display_results(
-            results,
-            screener_def,
-            session=market_context.session_name,
+        # Get data date summary for validation
+        data_service_v2 = app_context.get_data_service_v2()
+        data_date_summary = data_service_v2.asset_price_repository.get_data_date_summary()
+
+        # Get resolved config for result model
+        from screener.template_resolver import TemplateResolver
+        resolver = TemplateResolver(screener_def, market_context.session_name)
+        resolved_config = resolver.get_resolved_config()
+
+        # Build output-agnostic result model
+        from models.dataclass.screener_result import ScreenerResult
+        result = ScreenerResult(
+            screener_name=screener_name,
+            results=results,
+            screener_def=screener_def,
+            resolved_config=resolved_config,
+            market_context=market_context,
+            excluded_count=excluded_count,
             snapshot_time=snapshot_time,
             sessions_text=sessions_text,
-            warnings=all_warnings
+            warnings=all_warnings,
+            data_date_summary=data_date_summary
         )
+
+        # Display results using injected adapter from presentation context (CLI/Web/JSON agnostic)
+        app_context.presentation.screener_adapter.display_screener_results(result)
 
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")

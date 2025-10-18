@@ -48,6 +48,8 @@ def update(app_context, limit: int):
         sys.exit(1)
 
     try:
+        from models.dataclass.fed_result import FedUpdateResult
+
         console.print(f"[cyan]📊 Fetching Federal Reserve economic data (limit={limit})...[/cyan]")
         console.print()
 
@@ -64,19 +66,25 @@ def update(app_context, limit: int):
 
         # Store to database
         total_stored = 0
+        data_by_type = {}
 
         for data_type, fed_data_list in all_data.items():
             if fed_data_list:
                 stored = data_service.fed_bulk_upsert(fed_data_list)
                 total_stored += stored
-                console.print(f"[green]✓[/green] {data_type}: {stored} observations stored")
+                data_by_type[data_type] = stored
             else:
-                console.print(f"[yellow]⚠️[/yellow]  {data_type}: No data fetched")
+                data_by_type[data_type] = 0
 
         elapsed = (datetime.now() - start_time).total_seconds()
 
-        console.print()
-        console.print(f"[green]✅ Fed data update complete: {total_stored} total observations stored ({elapsed:.2f}s)[/green]")
+        # Create result and display
+        result = FedUpdateResult(
+            data_by_type=data_by_type,
+            total_stored=total_stored,
+            elapsed_seconds=elapsed
+        )
+        app_context.presentation.fed_adapter.display_fed_update_result(result)
 
     except Exception as e:
         console.print(f"[red]❌ Failed to update fed data: {e}[/red]")
@@ -110,48 +118,35 @@ def info(app_context, limit: int):
         sys.exit(1)
 
     try:
+        from models.dataclass.fed_result import FedInfoResult, FedInfoSection
+
         # Get latest for each type
         latest_data = data_service.fed_get_all_latest()
 
-        console.print()
-        console.print("[bold cyan]📊 Federal Reserve Economic Data[/bold cyan]")
-        console.print()
-
-        # Display each data type
+        # Build sections
         data_types = [
             ("inflation", "Inflation"),
             ("inflation_expectations", "Inflation Expectations"),
             ("treasury_yields", "Treasury Yields"),
         ]
 
+        sections = []
         for data_type_key, display_name in data_types:
             latest = latest_data.get(data_type_key)
 
-            if latest:
-                console.print(f"[bold]{display_name}[/bold]")
-                console.print(f"  Latest: {latest.display_value} (as of {latest.observation_date})")
-                console.print()
+            # Get recent history
+            recent = data_service.fed_get_recent_by_type(data_type_key, limit=limit) if latest else []
 
-                # Get recent history
-                recent = data_service.fed_get_recent_by_type(data_type_key, limit=limit)
+            sections.append(FedInfoSection(
+                data_type_key=data_type_key,
+                display_name=display_name,
+                latest=latest,
+                recent=recent
+            ))
 
-                if recent:
-                    table = Table(box=box.SIMPLE, show_header=True)
-                    table.add_column("Date", style="cyan", no_wrap=True)
-                    table.add_column("Value", style="bold", justify="right")
-
-                    for data_point in recent:
-                        table.add_row(
-                            str(data_point.observation_date),
-                            data_point.display_value
-                        )
-
-                    console.print(table)
-                    console.print()
-            else:
-                console.print(f"[yellow]⚠️  {display_name}: No data available[/yellow]")
-                console.print(f"[dim]   Run 'tradescout fed update' to fetch data[/dim]")
-                console.print()
+        # Create result and display
+        result = FedInfoResult(sections=sections)
+        app_context.presentation.fed_adapter.display_fed_info_result(result)
 
     except Exception as e:
         console.print(f"[red]❌ Failed to display fed data: {e}[/red]")

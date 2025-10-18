@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradeScout - Market Screeners</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <img src="/static/tradescout-logo.svg" alt="TradeScout Logo" class="logo">
+            <h1>TradeScout</h1>
+            <p class="tagline">Market Research & Trading Analysis</p>
+        </header>
+
+        <!-- Market Context Info -->
+        <div id="market-context" class="market-context" style="display: none;">
+            <div class="context-item">
+                <span class="context-label">Session:</span>
+                <span id="session-name" class="context-value"></span>
+            </div>
+            <div class="context-item">
+                <span class="context-label">Market:</span>
+                <span id="market-name" class="context-value"></span>
+            </div>
+            <div class="context-item">
+                <span class="context-label">Date:</span>
+                <span id="market-date" class="context-value"></span>
+            </div>
+            <div class="context-item">
+                <span class="context-label">Universe:</span>
+                <span id="universe-name" class="context-value"></span>
+            </div>
+            <div class="context-item">
+                <button id="market-update-btn" class="btn-market-update">Update Market Data</button>
+            </div>
+        </div>
+
+        <!-- Screeners Section -->
+        <section class="screeners-section">
+            <h2>Available Screeners</h2>
+            <div id="screeners-grid" class="screeners-grid">
+                <div class="loading">Loading screeners...</div>
+            </div>
+        </section>
+
+        <!-- Results Section -->
+        <section id="results-section" class="results-section" style="display: none;">
+            <div class="results-header">
+                <h2 id="results-title">Results</h2>
+                <div class="results-actions">
+                    <button id="export-csv" class="btn-secondary">Export CSV</button>
+                    <button id="close-results" class="btn-secondary">Close</button>
+                </div>
+            </div>
+
+            <div id="results-info" class="results-info"></div>
+
+            <div class="table-scroll-top" id="table-scroll-top">
+                <div id="table-scroll-dummy"></div>
+            </div>
+
+            <div class="table-container" id="table-container">
+                <table id="results-table" class="results-table">
+                    <thead id="results-thead"></thead>
+                    <tbody id="results-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>TradeScout &copy; 2025 | <a href="/docs" target="_blank">API Documentation</a></p>
+        </footer>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

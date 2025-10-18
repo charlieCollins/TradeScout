@@ -10,7 +10,7 @@ Architecture:
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List, Dict, Any
 from sqlmodel import Session
 from repositories.asset_repository import AssetRepository
@@ -64,6 +64,9 @@ class DataServiceV2:
         self.provider_repository = ProviderRepository(session)
         self.universe_repository = UniverseRepository(session)
         self.asset_price_repository = AssetPriceRepository(session)
+
+        from repositories.screener_repository import ScreenerRepository
+        self.screener_repository = ScreenerRepository(session)
 
         from repositories.fed_data_repository import FedDataRepository
         self.fed_data_repository = FedDataRepository(session)
@@ -583,6 +586,18 @@ class DataServiceV2:
 
             stats_matched += 1
 
+            # Check if API has newer data than what we already have
+            existing_price = self.asset_price_repository.get_latest_by_asset_id(asset.id)
+            api_timestamp = ticker_snapshot.updated_ns
+
+            # Only process if API has newer data (or we have no data yet)
+            if existing_price and api_timestamp:
+                if api_timestamp <= existing_price.provider_updated_at:
+                    # API data is not newer, skip
+                    stats_invalid += 1
+                    logger.debug(f"Skipping {symbol} - API timestamp {api_timestamp} not newer than existing {existing_price.provider_updated_at}")
+                    continue
+
             # Transform to AssetPrice
             asset_price = self.transform_ticker_snapshot_to_asset_price(
                 symbol=symbol,
@@ -617,6 +632,160 @@ class DataServiceV2:
 
         return MarketSnapshotUpdateStats(
             total_tickers=len(market_snapshot.tickers),
+            matched_symbols=stats_matched,
+            unmatched_symbols=stats_unmatched,
+            transformed=len(asset_prices),
+            invalid=stats_invalid,
+            saved=saved_count,
+            duplicates=len(asset_prices) - saved_count,
+            data_was_fresh=False
+        )
+
+    def backfill_market_data(self, target_date: date, force_refresh: bool = False):
+        """Backfill market data for a specific date using grouped daily bars.
+
+        Fetches all US stock daily bars for the target date and saves data for
+        symbols in the active universe. Only inserts/updates if provider_updated_at
+        is newer than existing data for that date.
+
+        Args:
+            target_date: Date to backfill (e.g., date(2025, 10, 14))
+            force_refresh: If True, update even if provider_updated_at is same or older
+
+        Returns:
+            MarketSnapshotUpdateStats with operation statistics
+        """
+        from datetime import datetime
+        from models.dataclass.stats import MarketSnapshotUpdateStats
+
+        start_time = datetime.now()
+
+        logger.info(f"Backfilling market data for {target_date}")
+
+        # Fetch grouped daily bars for the target date
+        bars_dict = self.polygon_aggregates_provider.fetch_grouped_daily_bars(target_date)
+
+        if not bars_dict:
+            logger.warning(f"No grouped bars data received from API for {target_date}")
+            return MarketSnapshotUpdateStats(
+                total_tickers=0,
+                matched_symbols=0,
+                unmatched_symbols=0,
+                transformed=0,
+                invalid=0,
+                saved=0,
+                duplicates=0,
+                data_was_fresh=False
+            )
+
+        # Process all bars, matching against assets in database
+        asset_prices = []
+        stats_matched = 0
+        stats_unmatched = 0
+        stats_invalid = 0
+        stats_skipped_older = 0
+
+        for symbol, bar in bars_dict.items():
+            symbol = symbol.upper()  # Normalize symbol
+
+            # Look up asset_id
+            asset = self.asset_repository.get_by_symbol(symbol)
+            if not asset:
+                stats_unmatched += 1
+                continue
+
+            stats_matched += 1
+
+            # Check if we already have data for this date
+            existing_price = self.asset_price_repository.get_by_trade_date(symbol, target_date)
+
+            # Polygon grouped bars timestamp is market close (4PM ET)
+            # For backfill, use afterhours close (8PM ET) as the "latest" data for that day
+            # Add 4 hours (14400000 ms) to the timestamp to represent afterhours close
+            bar_timestamp_ms = bar.timestamp_ms
+            afterhours_close_ms = bar_timestamp_ms + 14_400_000  # Add 4 hours
+            provider_updated_at_ns = afterhours_close_ms * 1_000_000  # Convert to nanoseconds
+
+            # Skip if we have newer or same data (unless force_refresh)
+            if existing_price and not force_refresh:
+                if existing_price.provider_updated_at >= provider_updated_at_ns:
+                    stats_skipped_older += 1
+                    logger.debug(f"Skipping {symbol} - existing data is newer or same ({existing_price.provider_updated_at} >= {provider_updated_at_ns})")
+                    continue
+
+            # Transform bar to AssetPrice
+            from models.sqlmodel.asset_price_sqlmodel import AssetPriceSQLModel
+
+            asset_price = AssetPriceSQLModel(
+                asset_id=asset.id,
+                provider_id=1,  # Polygon provider
+                symbol=symbol,
+                trade_date=target_date,
+                provider_updated_at=provider_updated_at_ns,
+                # Set all price fields from the daily bar
+                day_open=bar.open,
+                day_high=bar.high,
+                day_low=bar.low,
+                day_close=bar.close,
+                day_volume=int(bar.volume) if bar.volume else 0,
+                day_vwap=bar.volume_weighted_price,
+                # Leave other fields as None (no prevday/min data from grouped bars)
+                prevday_open=None,
+                prevday_high=None,
+                prevday_low=None,
+                prevday_close=None,
+                prevday_volume=None,
+                prevday_vwap=None,
+                min_open=None,
+                min_high=None,
+                min_low=None,
+                min_close=None,
+                min_accumulated_volume=None,
+                min_vwap=None
+            )
+
+            asset_prices.append(asset_price)
+
+        # Batch save to database
+        saved_count = 0
+        deleted_count = 0
+        if asset_prices:
+            # If force_refresh, delete existing records for this date first
+            if force_refresh:
+                from sqlmodel import delete as sql_delete
+                asset_ids = [p.asset_id for p in asset_prices]
+
+                # Delete all records for these assets on this date
+                delete_statement = sql_delete(AssetPriceSQLModel).where(
+                    AssetPriceSQLModel.asset_id.in_(asset_ids),
+                    AssetPriceSQLModel.trade_date == target_date
+                )
+                result = self.session.exec(delete_statement)
+                deleted_count = result.rowcount if hasattr(result, 'rowcount') else 0
+                self.session.commit()
+                logger.info(f"Force refresh: deleted {deleted_count} existing records for {target_date}")
+
+            saved_count = self.batch_save_asset_prices(asset_prices)
+
+            if force_refresh:
+                logger.info(f"Backfilled {saved_count} prices for {target_date} (force refresh: deleted {deleted_count} old records)")
+            else:
+                logger.info(f"Backfilled {saved_count} prices for {target_date} (skipped {len(asset_prices) - saved_count} duplicates, {stats_skipped_older} older data)")
+
+            # Record metadata
+            self.record_bulk_operation_metadata(
+                operation_type=DataUpdateMetadataType.MARKET_SNAPSHOTS,
+                operation_subtype=f"backfill_{target_date.isoformat()}",
+                start_time=start_time,
+                total_items=len(bars_dict),
+                processed_items=len(asset_prices),
+                failed_items=0
+            )
+        else:
+            logger.warning(f"No prices to backfill for {target_date}")
+
+        return MarketSnapshotUpdateStats(
+            total_tickers=len(bars_dict),
             matched_symbols=stats_matched,
             unmatched_symbols=stats_unmatched,
             transformed=len(asset_prices),
@@ -1048,15 +1217,8 @@ class DataServiceV2:
                 return None
 
             # Determine trade date
-            if provider_updated_at and provider_updated_at != 0:
-                updated_seconds = provider_updated_at // 1_000_000_000
-                trade_date = datetime.fromtimestamp(updated_seconds).date()
-            elif ticker_snapshot.min_bar and ticker_snapshot.min_bar.timestamp:
-                trade_date = datetime.fromtimestamp(
-                    ticker_snapshot.min_bar.timestamp / 1000
-                ).date()
-            else:
-                trade_date = datetime.now().date()
+            updated_seconds = provider_updated_at // 1_000_000_000
+            trade_date = datetime.fromtimestamp(updated_seconds).date()
 
             return AssetPrice(
                 id=0,  # Will be set by database auto-increment

@@ -322,3 +322,58 @@ class PolygonAggregatesProvider(BaseAPIProvider):
         except Exception as e:
             logger.error(f"Failed to calculate {session} volume for {symbol}: {e}")
             return None
+
+    def fetch_grouped_daily_bars(self, target_date: date, adjusted: bool = True) -> Optional[Dict[str, "PriceBar"]]:
+        """Fetch end-of-day bars for all stocks traded on a specific date.
+
+        Uses Polygon's grouped bars endpoint to get all tickers in one API call.
+        Returns all stocks that traded, not just US exchanges - caller should filter.
+
+        Args:
+            target_date: Trading date to fetch (e.g., date(2025, 10, 14))
+            adjusted: Whether to return adjusted prices (default: True)
+
+        Returns:
+            Dict mapping symbol -> PriceBar for all stocks that traded, or None if error
+        """
+        try:
+            # Format date as YYYY-MM-DD
+            date_str = target_date.strftime('%Y-%m-%d')
+
+            # Endpoint: /v2/aggs/grouped/locale/us/market/stocks/{date}
+            endpoint = f"/v2/aggs/grouped/locale/us/market/stocks/{date_str}"
+
+            params = {
+                "adjusted": str(adjusted).lower(),
+                "include_otc": "false"  # Exclude OTC stocks
+            }
+
+            raw_data = self._make_request(endpoint, params)
+
+            if not raw_data:
+                logger.warning(f"No data in grouped bars response for {date_str}")
+                return None
+
+            # Check for results array
+            if "results" not in raw_data:
+                logger.debug(f"No results in grouped bars response for {date_str}: {raw_data.get('status')}")
+                return None
+
+            # Transform raw bars to PriceBar objects, keyed by symbol
+            raw_bars = raw_data["results"]
+            bars_dict = {}
+
+            for raw_bar in raw_bars:
+                symbol = raw_bar.get("T")  # Polygon uses "T" for ticker symbol
+                if not symbol:
+                    continue
+
+                bar = self._transform_bar(raw_bar)
+                bars_dict[symbol] = bar
+
+            logger.info(f"Fetched {len(bars_dict)} grouped daily bars for {date_str}")
+            return bars_dict
+
+        except Exception as e:
+            logger.error(f"Failed to fetch grouped daily bars for {target_date}: {e}")
+            return None

@@ -27,15 +27,17 @@ class AppContext:
     Can be used by CLI, web apps, or any other interface.
     """
 
-    def __init__(self, db_path: str = "data/tradescout.db", verbose: bool = False):
+    def __init__(self, db_path: str = "data/tradescout.db", verbose: bool = False, presentation=None):
         """Initialize application context.
 
         Args:
             db_path: Path to SQLite database
             verbose: Enable verbose logging
+            presentation: PresentationContext for output adapters (injected by CLI/Web layer)
         """
         self.db_path = db_path
         self.verbose = verbose
+        self.presentation = presentation  # PresentationContext injected by CLI/Web layer
         self._market_context = None
         self._market_context_service = None
         self._active_universe = None
@@ -57,10 +59,16 @@ class AppContext:
 
         Makes a live API call to Polygon to get real-time market status.
         Results are cached for the lifetime of this AppContext instance.
+
+        The market code is determined by the active universe's primary market.
         """
         if self._market_context is None:
+            # Get primary market from active universe
+            primary_market_code = self._get_primary_market_from_universe()
+
+            # Get market context for that market
             service = self.get_market_context_service()
-            self._market_context = service.get_context()
+            self._market_context = service.get_context(market_code=primary_market_code)
 
             # Log context for debugging
             logger.info(f"Market Context: {self._market_context}")
@@ -154,3 +162,34 @@ class AppContext:
         except Exception as e:
             logger.error(f"Failed to set active universe: {e}")
             return False
+
+    def _get_primary_market_from_universe(self) -> str:
+        """Get the primary market code from the active universe.
+
+        The primary market is the first market in the universe's market breakdown.
+
+        Returns:
+            Market code (e.g., 'XNYS', 'XNAS')
+
+        Raises:
+            RuntimeError: If no active universe or universe has no markets
+        """
+        # Get active universe name
+        active_universe = self.get_active_universe()
+        if not active_universe:
+            raise RuntimeError("No active universe found - cannot determine market context")
+
+        # Get market breakdown for the universe
+        data_service = self.get_data_service_v2()
+        market_breakdown = data_service.get_universe_market_breakdown(active_universe)
+
+        if not market_breakdown:
+            raise RuntimeError(
+                f"Universe '{active_universe}' has no markets - cannot determine market context"
+            )
+
+        # Return the first market code
+        primary_market_code = market_breakdown[0][0]  # (market_code, market_name, asset_count)
+        logger.info(f"Using primary market '{primary_market_code}' from universe '{active_universe}'")
+
+        return primary_market_code

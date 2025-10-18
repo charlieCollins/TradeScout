@@ -35,7 +35,7 @@ field_mapping:
     premarket: "ap.min_accumulated_volume"   # Accumulated volume (min.av works in PM)
     regular: "ap.day_volume"                 # Regular session volume (day.v - accurate)
     afterhours: null                         # PROBLEM: min.av unreliable in AH (can be < day.v)
-    closed: "ap.prevday_volume"              # Previous day's volume (prevDay.v)
+    closed: "ap.day_volume"                  # That day's volume (day.v)
 
 # Thresholds - can be session-specific
 thresholds:
@@ -173,6 +173,6 @@ display:
           format: "percent"
           width: 12
         - name: "Volume"
-          field: "prevday_volume"
+          field: "day_volume"
           format: "volume"
           width: 10

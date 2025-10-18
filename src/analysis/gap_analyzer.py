@@ -105,7 +105,9 @@ class GapAnalyzer:
                     ap.prevday_close as reference_price,
                     ap.prevday_volume,
                     af.market_cap,
-                    ((ap.min_close - ap.prevday_close) / ap.prevday_close * 100) as gap_pct
+                    ((ap.min_close - ap.prevday_close) / ap.prevday_close * 100) as gap_pct,
+                    ap.prevday_high,
+                    ap.prevday_low
                 FROM asset_prices ap
                 JOIN assets a ON ap.symbol = a.symbol
                 LEFT JOIN asset_fundamentals af ON a.id = af.asset_id
@@ -141,7 +143,9 @@ class GapAnalyzer:
                     ap.day_close as reference_price,
                     ap.prevday_volume,
                     af.market_cap,
-                    ((ap.min_close - ap.day_close) / ap.day_close * 100) as gap_pct
+                    ((ap.min_close - ap.day_close) / ap.day_close * 100) as gap_pct,
+                    ap.day_high,
+                    ap.day_low
                 FROM asset_prices ap
                 JOIN assets a ON ap.symbol = a.symbol
                 LEFT JOIN asset_fundamentals af ON a.id = af.asset_id
@@ -179,6 +183,8 @@ class GapAnalyzer:
             prevday_volume = int(row[4])
             market_cap = float(row[5])
             gap_pct = float(row[6])
+            ref_high = float(row[7]) if row[7] else None
+            ref_low = float(row[8]) if row[8] else None
 
             gap_amount = current_price - reference_price
             direction = GapDirection.UP if gap_amount > 0 else GapDirection.DOWN
@@ -195,7 +201,10 @@ class GapAnalyzer:
                 significance=significance,
                 market_cap=market_cap,
                 prevday_volume=prevday_volume,
-                session=session
+                session=session,
+                prevday_close=reference_price,  # For premarket: prevday.close, for afterhours: day.close
+                prevday_high=ref_high,
+                prevday_low=ref_low
             )
             candidates.append(candidate)
 

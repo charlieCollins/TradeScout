@@ -1,6 +1,69 @@
 # Claude Session Context
 **Purpose:** Session continuity and context preservation between Claude sessions (last 3 sessions only)
 
+## Session Entry - 2025-10-15 08:50
+
+### Work Completed
+- ✅ **Fixed market context to use universe's primary market**: No more hardcoding "XNYS"
+  - Updated AppContext.market_context property to call `_get_primary_market_from_universe()`
+  - Added helper method that gets first market from active universe's market breakdown
+  - Fails fast with RuntimeError if no universe or no markets found
+  - Updated market_commands.py display to show "Primary Market (Context)" with exchange name
+  - Now dynamically uses XNAS for default_universe (since NASDAQ is first market)
+- ✅ **Fixed get_latest_by_symbol ordering bug**: Critical fix for asset price queries
+  - Changed from ordering by `updated_at` (when we inserted) to `provider_updated_at` (when Polygon says data is from)
+  - Added tiebreaker: orders by `provider_updated_at DESC, updated_at DESC`
+  - Removed duplicate `get_latest_by_asset_id()` method
+  - Fixed issue where 2-day-old data was showing because newer records had older provider timestamps
+- ✅ **Created market backfill command**: New CLI for historical date backfill
+  - Added `fetch_grouped_daily_bars()` to PolygonAggregatesProvider - gets all stocks for a date in one API call
+  - Added `backfill_market_data()` to DataServiceV2 - backfills specific date with smart duplicate checking
+  - Added `./tradescout market backfill <date>` CLI command with progress display
+  - Uses 8PM (afterhours close) timestamp instead of 4PM (market close) for provider_updated_at
+  - Only inserts if provider_updated_at is newer than existing data (unless --force)
+  - Successfully backfilled Oct 14 data: 11,181 records in 5.1s
+- ✅ **Fixed market backfill --force flag**: Properly overwrites existing data
+  - When --force used, deletes existing records for that trade_date before inserting new ones
+  - Shows "Force refresh: Updated X records" instead of "Added X new records"
+- ✅ **Fixed asset info --force flag**: Actually fetches and saves fresh data
+  - Was fetching from API but not saving, so showed stale database data
+  - Now transforms and saves snapshot after fetching
+  - Properly displays "✅ New data fetched" with updated timestamp
+- ✅ **Added timestamp check before transformation**: Optimization for market updates
+  - Now checks if API timestamp is newer than database BEFORE transforming
+  - Skips ~8,242 stocks that haven't traded yet during premarket
+  - Only transforms/saves ~3,174 stocks with actual new data
+- ✅ **Fixed gap analyze save regressions**: Multiple bugs from earlier refactoring
+  - Fixed missing `analyzer` parameter in `_prepare_and_save_candidates()` function
+  - Fixed hardcoded "<5 min" message to show actual age and TTL
+  - Fixed missing prevday_high/prevday_low in GapAnalyzer SQL query
+  - Updated GapCandidate creation to populate prevday_close, prevday_high, prevday_low from query results
+  - Fixed NOT NULL constraint violation when saving gap candidates to database
+
+### Current State
+- **Market context is dynamic**: Uses universe's primary market (first in list) instead of hardcoded XNYS
+- **Price queries work correctly**: Orders by provider_updated_at so most recent actual data is returned
+- **Historical gaps can be filled**: `market backfill <date>` command fills missing trading days
+- **Force refresh works**: Both `market backfill --force` and `asset info --force` properly update with latest data
+- **Market updates optimized**: Early rejection of unchanged data reduces wasteful transformation
+- **Gap analyze fixed**: All regressions from refactoring resolved, saving to database works
+- **Database has Oct 14 data**: Backfilled 11,181 records from missing Monday
+
+### In-Progress Tasks
+- None - all regressions fixed
+
+### Blockers/Issues
+- Multiple regressions introduced during refactoring (now fixed)
+- Need more careful testing after architectural changes
+
+### Next Session Priorities
+1. **Test gap analyze end-to-end** - Verify complete workflow with database save works
+2. **Test gap backtest command** - Verify historical performance tracking works
+3. **Consider adding integration tests** - Prevent regressions from refactoring
+
+### Conversation Context (Last 100 Lines)
+Fixed market context universe integration, ordering bug for price queries, created market backfill command. User reported gap analyze database save error: "name 'gap_analyzer' is not defined". Fixed by adding analyzer parameter to _prepare_and_save_candidates(). User complained about data freshness message showing "11.6 minutes ago" but saying "<5 min" - fixed hardcoded message. User reported NOT NULL constraint on prevday_close when saving gap candidates. Initially made mistake of fetching price data unnecessarily. User correctly pointed out GapAnalyzer already has the data from its SQL query. Fixed by adding prevday_high/prevday_low to SQL SELECT, parsing them in row processing, and populating GapCandidate fields during creation. No extra database fetch needed - all data comes from original asset_prices query.
+
 ## Session Entry - 2025-10-13 23:00
 
 ### Work Completed

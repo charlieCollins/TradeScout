@@ -25,6 +25,8 @@ def universes(app_context):
 def universe_list(app_context):
     """List all available universes."""
     try:
+        from models.dataclass.universe_result import UniverseListResult, UniverseListItem
+
         data_service = app_context.get_data_service_v2()
         universes_list = data_service.get_all_universes()
 
@@ -32,38 +34,21 @@ def universe_list(app_context):
             console.print("[yellow]No universes found[/yellow]")
             return
 
-        # Display table
-        table = Table(
-            title="📊 Available Universes",
-            box=box.ROUNDED,
-            header_style="bold blue"
-        )
-        table.add_column("Universe", style="cyan")
-        table.add_column("Description", style="white")
-        table.add_column("Assets", justify="right", style="white")
-        table.add_column("Status", style="white")
-
+        # Build list items with counts
+        items = []
         for universe in universes_list:
             # Get asset count for this universe
             stats = data_service.get_universe_stats(universe.name)
             asset_count = stats.total_members if stats else 0
 
-            # Mark the active universe
-            if universe.is_active:
-                name_display = f"➤ {universe.name}"
-                status = "[green]ACTIVE[/green]"
-            else:
-                name_display = f"  {universe.name}"
-                status = ""
+            items.append(UniverseListItem(
+                universe=universe,
+                asset_count=asset_count
+            ))
 
-            table.add_row(
-                name_display,
-                universe.description or "",
-                f"{asset_count:,}",
-                status
-            )
-
-        console.print(table)
+        # Create result and display
+        result = UniverseListResult(universes=items)
+        app_context.presentation.universe_adapter.display_universe_list(result)
 
     except Exception as e:
         console.print(f"[red]❌ Failed to list universes: {e}[/red]")
@@ -80,6 +65,8 @@ def universe_info(app_context, universe_name):
         universe_name = app_context.get_active_universe()
 
     try:
+        from models.dataclass.universe_result import UniverseInfoResult
+
         data_service = app_context.get_data_service_v2()
 
         # Get universe details
@@ -87,7 +74,7 @@ def universe_info(app_context, universe_name):
         universe = next((u for u in universes_list if u.name == universe_name), None)
 
         if not universe:
-            console.print(f"[red]Universe '{universe_name}' not found[/red]")
+            app_context.presentation.universe_adapter.display_universe_not_found(universe_name)
             return
 
         # Get universe statistics
@@ -96,63 +83,12 @@ def universe_info(app_context, universe_name):
             console.print(f"[red]Unable to get stats for universe '{universe_name}'[/red]")
             return
 
-        # Display information
-        console.print(f"\n[bold]Universe: {universe.name}[/bold]")
-        if universe.is_active:
-            console.print("[green]➤ Currently Active[/green]")
-
-        if universe.description:
-            console.print(f"[dim]{universe.description}[/dim]")
-
-        # Basic info table
-        info_table = Table(box=box.ROUNDED, show_header=False)
-        info_table.add_column("Property", style="cyan")
-        info_table.add_column("Value", style="white")
-
-        info_table.add_row("Status", "✅ Active" if universe.is_active else "❌ Inactive")
-        info_table.add_row("Total Assets", f"{stats.total_members:,}")
-        info_table.add_row("Active Assets", f"{stats.active_members:,}")
-        info_table.add_row("Inactive Assets", f"{stats.inactive_members:,}")
-
-        if universe.min_market_cap:
-            info_table.add_row("Min Market Cap", f"${universe.min_market_cap:,}")
-        if universe.min_volume:
-            info_table.add_row("Min Volume", f"{universe.min_volume:,}")
-        if universe.max_assets:
-            info_table.add_row("Max Assets", f"{universe.max_assets:,}")
-
-        info_table.add_row("Created", universe.created_at.strftime("%Y-%m-%d %H:%M:%S"))
-        info_table.add_row("Updated", universe.updated_at.strftime("%Y-%m-%d %H:%M:%S") if universe.updated_at else "Never")
-
-        console.print(info_table)
-
-        # Market breakdown
-        if stats.by_market:
-            console.print("\n[bold]Market Distribution:[/bold]")
-            market_table = Table(box=box.SIMPLE, show_header=True)
-            market_table.add_column("Market", style="cyan")
-            market_table.add_column("Assets", justify="right", style="white")
-            market_table.add_column("Percentage", justify="right", style="white")
-
-            for market_name, count in stats.by_market.items():
-                pct = (count / stats.total_members * 100) if stats.total_members > 0 else 0
-                market_table.add_row(market_name, f"{count:,}", f"{pct:.1f}%")
-
-            console.print(market_table)
-
-        # Asset type breakdown
-        if stats.by_asset_type:
-            console.print("\n[bold]Asset Type Distribution:[/bold]")
-            type_table = Table(box=box.SIMPLE, show_header=True)
-            type_table.add_column("Type", style="cyan")
-            type_table.add_column("Assets", justify="right", style="white")
-            type_table.add_column("Percentage", justify="right", style="white")
-
-            for asset_type, count in stats.by_asset_type.items():
-                pct = (count / stats.total_members * 100) if stats.total_members > 0 else 0
-                type_table.add_row(asset_type, f"{count:,}", f"{pct:.1f}%")
-
-            console.print(type_table)
+        # Create result and display
+        result = UniverseInfoResult(
+            universe=universe,
+            stats=stats
+        )
+        app_context.presentation.universe_adapter.display_universe_info(result)
 
     except Exception as e:
         console.print(f"[red]❌ Failed to get universe info: {e}[/red]")

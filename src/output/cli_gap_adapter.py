@@ -1,7 +1,7 @@
-"""Display formatters for gap analysis and performance results.
+"""CLI output adapters for gap analysis and performance results.
 
 Provides CLI-specific display formatting for gap trading operations,
-following the same pattern as ScreenerDisplay. These classes handle
+following the PresentationContext adapter pattern. These classes handle
 Rich formatting and table generation for gap candidates and performance data.
 """
 
@@ -17,8 +17,8 @@ from models.dataclass.gap import GapCandidate
 from models.dataclass.market_context import MarketContext
 
 
-class GapAnalysisDisplay:
-    """CLI display formatter for gap analysis results."""
+class CLIGapAnalysisAdapter:
+    """CLI output adapter for gap analysis results."""
 
     def __init__(self):
         """Initialize gap analysis display formatter."""
@@ -248,9 +248,111 @@ Quality Tiers:
         panel = Panel(summary_text, border_style="cyan", padding=(1, 2))
         self.console.print(panel)
 
+    def display_gap_results_list(self, result):
+        """Display historical gap analysis results grouped by date.
 
-class GapPerformanceDisplay:
-    """CLI display formatter for gap performance results."""
+        Args:
+            result: GapResultsListResult containing results grouped by trading date
+        """
+        from models.dataclass.gap_result import GapResultsListResult
+
+        # Display header
+        self.console.print(Panel.fit(
+            "[bold cyan]Gap Analysis Results - Historical Data[/bold cyan]",
+            border_style="cyan"
+        ))
+
+        # Display results for each date
+        for date_group in result.results_by_date:
+            # Date header
+            self.console.print(f"\n[bold blue]═══ {date_group.trading_date} ═══[/bold blue]")
+            self.console.print(f"[dim]{date_group.total_count} total results[/dim]")
+
+            # Create table
+            table = Table(show_header=True, header_style="bold cyan", show_lines=True)
+            table.add_column("Symbol", style="bold", width=8)
+            table.add_column("Session", width=10)
+            table.add_column("Gap %", justify="right", width=8)
+            table.add_column("Type", width=12)
+            table.add_column("Vol Ratio", justify="right", width=10)
+            table.add_column("MCap", justify="right", width=8)
+            table.add_column("Status", width=10)
+            table.add_column("Rejection", width=30)
+
+            for row in date_group.results:
+                # Format fields
+                session_icon = "🌅" if row.session_type == 'premarket' else "🌙"
+                session_text = f"{session_icon} {row.session_type[:2].upper()}"
+
+                gap_text = f"{row.gap_percentage:+.1f}%"
+                if row.gap_percentage >= 10:
+                    gap_style = "bold green"
+                elif row.gap_percentage >= 5:
+                    gap_style = "green"
+                else:
+                    gap_style = "dim green"
+
+                # Academic gap type with short labels
+                gap_type = row.academic_gap_type or 'unknown'
+                if gap_type == 'common':
+                    type_text = Text("Common", style="dim")
+                elif gap_type == 'breakaway_continuation':
+                    type_text = Text("Break/Cont", style="cyan")
+                elif gap_type == 'exhaustion_candidate':
+                    type_text = Text("Exhaust?", style="yellow")
+                else:
+                    type_text = Text("—", style="dim")
+
+                vol_ratio = row.volume_ratio if row.volume_ratio else 0
+                vol_text = f"{vol_ratio:.2f}x" if vol_ratio > 0 else "N/A"
+                vol_style = "green" if vol_ratio >= 1.5 else "red"
+
+                mcap = row.market_cap if row.market_cap else 0
+                mcap_text = f"${mcap/1e9:.1f}B" if mcap >= 1e9 else f"${mcap/1e6:.0f}M"
+
+                status_color = "green" if row.status == 'passed' else "red"
+                status_text = Text(row.status.upper(), style=status_color)
+
+                rejection = row.rejection_reason if row.rejection_reason else "—"
+
+                table.add_row(
+                    row.symbol,
+                    session_text,
+                    Text(gap_text, style=gap_style),
+                    type_text,
+                    Text(vol_text, style=vol_style),
+                    mcap_text,
+                    status_text,
+                    rejection[:30]
+                )
+
+            self.console.print(table)
+
+            # Show hidden count if any
+            hidden_count = date_group.total_count - date_group.shown_count
+            if hidden_count > 0:
+                self.console.print(f"[dim]  ... and {hidden_count} more results not shown[/dim]")
+
+        # Summary
+        self.console.print(f"\n[bold]Summary:[/bold]")
+        self.console.print(f"  Days shown: {result.dates_shown}")
+        self.console.print(f"  Results displayed: {result.total_results_shown}")
+        if result.total_results_hidden > 0:
+            self.console.print(f"  Results hidden: {result.total_results_hidden} (use --num-results-per-day to see more)")
+
+        # Statistics
+        self.console.print(f"\n[bold]Database Statistics ({result.start_date} to {result.end_date}):[/bold]")
+        self.console.print(f"  Total results: {result.total_count}")
+        if result.total_count > 0:
+            self.console.print(f"  Passed: {result.passed_count} ({100*result.passed_count/result.total_count:.1f}%)")
+            self.console.print(f"  Rejected: {result.rejected_count} ({100*result.rejected_count/result.total_count:.1f}%)")
+        else:
+            self.console.print(f"  Passed: 0")
+            self.console.print(f"  Rejected: 0")
+
+
+class CLIGapPerformanceAdapter:
+    """CLI output adapter for gap performance results."""
 
     def __init__(self):
         """Initialize gap performance display formatter."""

@@ -11,7 +11,7 @@ to combine forces for output.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Dict, List, Optional
 
 import pytz
@@ -71,17 +71,50 @@ class ScreenerEngine:
         screener_def['filters'] = resolver.resolve_filters()
         screener_def['sort'] = resolver.resolve_sort()
 
-        # Build the SQL query from screener definition
-        query = self._build_query(screener_def)
+        # Get data source configuration
+        data_source = screener_def.get("data_source", {})
+        if self.config:
+            universe = data_source.get("universe", self.config.get_active_universe())
+        else:
+            universe = data_source.get("universe", "default_universe")
+        require_recent_trading = data_source.get("require_recent_trading", True)
 
-        # Execute query through data provider
-        results = self.data_provider.execute_screener_query(query)
+        # Count excluded assets (before filtering by date)
+        excluded_count = self.data_provider.screener_repository.count_excluded_by_date(
+            universe_name=universe,
+            expected_date=market_context.expected_data_date
+        )
+
+        # Get filters and sort from resolved screener definition
+        filters = screener_def.get("filters", [])
+        sort = screener_def.get("sort", [])
+        display = screener_def.get("display", {})
+        limit = display.get("limit", 50)
+
+        # Execute query through screener repository
+        results = self.data_provider.screener_repository.execute_screener_query(
+            universe=universe,
+            expected_date=market_context.expected_data_date,
+            filters=filters,
+            sort=sort,
+            limit=limit,
+            require_recent_trading=require_recent_trading
+        )
 
         # Add computed fields to each result
         enhanced_results = []
         for result in results:
             enhanced_result = self._add_computed_fields(result)
             enhanced_results.append(enhanced_result)
+
+        # Add exclusion metadata to results (stored in a special way that display can access)
+        if hasattr(enhanced_results, '__dict__'):
+            enhanced_results.excluded_count = excluded_count
+        else:
+            # Store it in the first result if we have results
+            if enhanced_results and isinstance(enhanced_results, list):
+                # We'll pass this separately to display instead
+                pass
 
         # Stage 2: Volume validation using Aggregates API (if enabled)
         if screener_def.get('volume_validation', {}).get('enabled', False):
@@ -90,9 +123,9 @@ class ScreenerEngine:
                 volume_config=screener_def['volume_validation'],
                 market_context=market_context
             )
-            return validated_results
+            return validated_results, excluded_count
 
-        return enhanced_results
+        return enhanced_results, excluded_count
 
     def _validate_session(self, screener_def: Dict, market_context: MarketContext):
         """Validate that screener can run during current session.
@@ -125,110 +158,6 @@ class ScreenerEngine:
                 f"Screener '{screener_name}' is not available during {current_session} session. "
                 f"Valid sessions: {', '.join(valid_sessions)}"
             )
-
-    def _build_query(self, screener_def: Dict) -> str:
-        """Build SQL query from screener definition.
-
-        Args:
-            screener_def: Screener configuration
-
-        Returns:
-            SQL query string
-        """
-        data_source = screener_def.get("data_source", {})
-        # Use active universe from config if available, otherwise fall back to YAML or default
-        if self.config:
-            universe = data_source.get("universe", self.config.get_active_universe())
-        else:
-            universe = data_source.get("universe", "default_universe")
-        require_recent_trading = data_source.get("require_recent_trading", True)
-
-        # Build SELECT clause with all available fields
-        select_fields = [
-            "a.symbol",
-            "a.name",
-            "ap.prevday_close",
-            "ap.prevday_volume",
-            "ap.day_open",
-            "ap.day_close",
-            "ap.day_volume",
-            "ap.min_close",
-            "ap.min_volume",
-            "ap.min_accumulated_volume",
-            "ap.min_timestamp",
-        ]
-
-        # Start building query
-        query = f"""
-        WITH latest_prices AS (
-            SELECT
-                asset_id,
-                prevday_close,
-                prevday_volume,
-                day_open,
-                day_close,
-                day_volume,
-                min_close,
-                min_volume,
-                min_accumulated_volume,
-                min_timestamp,
-                provider_updated_at,
-                ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
-            FROM asset_prices
-        )
-        SELECT {', '.join(select_fields)}
-        FROM assets a
-        JOIN universe_memberships um ON a.id = um.asset_id
-        JOIN universes u ON um.universe_id = u.id
-        JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
-        WHERE u.name = '{universe}'
-        """
-
-        # Add require_recent_trading filter
-        if require_recent_trading:
-            query += " AND ap.provider_updated_at > 0"
-
-        # Add custom filters
-        filters = screener_def.get("filters", [])
-        for filter_def in filters:
-            field = filter_def["field"]
-            operator = filter_def["operator"]
-            value = filter_def["value"]
-
-            # YAML must contain actual SQL expressions (e.g., "ap.min_close", not "min_close")
-            # No field mapping - engine is generic
-
-            # Add WHERE clause
-            if isinstance(value, list):
-                value_str = f"({','.join(map(str, value))})"
-                query += f" AND {field} {operator} {value_str}"
-            elif value is None and operator in ["IS NOT NULL", "IS NULL"]:
-                query += f" AND {field} {operator}"
-            else:
-                query += f" AND {field} {operator} {value}"
-
-        # Add sorting
-        sort_config = screener_def.get("sort", [])
-        if sort_config:
-            order_by_parts = []
-            for sort_def in sort_config:
-                field = sort_def["field"]
-                direction = sort_def.get("direction", "desc").upper()
-
-                # YAML must contain actual SQL expressions
-                # No field mapping - engine is generic
-
-                order_by_parts.append(f"{field} {direction}")
-
-            if order_by_parts:
-                query += f" ORDER BY {', '.join(order_by_parts)}"
-
-        # Add limit
-        display = screener_def.get("display", {})
-        limit = display.get("limit", 50)
-        query += f" LIMIT {limit}"
-
-        return query
 
     def _add_computed_fields(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Add computed/formatted fields to result.
@@ -278,7 +207,7 @@ class ScreenerEngine:
 
         min_ratio = volume_config.get('min_volume_ratio', 1.5)
         session = volume_config.get('session', market_context.session_name)
-        trading_date = market_context.current_date if market_context.is_trading_day else market_context.prev_trading_date
+        trading_date = market_context.current_date if market_context.is_trading_day else market_context.previous_trading_date
 
         logger.info(
             f"Volume validation: {len(results)} candidates, "

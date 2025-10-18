@@ -44,6 +44,122 @@ All supported exchanges follow the same trading schedule:
 - **Closed**: Weekends and US federal holidays
 - **Early Close**: Some holidays (1:00 PM EST close)
 
+## Market Context & Primary Market
+
+### What is MarketContext?
+
+`MarketContext` is a runtime object that provides definitive information about the current market state based on **Polygon's authoritative market calendar and real-time status**. It answers three critical questions:
+
+1. **Is today a trading day?** - Checks against Polygon's official holiday calendar
+2. **What was the previous trading day?** - Skips weekends and holidays correctly
+3. **What is the current market session?** - Premarket, regular, afterhours, or closed
+
+#### Key Properties
+
+```python
+# Dates (from Polygon holiday calendar)
+market_context.current_date              # Today's date
+market_context.previous_trading_date     # Last trading day (skips weekends/holidays)
+market_context.next_trading_date         # Next trading day
+market_context.expected_data_date        # What date should price data be from?
+
+# Trading Status
+market_context.is_trading_day            # True if today is a trading day
+market_context.day_type                  # REGULAR_TRADING, EARLY_CLOSE, CLOSED_HOLIDAY, CLOSED_WEEKEND
+
+# Session Information (from Polygon market status API)
+market_context.current_session           # PREMARKET, REGULAR, AFTERHOURS, CLOSED_PRE, CLOSED_POST
+market_context.session_name              # Simplified: 'premarket', 'regular', 'afterhours', 'closed'
+market_context.is_market_open            # True if any trading is happening
+market_context.is_regular_hours          # True if regular session (9:30 AM - 4 PM)
+market_context.is_extended_hours         # True if premarket or afterhours
+```
+
+#### How MarketContext Works
+
+MarketContext uses **two Polygon APIs** as the source of truth:
+
+1. **`/v1/marketstatus/now`** - Real-time market status
+   - Returns: `open`, `closed`, or `extended-hours`
+   - Includes `earlyHours` and `afterHours` flags
+   - Respects early-close days automatically (e.g., 1:00 PM close)
+
+2. **`/v1/marketstatus/upcoming`** - Official holiday calendar
+   - Provides all NYSE/NASDAQ holidays
+   - Includes both `closed` and `early-close` days
+   - Used to skip holidays when finding previous/next trading days
+
+**Example**: On Saturday Oct 18, 2025:
+```python
+market_context.current_date           # 2025-10-18 (Saturday)
+market_context.is_trading_day         # False (weekend)
+market_context.previous_trading_date  # 2025-10-17 (Friday - correctly skips Saturday)
+market_context.expected_data_date     # 2025-10-17 (data should be from Friday)
+market_context.current_session        # CLOSED_POST
+```
+
+**Example**: On early-close day (day before Thanksgiving) at 1:05 PM:
+```python
+market_context.current_date           # 2025-11-26
+market_context.day_type               # EARLY_CLOSE
+market_context.current_session        # CLOSED_POST (Polygon says closed at 1:05 PM)
+```
+
+### Primary Market Concept
+
+When a **universe contains assets from multiple markets** (e.g., NYSE + NASDAQ), we need to pick **one market** as the "primary" to determine MarketContext.
+
+#### Why We Need a Primary Market
+
+MarketContext requires:
+- A specific market code (e.g., "XNAS" for NASDAQ, "XNYS" for NYSE)
+- A timezone for session calculations
+- Trading hours and holiday calendar
+
+Since both NYSE and NASDAQ have **identical schedules** (same hours, same holidays), it doesn't matter which we choose. We typically select the market with the **most assets** in the universe.
+
+#### How Primary Market is Selected
+
+```python
+# From universe configuration
+universe: "default_universe"
+  ├─ NASDAQ (XNAS): 4,699 assets (69.2%)  ← Primary market chosen
+  └─ NYSE (XNYS):  2,094 assets (30.8%)
+```
+
+The primary market is used for:
+- Getting MarketContext (session times, trading days, holidays)
+- Polygon API calls (market status)
+- All screeners and commands operating on this universe
+
+You'll see this in logs:
+```
+INFO - Using primary market 'XNAS' from universe 'default_universe'
+INFO - Market Context: MarketContext(XNAS: trading_day=False, session=closed_post, prev_trading=2025-10-17)
+```
+
+#### Data Date Validation
+
+MarketContext provides **`expected_data_date`** - the date that price data SHOULD be from:
+
+| Session State | Expected Data Date |
+|--------------|-------------------|
+| Regular hours on trading day | Today's date |
+| Afterhours on trading day | Today's date |
+| Premarket | Previous trading day |
+| Closed (weekend/holiday) | Previous trading day |
+
+Screeners show data validation:
+```
+Expected Data Date: 2025-10-17
+Actual Data Date:   ⚠️  2025-10-16 (mismatch!)
+```
+
+This helps catch:
+- Stale data (not refreshed today)
+- Mixed dates (some symbols updated, others not)
+- Weekend runs with Friday data vs Monday data
+
 ## Supported Asset Types
 
 TradeScout focuses on liquid, actively-traded securities:
@@ -159,6 +275,7 @@ The `MarketsManager` class provides:
 
 ---
 
-**Last Updated**: 2025-09-02  
-**Configuration**: `src/tradescout/config/markets_config.yaml`  
+**Last Updated**: 2025-10-18
+**Configuration**: `src/tradescout/config/markets_config.yaml`
 **Manager**: `src/tradescout/config/markets_manager.py`
+**Market Context**: `src/models/dataclass/market_context.py`

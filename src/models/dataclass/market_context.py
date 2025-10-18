@@ -89,6 +89,32 @@ class MarketContext:
         """Check if extended hours trading is active."""
         return self.current_session.is_extended
 
+    @property
+    def expected_data_date(self) -> date:
+        """Get the expected date for market data based on current context.
+
+        Returns the date that market data SHOULD be from:
+        - During regular/afterhours/closed_post on a trading day: today's date
+        - During premarket: previous trading date
+        - During closed on non-trading day (weekend/holiday): previous trading date
+
+        This provides the definitive answer for "what date should the data be?"
+        based on Polygon's trading calendar and market sessions.
+
+        Returns:
+            Date that market data is expected to be from
+        """
+        # On a trading day, expect today's data (except during premarket)
+        if self.is_trading_day:
+            # Premarket looks at previous day's close
+            if self.current_session in [MarketSession.PREMARKET, MarketSession.CLOSED_PRE]:
+                return self.previous_trading_date
+            # Regular, afterhours, and closed_post all use today's data
+            return self.current_date
+
+        # Weekend/holiday - expect previous trading day's data
+        return self.previous_trading_date
+
     def get_session_times(self) -> Dict[str, Optional[datetime]]:
         """
         Get today's session times based on market's configured hours.

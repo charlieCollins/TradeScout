@@ -218,3 +218,38 @@ class TemplateResolver:
         else:
             # Simple column list (backward compatible)
             return columns
+
+    def get_resolved_config(self) -> Dict[str, Any]:
+        """Get the resolved configuration for the current session.
+
+        Returns a dictionary showing what field mappings and thresholds
+        are being used for this specific session.
+
+        Returns:
+            Dictionary with resolved field_mapping and thresholds
+        """
+        config = {
+            "session": self.session,
+            "field_mapping": {},
+            "thresholds": {}
+        }
+
+        # Resolve field mappings for current session
+        for field_name, session_values in self.field_mapping.items():
+            if isinstance(session_values, dict):
+                # Session-specific mapping
+                config["field_mapping"][field_name] = session_values.get(self.session, "N/A")
+            else:
+                # Static value (same for all sessions)
+                config["field_mapping"][field_name] = session_values
+
+        # Resolve thresholds for current session
+        for threshold_name, session_values in self.thresholds.items():
+            if isinstance(session_values, dict):
+                # Session-specific threshold
+                config["thresholds"][threshold_name] = session_values.get(self.session, "N/A")
+            else:
+                # Static value (same for all sessions)
+                config["thresholds"][threshold_name] = session_values
+
+        return config
