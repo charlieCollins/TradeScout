@@ -17,19 +17,17 @@ TradeScout provides real-time market screening across different trading sessions
 
 ### Screeners Available
 
-**Regular Session:**
-- `gainers_regular` - Top gaining stocks (current price vs day open)
-- `losers_regular` - Top losing stocks (current price vs day open)
+**Context-Aware Screeners** (automatically adapt to current market session):
+- `gainers` - Top gaining stocks
+  - Premarket: vs previous close
+  - Regular: vs day open
+  - Afterhours: vs 4PM close
+  - Closed: last available vs appropriate reference
+- `losers` - Top losing stocks (mirror of gainers for downward moves)
+- `momentum` - High momentum stocks (largest absolute price moves)
+- `volume` - High volume stocks (unusual trading activity)
 
-**Extended Hours:**
-- `gainers_premarket` - Premarket gap-ups from previous close
-- `losers_premarket` - Premarket gap-downs from previous close
-- `gainers_after_hours` - Afterhours gainers vs 4PM close
-- `losers_after_hours` - Afterhours losers vs 4PM close
-
-**Closed Session:**
-- `gainers_closed_scope_regular` - Regular session gainers (day open to close)
-- `losers_closed_scope_regular` - Regular session losers (day open to close)
+All screeners use a template-based system that automatically selects appropriate price/volume calculations based on the current market session.
 
 ### Commands
 
@@ -66,10 +64,13 @@ TradeScout provides real-time market screening across different trading sessions
 - `tradescout database reset` - Reset database (with confirmation)
 - `tradescout database bootstrap-providers` - Initialize data providers
 - `tradescout database bootstrap-markets` - Initialize market data
-- `tradescout database bootstrap-tickers` - Populate asset universe
+- `tradescout database bootstrap-tickers` - Populate asset universe (15k+ tickers)
 - `tradescout database bootstrap-universes` - Initialize asset universes
 - `tradescout database bootstrap-fundamentals` - Bootstrap fundamentals data
+- `tradescout database bootstrap-sentiment-types` - Initialize sentiment types
 - `tradescout database bootstrap-all` - Run all bootstrap operations
+- `tradescout database results-backup` - Backup gap analysis results to JSON
+- `tradescout database results-restore` - Restore gap analysis results from JSON
 
 ### Data Management
 - **Database**: SQLite with 13 tables (location: `data/tradescout.db`)
@@ -116,11 +117,11 @@ TradeScout provides real-time market screening across different trading sessions
 # Show current market context and session
 ./tradescout market context
 
-# Find afterhours gainers
-./tradescout screener gainers_after_hours
+# Run context-aware gainers screener (adapts to current session)
+./tradescout screener gainers
 
-# Find regular session gainers
-./tradescout screener gainers_regular
+# Run losers screener
+./tradescout screener losers
 
 # Get detailed stock info
 ./tradescout asset info AAPL
@@ -151,7 +152,7 @@ TradeScout uses a **layered repository architecture** with clean separation of c
 ### Key Patterns
 - **Result Model → Adapter Pattern**: Commands build output-agnostic result models, adapters handle formatting
   - 11 CLI adapters for terminal display (Rich tables/colors)
-  - 8 Web adapters for JSON API responses
+  - 9 Web adapters for JSON API responses
   - Same business logic works for CLI and Web
 - **Repository Pattern**: Business-focused data access, hiding database complexity
 - **Cache-Aside Pattern**: TTL-based caching with automatic refresh
@@ -176,24 +177,23 @@ TradeScout uses a **layered repository architecture** with clean separation of c
 ### Getting Started
 - **[Getting Started Guide](docs/GETTING_STARTED.md)** - Complete installation and setup tutorial
 
-### API Reference
-- **[Base Classes](docs/API_REFERENCE_BASE_CLASSES.md)** - BaseManager and BaseProvider documentation
-- **[DataService](docs/API_REFERENCE_DATA_SERVICE.md)** - Complete DataService API reference
-
 ### Architecture
-- **[Database Managers](docs/ARCHITECTURE_MANAGERS.md)** - Manager/Provider pattern and TTL logic
-- **[API Providers](docs/ARCHITECTURE_API_PROVIDERS.md)** - External API integration patterns
+- **[Architecture Guide](docs/ARCHITECTURE.md)** - System architecture and design patterns
 - **[Database Schema](docs/DATABASE.md)** - Complete database schema and table reference
+- **[Presentation Context](docs/PRESENTATION_CONTEXT.md)** - Output adapter system
 
 ### Feature Guides
-- **[Screeners](docs/SCREENERS.md)** - Screener system and configuration
+- **[Screeners](docs/SCREENERS.md)** - Context-aware screener system
 - **[Bootstrapping](docs/BOOTSTRAPPING.md)** - Reference data initialization
-- **[Gap Trading](docs/GAP_TRADING_STRATEGY.md)** - Gap analysis and trading strategies
-- **[Sentiment](docs/SENTIMENT.md)** - Sentiment detection system (future feature)
+- **[Gap Trading Strategy](docs/GAP_TRADING_STRATEGY.md)** - Gap analysis methodology
+- **[Gap Results](docs/GAP_RESULTS.md)** - Gap tracking and reporting
+- **[Gap Backtest](docs/GAP_BACKTEST.md)** - Historical gap analysis
+- **[Sentiment](docs/SENTIMENT.md)** - News sentiment analysis
 
 ### Data Sources
-- **[Polygon.io Integration](docs/DATA_SOURCE_POLYGON.md)** - Polygon API usage
-- **[Snapshot API Details](docs/DATA_SOURCE_POLYGON_SNAPSHOT_INFO.md)** - Snapshot API behavior by session
+- **[Polygon.io Integration](docs/POLYGON.md)** - API integration guide
+- **[Polygon Implementation](docs/POLYGON_IMPLEMENTATION.md)** - Implementation details
+- **[Volume Fields Reference](docs/POLYGON_VOLUME_INFO.md)** - Volume data guide
 
 ### Project Management
 - **[Lessons Learned](CLAUDE_LESSONS_LEARNED.md)** - Development insights and anti-patterns

@@ -20,8 +20,21 @@ from repositories.provider_repository import ProviderRepository
 from repositories.universe_repository import UniverseRepository
 from repositories.asset_price_repository import AssetPriceRepository
 from repositories.data_update_metadata_repository import DataUpdateMetadataRepository
+from repositories.screener_repository import ScreenerRepository
+from repositories.fed_data_repository import FedDataRepository
+from repositories.gap_candidate_repository import GapCandidateRepository
+from repositories.gap_candidate_result_repository import GapCandidateResultRepository
+from repositories.market_holiday_repository import MarketHolidayRepository
+from repositories.gap_result_news_repository import GapResultNewsRepository
+from repositories.sentiment_type_repository import SentimentTypeRepository
+from repositories.sentiment_event_repository import SentimentEventRepository
 from services.cache_service import CacheService, CacheConfig
 from api.providers.polygon_tickers_provider import PolygonTickersProvider
+from api.providers.polygon_snapshot_provider import PolygonSnapshotProvider
+from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
+from api.providers.polygon_news_provider import PolygonNewsProvider
+from api.providers.polygon_markets_provider import PolygonMarketsProvider
+from api.providers.polygon_market_status_provider import PolygonMarketStatusProvider
 from models.sqlmodel.asset_sqlmodel import AssetSQLModel
 from models.sqlmodel.market_sqlmodel import MarketSQLModel
 from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
@@ -72,22 +85,11 @@ class DataServiceV2:
         self.provider_repository = ProviderRepository(session)
         self.universe_repository = UniverseRepository(session)
         self.asset_price_repository = AssetPriceRepository(session)
-
-        from repositories.screener_repository import ScreenerRepository
         self.screener_repository = ScreenerRepository(session)
-
-        from repositories.fed_data_repository import FedDataRepository
         self.fed_data_repository = FedDataRepository(session)
         self.metadata_repository = DataUpdateMetadataRepository(session)
 
         # Initialize gap-related repositories
-        from repositories.gap_candidate_repository import GapCandidateRepository
-        from repositories.gap_candidate_result_repository import GapCandidateResultRepository
-        from repositories.market_holiday_repository import MarketHolidayRepository
-        from repositories.gap_result_news_repository import GapResultNewsRepository
-        from repositories.sentiment_type_repository import SentimentTypeRepository
-        from repositories.sentiment_event_repository import SentimentEventRepository
-
         self.gap_candidate_repository = GapCandidateRepository(session)
         self.gap_candidate_result_repository = GapCandidateResultRepository(session)
         self.market_holiday_repository = MarketHolidayRepository(session)
@@ -97,13 +99,6 @@ class DataServiceV2:
 
         # Initialize API providers
         self.polygon_provider = PolygonTickersProvider(polygon_api_key)
-
-        from api.providers.polygon_snapshot_provider import PolygonSnapshotProvider
-        from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
-        from api.providers.polygon_news_provider import PolygonNewsProvider
-        from api.providers.polygon_markets_provider import PolygonMarketsProvider
-        from api.providers.polygon_market_status_provider import PolygonMarketStatusProvider
-
         self.polygon_snapshot_provider = PolygonSnapshotProvider(polygon_api_key)
         self.polygon_aggregates_provider = PolygonAggregatesProvider(polygon_api_key)
         self.polygon_news_provider = PolygonNewsProvider(polygon_api_key)
@@ -173,15 +168,11 @@ class DataServiceV2:
         """
         try:
             # Fetch from Polygon provider (returns old Asset dataclass)
-            # TODO: Update provider to return AssetSQLModel directly
-            # For now, we'll need to convert
+            # Provider still uses dataclass models - we convert to SQLModel after fetching
 
-            # Get market mapping for provider
-            # TODO: Implement this properly when we migrate markets
-            market_code_to_id = {
-                "XNYS": 1,  # Placeholder
-                "XNAS": 2,  # Placeholder
-            }
+            # Build market code-to-ID mapping from database
+            markets = self.market_repository.get_all(active_only=False)
+            market_code_to_id = {market.market_code: market.id for market in markets}
 
             asset_dataclass = self.polygon_provider.fetch_ticker_details(
                 symbol,

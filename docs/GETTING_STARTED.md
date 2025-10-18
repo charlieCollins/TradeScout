@@ -90,8 +90,9 @@ Creates `data/tradescout.db` with all required tables.
 ```bash
 ./tradescout database bootstrap-providers
 ./tradescout database bootstrap-markets
-./tradescout database bootstrap-assets
-./tradescout database bootstrap-fundamentals --limit 100  # Faster for testing
+./tradescout database bootstrap-tickers
+./tradescout database bootstrap-fundamentals
+./tradescout database bootstrap-sentiment-types
 ./tradescout database bootstrap-universes
 ```
 
@@ -121,11 +122,11 @@ Shows current session (premarket/regular/after-hours/closed) and market status.
 # List available screeners
 ./tradescout screener --list
 
-# Run gainers screener (context-aware - works in any session)
-./tradescout screener gainers_combined
+# Run gainers screener (context-aware - adapts to current session)
+./tradescout screener gainers
 
 # Run losers screener
-./tradescout screener losers_combined
+./tradescout screener losers
 ```
 
 **Example output:**
@@ -215,8 +216,8 @@ See `docs/GAP_TRADING_STRATEGY.md` for detailed strategy documentation.
 ./tradescout market update
 
 # 3. Run screener for current conditions
-./tradescout screener gainers_combined
-./tradescout screener losers_combined
+./tradescout screener gainers
+./tradescout screener losers
 ```
 
 ### Premarket/After-Hours Gap Analysis
@@ -233,13 +234,13 @@ cat tradescout_gap_*.txt
 
 ```bash
 # List universes
-./tradescout universes list
+./tradescout universe list
 
 # Show current universe info
-./tradescout universes current
+./tradescout universe current
 
 # Switch universe
-./tradescout universes activate large_cap
+./tradescout universe activate large_cap
 ```
 
 ---
@@ -251,9 +252,9 @@ cat tradescout_gap_*.txt
 Screeners are defined in `configs/screeners/*.yaml`:
 
 ```yaml
-# Example: configs/screeners/gainers_combined.yaml
-name: gainers_combined
-description: "Top gainers (context-aware across all sessions)"
+# Example: configs/screeners/gainers.yaml
+name: gainers
+description: "Top gaining stocks"
 enabled: true
 
 # Context-aware: Works in any session
@@ -356,7 +357,7 @@ TradeScout warns when data is stale:
 
 ```bash
 # Update asset list (TTL: 3 days)
-./tradescout database bootstrap-assets
+./tradescout database bootstrap-tickers
 
 # Update fundamentals (TTL: 1 week)
 ./tradescout database bootstrap-fundamentals

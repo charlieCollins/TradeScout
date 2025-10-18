@@ -288,9 +288,11 @@ class MarketContextService:
         else:
             raise RuntimeError(f"Unknown market status from Polygon API: {api_market}")
 
-    # TODO not sure this will actually get the next market day, it's just adding 1 day after skipping weekdays, need to validate
     def _find_next_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> Optional[date]:
-        """Find the next trading day after today using Polygon holiday API."""
+        """Find the next trading day after today using Polygon holiday API.
+
+        Delegates to _find_next_trading_day_from_date which handles weekend and holiday logic.
+        """
         return self._find_next_trading_day_from_date(today)
 
     def _find_next_trading_day_from_date(self, from_date: date) -> Optional[date]:

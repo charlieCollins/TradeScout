@@ -1,7 +1,7 @@
 """Database command group for database management and data initialization.
 
-NOTE: These commands are CLI-only utilities and do not need output adapters.
-Database operations (init, reset, bootstrap) are not intended for web/API exposure.
+NOTE: These commands are CLI-only utilities, not intended for web/API exposure.
+Commands use CLIDatabaseOutputAdapter for formatted terminal output.
 """
 
 import sys

@@ -31,8 +31,6 @@ from .main import pass_config
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from analysis.gap_analyzer import GapAnalyzer, GapCandidate
-from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
-from api.config.api_keys import POLYGON_API_KEY
 # Gap adapters injected via app_context.presentation (no direct imports needed)
 
 console = Console()
@@ -71,7 +69,6 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
     # Suppress verbose logging during gap analysis for cleaner output
     logging.getLogger('analysis.gap_analyzer').setLevel(logging.ERROR)
     logging.getLogger('api.providers.polygon_aggregates_provider').setLevel(logging.ERROR)
-    logging.getLogger('services.data_service').setLevel(logging.ERROR)
 
     try:
         # Step 1: Get market context and validate session

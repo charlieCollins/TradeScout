@@ -1,7 +1,7 @@
 # Sentiment Detection System
 
-**Last Updated**: 2025-09-30
-**Status**: Planning Phase
+**Last Updated**: 2025-10-18
+**Status**: Implemented (News Sentiment)
 **Purpose**: Track market-moving events and sentiment signals
 
 ---
@@ -29,6 +29,56 @@
 | **Regulatory** | `regulatory_approval` | FDA approval, legal win | Drug approval granted |
 | **Regulatory** | `regulatory_concern` | Investigation, compliance issue | SEC investigation announced |
 | **Social** | `social_buzz_spike` | Unusual social media attention | Stock trending on social platforms |
+
+---
+
+## Implementation Status
+
+### ✅ Implemented Features
+
+**News Sentiment Analysis** (Phase 1):
+- ✓ `sentiment_types` table with predefined categories
+- ✓ `sentiment_events` table for storing detected events
+- ✓ Bootstrap command: `./tradescout database bootstrap-sentiment-types`
+- ✓ News sentiment detection via Polygon news API
+- ✓ Asset news display: `./tradescout asset info <symbol>` shows recent news with sentiment
+- ✓ Repository pattern: `SentimentEventRepository`, `SentimentTypeRepository`
+
+**Usage Example**:
+```bash
+# View asset news with sentiment
+./tradescout asset info AAPL
+
+# Output includes:
+# Recent News (3):
+# 1. [POSITIVE] Apple Announces New Product Line
+#    Score: 0.85 | 2 hours ago | polygon.io
+# 2. [NEUTRAL] Apple Files Quarterly Report
+#    Score: 0.50 | 1 day ago | polygon.io
+```
+
+### ⏳ Planned Features (Future Phases)
+
+**Phase 2 - Analyst Ratings**:
+- ⏳ Analyst upgrade/downgrade tracking
+- ⏳ Price target changes
+- ⏳ Analyst consensus tracking
+- ⏳ Firm reputation weighting
+
+**Phase 3 - Earnings Events**:
+- ⏳ Earnings beat/miss detection
+- ⏳ Guidance raised/lowered tracking
+- ⏳ Earnings call sentiment analysis
+
+**Phase 4 - Social Buzz**:
+- ⏳ Social media mention tracking
+- ⏳ Sentiment analysis from social platforms
+- ⏳ Buzz spike detection
+
+**Phase 5 - Regulatory Events**:
+- ⏳ FDA approval tracking
+- ⏳ SEC investigation detection
+- ⏳ Legal event monitoring
 
 ---
 
