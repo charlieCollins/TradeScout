@@ -228,7 +228,7 @@ def bootstrap_tickers(app_context, limit, force):
     console.print("[blue]Initializing tickers from Polygon...[/blue]")
 
     if limit:
-        console.print(f"[yellow]Note: --limit not supported by bootstrap_assets, will fetch all tickers[/yellow]")
+        console.print(f"[yellow]Note: --limit not supported by bootstrap_tickers, will fetch all tickers[/yellow]")
 
     # Check if database exists
     if not Path(app_context.db_path).exists():
@@ -253,13 +253,13 @@ def bootstrap_tickers(app_context, limit, force):
         app_context.presentation.bootstrap_adapter.display_bootstrap_result(result)
 
     except Exception as e:
-        console.print(f"[red]❌ Failed to bootstrap assets: {e}[/red]")
+        console.print(f"[red]❌ Failed to bootstrap tickers: {e}[/red]")
         sys.exit(1)
 
     # Show stats
     try:
         asset_stats = data_service.get_asset_stats()
-        console.print(f"  Total assets in database: {asset_stats.get('total_assets', 0):,}")
+        console.print(f"  Total tickers in database: {asset_stats.get('total_assets', 0):,}")
     except Exception as e:
         console.print(f"[yellow]⚠️  Could not fetch stats: {e}[/yellow]")
 
@@ -373,7 +373,7 @@ def bootstrap_fundamentals(app_context, symbol, force, limit):
 
         # Bootstrap fundamentals with progress reporting
         result = bootstrap_service.bootstrap_fundamentals(
-            limit=limit, progress=progress_reporter
+            limit=limit, force=force, progress=progress_reporter
         )
 
         # Display results using injected adapter from presentation context
@@ -399,16 +399,8 @@ def bootstrap_all(app_context, force):
     # Check if database exists and has data
     if Path(app_context.db_path).exists() and not force:
         try:
-            # Use data service V2 to get database stats
-            from sqlmodel import Session, create_engine
-            from services.data_service_v2 import DataServiceV2
-            from api.config.api_keys import POLYGON_API_KEY
-
-            # Create DataServiceV2
-            engine = create_engine(f"sqlite:///{app_context.db_path}", echo=False,
-                                  connect_args={"check_same_thread": False})
-            session = Session(engine)
-            data_service = DataServiceV2(session, POLYGON_API_KEY, db_path=app_context.db_path)
+            # Use data service from app context to get database stats
+            data_service = app_context.get_data_service_v2()
             stats = data_service.get_database_stats()
 
             if not stats:
@@ -474,13 +466,16 @@ def bootstrap_all(app_context, force):
         console.print(f"[red]Market bootstrap failed: {e}[/red]")
         # Continue anyway as markets might be created by ticker bootstrap
 
-    # 4. Assets/Tickers
-    console.print("\n[bold]Step 4: Assets from Polygon[/bold]")
+    # 4. Tickers
+    console.print("\n[bold]Step 4: Tickers from Polygon[/bold]")
     try:
-        count = bootstrap_service.bootstrap_assets(market="stocks", active=True)
-        console.print(f"[green]✅ Assets: {count:,} stored[/green]")
+        result = bootstrap_service.bootstrap_assets(market="stocks", active=True)
+        console.print(
+            f"[green]✅ Tickers: {result.successful:,} stored "
+            f"({result.new_items:,} new, {result.updated_items:,} updated)[/green]"
+        )
     except Exception as e:
-        console.print(f"[red]Asset bootstrap failed: {e}[/red]")
+        console.print(f"[red]Ticker bootstrap failed: {e}[/red]")
         sys.exit(1)
 
     # 5. Universes (all from config)

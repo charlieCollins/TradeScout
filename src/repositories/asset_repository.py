@@ -232,7 +232,7 @@ class AssetRepository:
         logger.debug(f"Saved asset: {asset.symbol} (id={asset.id})")
         return asset
 
-    def bulk_save(self, assets: List[AssetSQLModel]) -> int:
+    def bulk_save(self, assets: List[AssetSQLModel]) -> tuple[int, int, int]:
         """Bulk persist multiple assets - non-destructive upsert.
 
         This method is non-destructive:
@@ -244,10 +244,10 @@ class AssetRepository:
             assets: List of assets to persist
 
         Returns:
-            Total number of assets successfully processed (inserts + updates)
+            Tuple of (inserted_count, updated_count, total_processed)
         """
         if not assets:
-            return 0
+            return (0, 0, 0)
 
         # Get all existing symbols in one query
         symbols = [asset.symbol for asset in assets]
@@ -286,7 +286,7 @@ class AssetRepository:
         self.session.commit()
         total_processed = inserted_count + updated_count
         logger.debug(f"Bulk saved: {inserted_count} new, {updated_count} updated, {total_processed} total")
-        return total_processed
+        return (inserted_count, updated_count, total_processed)
 
     def delete(self, asset: AssetSQLModel) -> None:
         """Delete asset from database.
@@ -353,6 +353,15 @@ class AssetRepository:
             AssetSQLModel.is_active == True
         )
         return len(list(self.session.exec(statement).all()))
+
+    def get_all_symbols(self) -> List[str]:
+        """Get list of all asset symbols in database (including inactive).
+
+        Returns:
+            List of all symbols
+        """
+        statement = select(AssetSQLModel.symbol)
+        return list(self.session.exec(statement).all())
 
     def get_stats(self) -> dict:
         """Get asset repository statistics.

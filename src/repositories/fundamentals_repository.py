@@ -266,6 +266,7 @@ class FundamentalsRepository:
         """Bulk persist multiple fundamentals.
 
         Optimized for inserting/updating many fundamentals at once.
+        Uses merge to handle both INSERT (new) and UPDATE (existing) operations.
 
         Args:
             fundamentals_list: List of fundamentals to persist
@@ -273,7 +274,8 @@ class FundamentalsRepository:
         Returns:
             Number of fundamentals saved
         """
-        self.session.add_all(fundamentals_list)
+        for fundamentals in fundamentals_list:
+            self.session.merge(fundamentals)
         self.session.commit()
         count = len(fundamentals_list)
         logger.debug(f"Bulk saved {count} fundamentals")

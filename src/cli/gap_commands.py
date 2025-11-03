@@ -125,8 +125,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         # Step 3: Initialize analyzer and find candidates
         console.print("[bold cyan]🔍 Finding Gap Candidates...[/bold cyan]")
 
-        aggregates_provider = PolygonAggregatesProvider(POLYGON_API_KEY)
-        analyzer = GapAnalyzer(data_service, aggregates_provider)
+        analyzer = GapAnalyzer(data_service)
 
         candidates = analyzer.find_gap_candidates(
             universe_symbols=universe_symbols,
@@ -148,10 +147,11 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         console.print("[bold cyan]📈 Validating Volume (Aggregates API)...[/bold cyan]")
 
         trading_date = market_context.current_date if market_context.is_trading_day else market_context.previous_trading_date
+        analysis_timestamp = datetime.now()  # Capture current time for elapsed session calculation
         validated_candidates = []
 
         for candidate in candidates:
-            volume_ratio = analyzer.calculate_volume_ratio(candidate, trading_date)
+            volume_ratio = analyzer.calculate_volume_ratio(candidate, trading_date, analysis_timestamp)
 
             if volume_ratio and volume_ratio >= min_volume_ratio:
                 validated_candidates.append(candidate)
@@ -443,6 +443,9 @@ def _prepare_and_save_candidates(
                 if not candidate.status:  # Don't override if already set
                     candidate.status = "rejected"
                     candidate.rejection_reason = "Exhaustion gap (gap≥5% + vol≥3x)"
+            else:
+                # Failed volume filter - never checked exhaustion filter
+                candidate.passed_exhaustion_filter = False
 
             # Derive quality tier from quality score
             if candidate.quality_score is not None:
@@ -480,6 +483,7 @@ def _prepare_and_save_candidates(
                 prevday_low=candidate.prevday_low,
                 extended_hours_volume=candidate.extended_hours_volume,
                 previous_day_volume=candidate.previous_day_volume,
+                day_volume=candidate.day_volume,
                 volume_ratio=candidate.volume_ratio,
                 market_cap=candidate.market_cap,
                 sector=candidate.sector,
@@ -820,8 +824,6 @@ def backtest_command(app_context, date, num_days, force, dry_run):
         ./tradescout gap backtest --dry-run       # Preview updates
     """
     from analysis.gap_performance_calculator import GapCandidateResultCalculator
-    from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
-    from api.config.api_keys import POLYGON_API_KEY
     from datetime import date as date_type, datetime
 
     console.print(Panel.fit(
@@ -834,11 +836,7 @@ def backtest_command(app_context, date, num_days, force, dry_run):
     # Get DataServiceV2
     data_service = app_context.get_data_service_v2()
 
-    aggregates_provider = PolygonAggregatesProvider(POLYGON_API_KEY)
-
-    # Note: GapCandidateResultCalculator still uses old MarketHolidaysManager temporarily
-    # We pass data_service.market_holiday_repository which has compatible methods
-    calculator = GapCandidateResultCalculator(aggregates_provider, data_service.market_holiday_repository)
+    calculator = GapCandidateResultCalculator(data_service)
 
     # Get gap results to process
     try:

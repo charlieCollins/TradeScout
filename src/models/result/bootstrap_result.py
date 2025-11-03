@@ -7,9 +7,9 @@ from typing import List
 
 @dataclass
 class BootstrapResult:
-    """Result of a bootstrap operation (assets, fundamentals, markets, etc.)."""
+    """Result of a bootstrap operation (tickers, fundamentals, markets, etc.)."""
 
-    operation: str  # "assets", "fundamentals", "markets", etc.
+    operation: str  # "tickers", "fundamentals", "markets", etc.
     total_items: int
     successful: int
     failed: int
@@ -20,6 +20,9 @@ class BootstrapResult:
     from_database: int = 0  # Count of items from database (fresh)
     from_cache: int = 0  # Count of items from file cache
     from_api: int = 0  # Count of items from API
+    new_items: int = 0  # Count of new items added
+    updated_items: int = 0  # Count of existing items updated
+    deprecated_items: int = 0  # Count of items in DB but not in source
 
     @property
     def success_rate(self) -> float:

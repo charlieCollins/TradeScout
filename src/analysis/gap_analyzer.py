@@ -22,22 +22,19 @@ logger = logging.getLogger(__name__)
 class GapAnalyzer:
     """Analyzes gaps for trading opportunities using new architecture.
 
-    Uses Manager/Provider/DataService pattern:
-    - Database queries via DataService managers
-    - Volume validation via PolygonAggregatesProvider
+    Uses DataService pattern:
+    - All database queries and API calls via DataService
     - Session-aware gap calculations (premarket vs after-hours)
     - Quality scoring from academic gap trading strategy
     """
 
-    def __init__(self, data_service, aggregates_provider):
-        """Initialize gap analyzer with data service and provider.
+    def __init__(self, data_service):
+        """Initialize gap analyzer with data service.
 
         Args:
-            data_service: DataService instance for database access
-            aggregates_provider: PolygonAggregatesProvider for volume queries
+            data_service: DataService instance for database access and API calls
         """
         self.data_service = data_service
-        self.aggregates_provider = aggregates_provider
 
         # Load gap trading configuration
         config_loader = get_config_loader()
@@ -145,7 +142,8 @@ class GapAnalyzer:
                     af.market_cap,
                     ((ap.min_close - ap.day_close) / ap.day_close * 100) as gap_pct,
                     ap.day_high,
-                    ap.day_low
+                    ap.day_low,
+                    ap.day_volume
                 FROM asset_prices ap
                 JOIN assets a ON ap.symbol = a.symbol
                 LEFT JOIN asset_fundamentals af ON a.id = af.asset_id
@@ -186,6 +184,9 @@ class GapAnalyzer:
             ref_high = float(row[7]) if row[7] else None
             ref_low = float(row[8]) if row[8] else None
 
+            # After-hours queries include day_volume as row[9]
+            day_volume = int(row[9]) if session == "afterhours" and len(row) > 9 and row[9] else None
+
             gap_amount = current_price - reference_price
             direction = GapDirection.UP if gap_amount > 0 else GapDirection.DOWN
             significance = self._determine_significance(abs(gap_pct))
@@ -201,6 +202,7 @@ class GapAnalyzer:
                 significance=significance,
                 market_cap=market_cap,
                 prevday_volume=prevday_volume,
+                day_volume=day_volume,
                 session=session,
                 prevday_close=reference_price,  # For premarket: prevday.close, for afterhours: day.close
                 prevday_high=ref_high,
@@ -214,24 +216,35 @@ class GapAnalyzer:
     def calculate_volume_ratio(
         self,
         candidate: GapCandidate,
-        trading_date: date
+        trading_date: date,
+        analysis_time=None
     ) -> Optional[float]:
         """Calculate volume ratio using Aggregates API (Step 4 of workflow).
 
-        Uses PolygonAggregatesProvider to get accurate extended hours volume
-        (trade-eligible only), then calculates ratio vs previous day hourly average.
+        Uses data service to get accurate extended hours volume (trade-eligible only),
+        then calculates ratio vs recent hourly average using ELAPSED session time.
+
+        IMPORTANT: Uses elapsed session time, not full session. If analyzing at 5:30 PM
+        during after-hours, only 1.5 hours have elapsed (4:00-5:30), not the full 4 hours.
+
+        Baseline selection:
+        - Premarket: Uses prevday_volume (yesterday's regular hours pace)
+        - After-hours: Uses day_volume (today's regular hours pace - more recent)
 
         Args:
-            candidate: Gap candidate with prevday_volume
+            candidate: Gap candidate with volume data
             trading_date: Trading date for volume query
+            analysis_time: Time of analysis (defaults to now)
 
         Returns:
-            Volume ratio (e.g., 2.5 = 2.5x previous day hourly average)
+            Volume ratio (e.g., 2.5 = 2.5x hourly average for elapsed time)
             Or None if volume data unavailable
         """
+        from datetime import datetime, time
+
         try:
-            # Query Aggregates API for extended hours volume
-            agg_volume = self.aggregates_provider.calculate_extended_hours_volume(
+            # Query for extended hours volume via data service
+            agg_volume = self.data_service.calculate_extended_hours_volume(
                 symbol=candidate.symbol,
                 trading_date=trading_date,
                 session=candidate.session
@@ -241,17 +254,71 @@ class GapAnalyzer:
                 logger.warning(f"{candidate.symbol}: No aggregates volume data")
                 return None
 
-            # Calculate volume ratio vs previous day hourly average
-            # Get session hours from config
-            session_hours = self.config['session_hours'][candidate.session]
+            # Determine baseline volume (session-aware)
+            if candidate.session == "premarket":
+                baseline_volume = candidate.prevday_volume
+            else:  # afterhours
+                baseline_volume = candidate.day_volume if candidate.day_volume else candidate.prevday_volume
+                if not candidate.day_volume:
+                    logger.warning(f"{candidate.symbol}: No day_volume available, falling back to prevday_volume")
+
+            if not baseline_volume or baseline_volume <= 0:
+                logger.warning(f"{candidate.symbol}: Invalid baseline volume")
+                return None
+
+            # Calculate elapsed session time
+            if analysis_time is None:
+                analysis_time = datetime.now()
+
+            current_time = analysis_time.time()
+
+            # Determine session start/end times
+            if candidate.session == "premarket":
+                # Premarket: 4:00 AM - 9:30 AM
+                session_start = time(4, 0)
+                session_end = time(9, 30)
+            else:  # afterhours
+                # After-hours: 4:00 PM - 8:00 PM
+                session_start = time(16, 0)
+                session_end = time(20, 0)
+
+            # Calculate elapsed time since session start
+            start_minutes = session_start.hour * 60 + session_start.minute
+            current_minutes = current_time.hour * 60 + current_time.minute
+            end_minutes = session_end.hour * 60 + session_end.minute
+
+            elapsed_minutes = current_minutes - start_minutes
+
+            # Cap at full session length
+            max_session_minutes = end_minutes - start_minutes
+            elapsed_minutes = min(elapsed_minutes, max_session_minutes)
+
+            # If negative or zero, something is wrong
+            if elapsed_minutes <= 0:
+                logger.warning(
+                    f"{candidate.symbol}: Invalid elapsed time ({elapsed_minutes} minutes) - "
+                    f"current={current_time}, session_start={session_start}"
+                )
+                return None
+
+            elapsed_hours = elapsed_minutes / 60.0
+
+            # Calculate volume ratio vs hourly average for elapsed time
             regular_hours = self.config['session_hours']['regular']
-            prev_day_hourly_avg = candidate.prevday_volume / regular_hours
-            expected_volume = prev_day_hourly_avg * session_hours
+            hourly_avg = baseline_volume / regular_hours
+            expected_volume = hourly_avg * elapsed_hours
             volume_ratio = agg_volume / expected_volume if expected_volume > 0 else 0
 
             # Update candidate
             candidate.volume_ratio = volume_ratio
             candidate.extended_hours_volume = agg_volume
+
+            logger.debug(
+                f"{candidate.symbol}: Volume ratio - session={candidate.session}, "
+                f"elapsed={elapsed_hours:.1f}h, baseline={baseline_volume:,}, "
+                f"hourly_avg={hourly_avg:,.0f}, expected={expected_volume:,.0f}, "
+                f"actual={agg_volume:,}, ratio={volume_ratio:.2f}x"
+            )
 
             return volume_ratio
 

@@ -42,6 +42,7 @@ class GapCandidateSQLModel(SQLModel, table=True):
     # Volume analysis
     extended_hours_volume: Optional[int] = None
     previous_day_volume: Optional[int] = None
+    day_volume: Optional[int] = None  # Today's regular hours volume (for after-hours)
     volume_ratio: Optional[float] = None
 
     # Market context

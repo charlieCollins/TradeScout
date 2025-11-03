@@ -32,8 +32,17 @@ class CLIBootstrapOutputAdapter:
             f"\n[bold green]✅ {result.operation.title()} Bootstrap Complete[/]"
         )
 
+        # Show delta information if available (new, updated, deprecated)
+        if result.new_items > 0 or result.updated_items > 0 or result.deprecated_items > 0:
+            self.console.print(f"  • Total from API: {result.total_items:,}")
+            self.console.print(f"  • New: {result.new_items:,}")
+            self.console.print(f"  • Updated: {result.updated_items:,}")
+            if result.deprecated_items > 0:
+                self.console.print(
+                    f"  • [yellow]Deprecated (in DB but not in API): {result.deprecated_items:,}[/]"
+                )
         # Show fetch/insert breakdown if both phases exist
-        if result.fetch_errors or result.insert_errors:
+        elif result.fetch_errors or result.insert_errors:
             # Two-phase operation (fetch + insert)
             fetch_count = result.total_items - len(result.fetch_errors)
             self.console.print(

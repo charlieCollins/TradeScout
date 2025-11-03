@@ -8,7 +8,17 @@
 
 ## Quick Start
 
-### Start the server:
+### Method 1: Using the Script (Recommended)
+```bash
+./tradescout-web
+```
+
+This automatically:
+- Activates the virtual environment
+- Starts the server on http://localhost:8000
+- Enables auto-reload for development
+
+### Method 2: Manual Start
 ```bash
 source venv/bin/activate
 uvicorn src.web.web_app:app --reload --host 0.0.0.0 --port 8000
@@ -165,4 +175,4 @@ kill -9 <PID>
 
 ---
 
-**Documentation Updated:** 2025-10-17
+**Documentation Updated:** 2025-10-20

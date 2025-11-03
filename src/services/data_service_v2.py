@@ -1644,6 +1644,59 @@ class DataServiceV2:
             to_datetime=to_datetime
         )
 
+    def calculate_extended_hours_volume(self, symbol: str, trading_date, session: str = "afterhours"):
+        """Calculate total volume for an extended hours session.
+
+        Args:
+            symbol: Stock symbol (e.g., 'AAPL')
+            trading_date: Trading date (not datetime - just the date)
+            session: Session type - "premarket" or "afterhours"
+
+        Returns:
+            Total volume for the session, or None if error
+        """
+        return self.polygon_aggregates_provider.calculate_extended_hours_volume(
+            symbol=symbol,
+            trading_date=trading_date,
+            session=session
+        )
+
+    def get_daily_aggregates(self, symbol: str, from_date, to_date):
+        """Get daily aggregate bars for a symbol.
+
+        Args:
+            symbol: Stock symbol
+            from_date: Start date
+            to_date: End date
+
+        Returns:
+            List of daily bar data from PolygonAggregatesProvider
+        """
+        return self.polygon_aggregates_provider.get_daily_aggregates(
+            symbol=symbol,
+            from_date=from_date,
+            to_date=to_date
+        )
+
+    def get_intraday_aggregates(self, symbol: str, date: str, timespan: str = 'minute', multiplier: int = 1):
+        """Get intraday aggregate bars for a symbol.
+
+        Args:
+            symbol: Stock symbol
+            date: Date string (YYYY-MM-DD)
+            timespan: Timespan ('minute', 'hour', etc.)
+            multiplier: Multiplier for timespan
+
+        Returns:
+            List of intraday bar data from PolygonAggregatesProvider
+        """
+        return self.polygon_aggregates_provider.get_intraday_aggregates(
+            symbol=symbol,
+            date=date,
+            timespan=timespan,
+            multiplier=multiplier
+        )
+
     # ============================================================================
     # FED DATA OPERATIONS
     # ============================================================================

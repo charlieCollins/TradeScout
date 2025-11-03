@@ -225,7 +225,7 @@ class BootstrapService:
         active: bool = True,
         progress=None
     ):
-        """Bootstrap all assets from Polygon tickers API using new architecture.
+        """Bootstrap all tickers from Polygon tickers API using new architecture.
 
         Fetches all tickers from Polygon and stores them as assets in database.
         This is a bulk operation that should be run periodically (every 3 days per TTL).
@@ -247,28 +247,31 @@ class BootstrapService:
 
         start_time = time.time()
         logger.info(
-            f"Bootstrapping assets from Polygon (market={market}, active={active})"
+            f"Bootstrapping tickers from Polygon (market={market}, active={active})"
         )
 
         # Check prerequisites
         provider_count = self.provider_repository.count_all()
         if provider_count == 0:
             raise RuntimeError(
-                "Cannot bootstrap assets: No providers in database. Run 'bootstrap-providers' first."
+                "Cannot bootstrap tickers: No providers in database. Run 'bootstrap-providers' first."
             )
 
         market_count = self.market_repository.count_all()
         if market_count == 0:
             raise RuntimeError(
-                "Cannot bootstrap assets: No markets in database. Run 'bootstrap-markets' first."
+                "Cannot bootstrap tickers: No markets in database. Run 'bootstrap-markets' first."
             )
 
         # Get Polygon provider ID
         polygon_provider = self.provider_repository.get_by_name("polygon")
         if not polygon_provider:
             raise RuntimeError(
-                "Cannot bootstrap assets: Polygon provider not found in database."
+                "Cannot bootstrap tickers: Polygon provider not found in database."
             )
+
+        # Get all existing symbols before bulk save to calculate deprecations
+        existing_symbols_before = set(self.asset_repository.get_all_symbols())
 
         # Create market_code to market_id mapping
         all_markets = self.market_repository.get_all(active_only=False)
@@ -288,7 +291,7 @@ class BootstrapService:
         if not assets:
             duration = time.time() - start_time
             return BootstrapResult(
-                operation="assets",
+                operation="tickers",
                 total_items=0,
                 successful=0,
                 failed=0,
@@ -297,6 +300,7 @@ class BootstrapService:
 
         # Convert Asset dataclass → AssetSQLModel
         asset_sql_list = []
+        incoming_symbols = set()
         for asset in assets:
             asset_sql = AssetSQLModel(
                 id=asset.id if asset.id != 0 else None,
@@ -311,12 +315,20 @@ class BootstrapService:
                 updated_at=asset.updated_at
             )
             asset_sql_list.append(asset_sql)
+            incoming_symbols.add(asset.symbol)
 
-        # Bulk save using repository
-        stored_count = self.asset_repository.bulk_save(asset_sql_list)
+        # Bulk save using repository (returns inserted, updated, total)
+        inserted_count, updated_count, total_processed = self.asset_repository.bulk_save(asset_sql_list)
+
+        # Calculate deprecated tickers (in DB but not in Polygon's response)
+        deprecated_symbols = existing_symbols_before - incoming_symbols
+        deprecated_count = len(deprecated_symbols)
 
         duration = time.time() - start_time
-        logger.info(f"Bootstrapped {stored_count} assets in {duration:.1f}s")
+        logger.info(
+            f"Bootstrapped {total_processed} tickers in {duration:.1f}s "
+            f"({inserted_count} new, {updated_count} updated, {deprecated_count} deprecated)"
+        )
 
         # Record metadata for bulk ticker operation
         from datetime import datetime
@@ -325,20 +337,23 @@ class BootstrapService:
             operation_subtype="bootstrap",
             start_time=datetime.fromtimestamp(start_time),
             total_items=len(assets),
-            processed_items=stored_count,
-            failed_items=len(assets) - stored_count,
+            processed_items=total_processed,
+            failed_items=len(assets) - total_processed,
             api_calls_made=1
         )
 
         return BootstrapResult(
-            operation="assets",
+            operation="tickers",
             total_items=len(assets),
-            successful=stored_count,
-            failed=len(assets) - stored_count,
-            duration_seconds=duration
+            successful=total_processed,
+            failed=len(assets) - total_processed,
+            duration_seconds=duration,
+            new_items=inserted_count,
+            updated_items=updated_count,
+            deprecated_items=deprecated_count
         )
 
-    def bootstrap_fundamentals(self, limit: Optional[int] = None, progress=None):
+    def bootstrap_fundamentals(self, limit: Optional[int] = None, force: bool = False, progress=None):
         """Bootstrap fundamentals for all assets in active universe using cache-aware approach.
 
         This is a bulk operation that uses 3-tier checking:
@@ -350,6 +365,7 @@ class BootstrapService:
 
         Args:
             limit: Optional limit on number of assets to process
+            force: If True, bypass DB and cache checks and always fetch from API
             progress: Optional progress reporter for operation tracking
 
         Returns:
@@ -402,17 +418,18 @@ class BootstrapService:
 
         for i, asset_sql in enumerate(assets, start=1):
             try:
-                # Tier 1: Check database for fresh data
-                existing = self.fundamentals_repository.get_by_asset_id(asset_sql.id)
-                if existing:
-                    age_days = (datetime.now() - existing.last_updated).days
-                    if age_days < max_age_days:
-                        stats["from_database"] += 1
-                        logger.debug(f"Using fresh DB data for {asset_sql.symbol} (age: {age_days}d)")
-                        continue
+                # Tier 1: Check database for fresh data (skip if force=True)
+                if not force:
+                    existing = self.fundamentals_repository.get_by_asset_id(asset_sql.id)
+                    if existing:
+                        age_days = (datetime.now() - existing.last_updated).days
+                        if age_days < max_age_days:
+                            stats["from_database"] += 1
+                            logger.debug(f"Using fresh DB data for {asset_sql.symbol} (age: {age_days}d)")
+                            continue
 
-                # Tier 2: Check file cache
-                if cache_helper.is_cache_fresh(asset_sql.symbol, max_age_days):
+                # Tier 2: Check file cache (skip if force=True)
+                if not force and cache_helper.is_cache_fresh(asset_sql.symbol, max_age_days):
                     cached_data = cache_helper.load_from_cache(asset_sql.symbol)
                     if cached_data:
                         fundamentals = AssetFundamentals.from_polygon_data(
@@ -425,7 +442,7 @@ class BootstrapService:
                         logger.debug(f"Loaded from cache: {asset_sql.symbol}")
                         continue
 
-                # Tier 3: Fetch from API (cache miss or stale)
+                # Tier 3: Fetch from API (cache miss or stale, or force=True)
                 ticker_data = self.polygon_provider.fetch_ticker_details_raw(asset_sql.symbol)
                 if not ticker_data:
                     fetch_errors.append(f"{asset_sql.symbol}: No data from API")

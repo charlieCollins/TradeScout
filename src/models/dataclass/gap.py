@@ -65,6 +65,7 @@ class GapCandidate:
     # Fundamentals
     market_cap: float
     prevday_volume: int
+    day_volume: Optional[int] = None  # Today's regular hours volume (for after-hours gaps)
 
     # Stage 2: Volume validation (populated by calculate_volume_ratio)
     volume_ratio: Optional[float] = None

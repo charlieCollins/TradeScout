@@ -18,15 +18,13 @@ logger = logging.getLogger(__name__)
 class GapCandidateResultCalculator:
     """Calculate gap performance metrics from market data."""
 
-    def __init__(self, aggregates_provider, market_holidays_repository):
+    def __init__(self, data_service):
         """Initialize performance calculator.
 
         Args:
-            aggregates_provider: PolygonAggregatesProvider for fetching bars
-            market_holidays_repository: MarketHolidayRepository for trading day checks
+            data_service: DataService instance for database access and API calls
         """
-        self.aggregates_provider = aggregates_provider
-        self.market_holidays_repository = market_holidays_repository
+        self.data_service = data_service
 
     def get_performance_trading_date(self, gap_result: dict) -> date:
         """Determine which trading day to use for performance data.
@@ -85,7 +83,7 @@ class GapCandidateResultCalculator:
             return True
 
         # Check market holidays - get_by_date returns MarketHolidaySQLModel or None
-        holiday = self.market_holidays_repository.get_by_date(check_date.isoformat())
+        holiday = self.data_service.market_holiday_repository.get_by_date(check_date.isoformat())
         return holiday is not None
 
     def is_trading_day_complete(self, trading_date: date) -> bool:
@@ -134,7 +132,7 @@ class GapCandidateResultCalculator:
         """
         try:
             # Fetch daily bar for entry/exit and high/low
-            daily_bar = self.aggregates_provider.get_daily_aggregates(
+            daily_bar = self.data_service.get_daily_aggregates(
                 symbol=symbol,
                 from_date=performance_date,
                 to_date=performance_date
@@ -193,7 +191,7 @@ class GapCandidateResultCalculator:
             # Format: YYYY-MM-DD
             date_str = trading_date.strftime('%Y-%m-%d')
 
-            minute_bars = self.aggregates_provider.get_intraday_aggregates(
+            minute_bars = self.data_service.get_intraday_aggregates(
                 symbol=symbol,
                 date=date_str,
                 timespan='minute',
