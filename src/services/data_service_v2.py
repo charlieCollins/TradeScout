@@ -29,12 +29,7 @@ from repositories.gap_result_news_repository import GapResultNewsRepository
 from repositories.sentiment_type_repository import SentimentTypeRepository
 from repositories.sentiment_event_repository import SentimentEventRepository
 from services.cache_service import CacheService, CacheConfig
-from api.providers.polygon_tickers_provider import PolygonTickersProvider
-from api.providers.polygon_snapshot_provider import PolygonSnapshotProvider
-from api.providers.polygon_aggregates_provider import PolygonAggregatesProvider
-from api.providers.polygon_news_provider import PolygonNewsProvider
-from api.providers.polygon_markets_provider import PolygonMarketsProvider
-from api.providers.polygon_market_status_provider import PolygonMarketStatusProvider
+from api.providers.provider_factory import ProviderFactory
 from models.sqlmodel.asset_sqlmodel import AssetSQLModel
 from models.sqlmodel.market_sqlmodel import MarketSQLModel
 from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
@@ -97,13 +92,20 @@ class DataServiceV2:
         self.sentiment_type_repository = SentimentTypeRepository(session)
         self.sentiment_event_repository = SentimentEventRepository(session)
 
-        # Initialize API providers
-        self.polygon_provider = PolygonTickersProvider(polygon_api_key)
-        self.polygon_snapshot_provider = PolygonSnapshotProvider(polygon_api_key)
-        self.polygon_aggregates_provider = PolygonAggregatesProvider(polygon_api_key)
-        self.polygon_news_provider = PolygonNewsProvider(polygon_api_key)
-        self.polygon_markets_provider = PolygonMarketsProvider(polygon_api_key)
-        self.polygon_market_status_provider = PolygonMarketStatusProvider(polygon_api_key)
+        # Initialize API providers via factory (provider-agnostic)
+        # All providers now use abstraction layer - easy to swap via config
+        self.snapshot_provider = ProviderFactory.create_snapshot_provider(api_key=polygon_api_key)
+        self.aggregates_provider = ProviderFactory.create_aggregates_provider(api_key=polygon_api_key)
+        self.news_provider = ProviderFactory.create_news_provider(api_key=polygon_api_key)
+        self.market_status_provider = ProviderFactory.create_market_status_provider(api_key=polygon_api_key)
+        self.reference_provider = ProviderFactory.create_reference_provider(api_key=polygon_api_key)
+        self.economic_provider = ProviderFactory.create_economic_provider(api_key=polygon_api_key)
+
+        # Legacy names for backward compatibility (deprecated - use new names above)
+        self.polygon_snapshot_provider = self.snapshot_provider
+        self.polygon_aggregates_provider = self.aggregates_provider
+        self.polygon_news_provider = self.news_provider
+        self.polygon_market_status_provider = self.market_status_provider
 
         # Initialize cache services (cache-aside pattern)
         self.asset_cache = CacheService[AssetSQLModel](
@@ -167,14 +169,14 @@ class DataServiceV2:
             AssetSQLModel if successful, None otherwise
         """
         try:
-            # Fetch from Polygon provider (returns old Asset dataclass)
+            # Fetch from reference provider (returns Asset dataclass)
             # Provider still uses dataclass models - we convert to SQLModel after fetching
 
             # Build market code-to-ID mapping from database
             markets = self.market_repository.get_all(active_only=False)
             market_code_to_id = {market.market_code: market.id for market in markets}
 
-            asset_dataclass = self.polygon_provider.fetch_ticker_details(
+            asset_dataclass = self.reference_provider.fetch_ticker_details(
                 symbol,
                 market_code_to_id
             )
@@ -1006,11 +1008,12 @@ class DataServiceV2:
             asset_prices.append(asset_price)
 
         # Upsert to database (insert new or update existing)
-        saved_count = 0
+        upsert_stats = {'inserted': 0, 'updated': 0, 'skipped': 0, 'deleted': 0}
         if asset_prices:
             # Use bulk_upsert to handle both inserts and updates
-            saved_count = self.asset_price_repository.bulk_upsert(asset_prices)
-            logger.info(f"Backfilled {saved_count} prices for {target_date}")
+            upsert_stats = self.asset_price_repository.bulk_upsert(asset_prices, force_refresh=force_refresh)
+            saved_count = upsert_stats['inserted'] + upsert_stats['updated']
+            logger.info(f"Backfilled {upsert_stats} prices for {target_date}")
 
             # Record metadata
             self.record_bulk_operation_metadata(
@@ -1023,6 +1026,7 @@ class DataServiceV2:
             )
         else:
             logger.warning(f"No prices to backfill for {target_date}")
+            saved_count = 0
 
         return MarketSnapshotUpdateStats(
             total_tickers=len(bars_dict),
@@ -1031,7 +1035,7 @@ class DataServiceV2:
             transformed=len(asset_prices),
             invalid=stats_invalid,
             saved=saved_count,
-            duplicates=len(asset_prices) - saved_count,
+            duplicates=upsert_stats['skipped'],
             data_was_fresh=False
         )
 
@@ -1708,7 +1712,7 @@ class DataServiceV2:
             fed_data_list: List of FedData dataclass objects to store
 
         Returns:
-            Number of records successfully stored
+            Number of records successfully stored (inserted + updated)
         """
         from models.sqlmodel.fed_data_sqlmodel import FedDataSQLModel
         import json
@@ -1730,8 +1734,9 @@ class DataServiceV2:
             )
             sql_models.append(sql_model)
 
-        # Use repository for upsert
-        return self.fed_data_repository.bulk_upsert(sql_models)
+        # Use repository for upsert (returns dict with stats)
+        upsert_stats = self.fed_data_repository.bulk_upsert(sql_models)
+        return upsert_stats['inserted'] + upsert_stats['updated']
 
     def fed_get_latest_by_type(self, data_type: str):
         """Get the most recent observation for a specific FED data type.

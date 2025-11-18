@@ -30,7 +30,8 @@ class ScreenerRepository:
         filters: List[Dict[str, Any]],
         sort: List[Dict[str, Any]],
         limit: int,
-        require_recent_trading: bool = True
+        require_recent_trading: bool = True,
+        previous_trading_date: date = None
     ) -> List[Dict[str, Any]]:
         """Execute a screener query with filters and sorting.
 
@@ -39,6 +40,7 @@ class ScreenerRepository:
         Args:
             universe: Universe name to query
             expected_date: Expected data date (for filtering)
+            previous_trading_date: Previous trading date (for prevday fallback)
             filters: List of filter conditions
             sort: List of sort specifications
             limit: Maximum number of results
@@ -47,12 +49,14 @@ class ScreenerRepository:
         Returns:
             List of matching assets with price data
         """
-        # Build SELECT clause with all available fields
+        # Build SELECT clause with all available fields (including fallback fields)
         select_fields = [
             "a.symbol",
             "a.name",
             "ap.prevday_close",
             "ap.prevday_volume",
+            "pdp.day_close as fallback_prevday_close",
+            "pdp.day_volume as fallback_prevday_volume",
             "ap.day_open",
             "ap.day_close",
             "ap.day_volume",
@@ -64,33 +68,75 @@ class ScreenerRepository:
 
         expected_date_str = expected_date.strftime('%Y-%m-%d')
 
-        # Start building query
-        query = f"""
-        WITH latest_prices AS (
-            SELECT
-                asset_id,
-                prevday_close,
-                prevday_volume,
-                day_open,
-                day_close,
-                day_volume,
-                min_close,
-                min_volume,
-                min_accumulated_volume,
-                min_timestamp,
-                provider_updated_at,
-                trade_date,
-                ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
-            FROM asset_prices
-            WHERE trade_date = '{expected_date_str}'
-        )
-        SELECT {', '.join(select_fields)}
-        FROM assets a
-        JOIN universe_memberships um ON a.id = um.asset_id
-        JOIN universes u ON um.universe_id = u.id
-        JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
-        WHERE u.name = '{universe}'
-        """
+        # Build query with optional prev_day JOIN for fallback
+        if previous_trading_date:
+            previous_date_str = previous_trading_date.strftime('%Y-%m-%d')
+            query = f"""
+            WITH latest_prices AS (
+                SELECT
+                    asset_id,
+                    prevday_close,
+                    prevday_volume,
+                    day_open,
+                    day_close,
+                    day_volume,
+                    min_close,
+                    min_volume,
+                    min_accumulated_volume,
+                    min_timestamp,
+                    provider_updated_at,
+                    trade_date,
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{expected_date_str}'
+            ),
+            prev_day_prices AS (
+                SELECT
+                    asset_id,
+                    day_close,
+                    day_volume,
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{previous_date_str}'
+            )
+            SELECT {', '.join(select_fields)}
+            FROM assets a
+            JOIN universe_memberships um ON a.id = um.asset_id
+            JOIN universes u ON um.universe_id = u.id
+            JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
+            LEFT JOIN prev_day_prices pdp ON a.id = pdp.asset_id AND pdp.rn = 1
+            WHERE u.name = '{universe}'
+            """
+        else:
+            # No fallback - original behavior
+            query = f"""
+            WITH latest_prices AS (
+                SELECT
+                    asset_id,
+                    prevday_close,
+                    prevday_volume,
+                    day_open,
+                    day_close,
+                    day_volume,
+                    min_close,
+                    min_volume,
+                    min_accumulated_volume,
+                    min_timestamp,
+                    provider_updated_at,
+                    trade_date,
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{expected_date_str}'
+            )
+            SELECT a.symbol, a.name, ap.prevday_close, ap.prevday_volume,
+                   ap.day_open, ap.day_close, ap.day_volume,
+                   ap.min_close, ap.min_volume, ap.min_accumulated_volume, ap.min_timestamp
+            FROM assets a
+            JOIN universe_memberships um ON a.id = um.asset_id
+            JOIN universes u ON um.universe_id = u.id
+            JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
+            WHERE u.name = '{universe}'
+            """
 
         # Add require_recent_trading filter
         if require_recent_trading:
@@ -137,6 +183,36 @@ class ScreenerRepository:
             row_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(zip(select_fields, row))
             results.append(row_dict)
 
+        # Apply prevday fallback logic ONLY if previous_trading_date was provided
+        if previous_trading_date:
+            snapshot_count = 0
+            fallback_count = 0
+            missing_count = 0
+
+            for row in results:
+                if row.get('prevday_close') is not None:
+                    # Snapshot data - use as-is
+                    snapshot_count += 1
+                elif row.get('fallback_prevday_close') is not None:
+                    # Backfilled data - use fallback from previous day
+                    row['prevday_close'] = row['fallback_prevday_close']
+                    row['prevday_volume'] = row.get('fallback_prevday_volume')
+                    fallback_count += 1
+                else:
+                    # Missing both
+                    missing_count += 1
+
+                # Remove fallback fields from final output
+                row.pop('fallback_prevday_close', None)
+                row.pop('fallback_prevday_volume', None)
+
+            # Log strategy usage
+            if fallback_count > 0 or missing_count > 0:
+                logger.info(
+                    f"Prevday data sources: {snapshot_count} snapshot, "
+                    f"{fallback_count} fallback to prev day, {missing_count} missing both"
+                )
+
         return results
 
     def count_excluded_by_date(self, universe_name: str, expected_date: date) -> int:
@@ -181,3 +257,83 @@ class ScreenerRepository:
         matching = self.session.exec(matching_statement).one()
 
         return total - matching
+
+    def count_assets_with_reference_price(
+        self,
+        universe: str,
+        expected_date: date,
+        reference_field: str,
+        previous_trading_date: date = None
+    ) -> int:
+        """Count assets with non-NULL reference price data (including fallback).
+
+        Business query: Check if reference price data is available for screener.
+        Checks both snapshot prevday_close AND previous day's day_close as fallback.
+
+        Args:
+            universe: Universe name
+            expected_date: Expected data date
+            previous_trading_date: Previous trading date (for fallback)
+            reference_field: Field name to check (e.g., 'prevday_close')
+
+        Returns:
+            Number of assets with non-NULL reference price (from either source)
+        """
+        expected_date_str = expected_date.strftime('%Y-%m-%d')
+
+        if previous_trading_date:
+            previous_date_str = previous_trading_date.strftime('%Y-%m-%d')
+            query = f"""
+            WITH latest_prices AS (
+                SELECT
+                    asset_id,
+                    {reference_field},
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{expected_date_str}'
+            ),
+            prev_day_prices AS (
+                SELECT
+                    asset_id,
+                    day_close,
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{previous_date_str}'
+            )
+            SELECT COUNT(DISTINCT a.id)
+            FROM assets a
+            JOIN universe_memberships um ON a.id = um.asset_id
+            JOIN universes u ON um.universe_id = u.id
+            JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
+            LEFT JOIN prev_day_prices pdp ON a.id = pdp.asset_id AND pdp.rn = 1
+            WHERE u.name = '{universe}'
+              AND (ap.{reference_field} IS NOT NULL OR pdp.day_close IS NOT NULL)
+            """
+        else:
+            # Original behavior - only check reference_field
+            query = f"""
+            WITH latest_prices AS (
+                SELECT
+                    asset_id,
+                    {reference_field},
+                    ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
+                FROM asset_prices
+                WHERE trade_date = '{expected_date_str}'
+            )
+            SELECT COUNT(DISTINCT a.id)
+            FROM assets a
+            JOIN universe_memberships um ON a.id = um.asset_id
+            JOIN universes u ON um.universe_id = u.id
+            JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
+            WHERE u.name = '{universe}'
+              AND ap.{reference_field} IS NOT NULL
+            """
+
+        from sqlmodel import text
+        result = self.session.exec(text(query))
+        row = result.one()
+
+        # Extract scalar value from Row object
+        count = row[0] if hasattr(row, '__getitem__') else row
+
+        return count

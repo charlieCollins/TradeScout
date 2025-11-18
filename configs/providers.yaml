@@ -1,0 +1,60 @@
+# Provider Configuration for TradeScout
+# Allows easy swapping between data providers without code changes
+
+providers:
+  # Snapshot data (current prices, OHLCV)
+  snapshot:
+    default: "polygon"  # Options: polygon, yfinance (future), iex (future)
+    fallback: []  # Future: automatic failover chains
+
+  # Aggregates/bars data (historical, minute-level)
+  aggregates:
+    default: "polygon"
+    fallback: []
+
+  # News and sentiment
+  news:
+    default: "polygon"
+    fallback: []
+
+  # Market status and holidays
+  market_status:
+    default: "polygon"
+    fallback: []
+
+  # Reference data (tickers, exchanges)
+  reference:
+    default: "polygon"
+    fallback: []
+
+  # Economic data (Fed, inflation, yields)
+  economic:
+    default: "polygon"
+    fallback: []
+
+# API keys are read from environment variables:
+# - POLYGON_API_KEY
+# - IEX_API_KEY (future)
+# - ALPHA_VANTAGE_API_KEY (future)
+# - FINNHUB_API_KEY (future)
+# - FRED_API_KEY (future)
+
+# Provider-specific settings
+settings:
+  polygon:
+    # Polygon API base URL
+    base_url: "https://api.polygon.io"
+
+    # Rate limiting (Stocks Basic tier)
+    rate_limit_per_minute: 5
+
+    # Note: These settings are currently managed in api.yaml
+    # Future: consolidate all Polygon settings here
+
+  # Future provider settings
+  # yfinance:
+  #   delay_between_calls_ms: 100  # Be respectful, no official limits
+  #
+  # iex:
+  #   base_url: "https://cloud.iexapis.com"
+  #   rate_limit_per_second: 100  # Launch plan

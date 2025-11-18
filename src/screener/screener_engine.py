@@ -103,8 +103,19 @@ class ScreenerEngine:
             filters=filters,
             sort=sort,
             limit=limit,
-            require_recent_trading=require_recent_trading
+            require_recent_trading=require_recent_trading,
+            previous_trading_date=market_context.previous_trading_date
         )
+
+        # If no results, check if reference price data is missing
+        if not results:
+            self._check_missing_reference_data(
+                screener_def=screener_def,
+                session=session,
+                universe=universe,
+                expected_date=market_context.expected_data_date,
+                previous_trading_date=market_context.previous_trading_date
+            )
 
         # Add computed fields to each result
         enhanced_results = []
@@ -162,6 +173,56 @@ class ScreenerEngine:
             raise ValueError(
                 f"Screener '{screener_name}' is not available during {current_session} session. "
                 f"Valid sessions: {', '.join(valid_sessions)}"
+            )
+
+    def _check_missing_reference_data(
+        self,
+        screener_def: Dict,
+        session: str,
+        universe: str,
+        expected_date: date,
+        previous_trading_date: date
+    ):
+        """Check if reference price data is missing for all assets.
+
+        Args:
+            screener_def: Screener configuration
+            session: Current session name
+            universe: Universe name
+            expected_date: Expected data date
+
+        Raises:
+            ValueError: If reference price is missing for all assets
+        """
+        # Get reference_price field for this session
+        field_mapping = screener_def.get("field_mapping", {})
+        reference_price_config = field_mapping.get("reference_price", {})
+
+        if not reference_price_config or session not in reference_price_config:
+            return  # No reference price configured, nothing to check
+
+        reference_field_expr = reference_price_config[session]
+
+        # Extract the actual field name (e.g., "ap.prevday_close" -> "prevday_close")
+        if "." in reference_field_expr:
+            reference_field = reference_field_expr.split(".")[-1]
+        else:
+            reference_field = reference_field_expr
+
+        # Query to check if any assets have non-NULL reference price (with fallback)
+        count_query = self.data_provider.screener_repository.count_assets_with_reference_price(
+            universe=universe,
+            expected_date=expected_date,
+            reference_field=reference_field,
+            previous_trading_date=previous_trading_date
+        )
+
+        if count_query == 0:
+            screener_name = screener_def.get("name", "unknown")
+            raise ValueError(
+                f"No {reference_field.replace('_', ' ')} data available for screener '{screener_name}'. "
+                f"Cannot calculate gains without reference price data. "
+                f"Run 'tradescout snapshot update' to fetch latest market data."
             )
 
     def _add_computed_fields(self, result: Dict[str, Any]) -> Dict[str, Any]:

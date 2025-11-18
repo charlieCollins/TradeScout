@@ -104,10 +104,13 @@ class MarketContext:
         Returns:
             Date that market data is expected to be from
         """
-        # On a trading day, expect today's data (except during premarket)
+        # On a trading day, expect today's data
         if self.is_trading_day:
-            # Premarket looks at previous day's close
-            if self.current_session in [MarketSession.PREMARKET, MarketSession.CLOSED_PRE]:
+            # Premarket uses today's data (which includes prevday_close from snapshot)
+            if self.current_session == MarketSession.PREMARKET:
+                return self.current_date
+            # CLOSED_PRE (12AM-4AM) - use previous day's data since today's snapshot not available yet
+            elif self.current_session == MarketSession.CLOSED_PRE:
                 return self.previous_trading_date
             # Regular, afterhours, and closed_post all use today's data
             return self.current_date

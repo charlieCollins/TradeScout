@@ -49,9 +49,9 @@ class BootstrapService:
         self.universe_repository = data_service.universe_repository
         self.sentiment_type_repository = data_service.sentiment_type_repository
 
-        # API providers
-        self.polygon_provider = data_service.polygon_provider
-        self.polygon_markets_provider = data_service.polygon_markets_provider
+        # API providers (now provider-agnostic via factory)
+        self.reference_provider = data_service.reference_provider
+        self.economic_provider = data_service.economic_provider
 
     def bootstrap_sentiment_types(self) -> int:
         """Bootstrap sentiment types into database.
@@ -193,7 +193,7 @@ class BootstrapService:
             )
 
         # Fetch all markets from Polygon API
-        markets = self.polygon_markets_provider.fetch_all_exchanges(
+        markets = self.reference_provider.fetch_all_exchanges(
             asset_class=asset_class, locale=locale
         )
 
@@ -201,20 +201,66 @@ class BootstrapService:
             logger.warning("No markets fetched from Polygon")
             return 0
 
-        # Convert Market dataclass → MarketSQLModel
+        # Convert Market dataclass → MarketSQLModel with extended hours
+        from datetime import time
         market_sql_list = []
         for market in markets:
+            # Set extended hours for US stock markets
+            premarket_start = None
+            premarket_end = None
+            afterhours_start = None
+            afterhours_end = None
+            timezone = market.timezone or "America/New_York"
+            currency = market.currency or "USD"
+
+            # US stock markets have standard extended hours
+            if locale == "us" and asset_class == "stocks":
+                premarket_start = time(4, 0)   # 4:00 AM
+                premarket_end = time(9, 30)    # 9:30 AM
+                afterhours_start = time(16, 0) # 4:00 PM
+                afterhours_end = time(20, 0)   # 8:00 PM
+
             market_sql = MarketSQLModel(
                 id=market.id if market.id != 0 else None,
                 code=market.code,
                 name=market.name,
+                country=market.country or "US",
+                timezone=timezone,
+                currency=currency,
+                premarket_start_time=premarket_start,
+                premarket_end_time=premarket_end,
+                regular_open_time=market.regular_open_time,
+                regular_close_time=market.regular_close_time,
+                afterhours_start_time=afterhours_start,
+                afterhours_end_time=afterhours_end,
                 is_active=market.is_active,
                 created_at=market.created_at
             )
             market_sql_list.append(market_sql)
 
-        # Bulk save using repository
-        stored_count = self.market_repository.bulk_save(market_sql_list)
+        # Upsert markets (insert new or update existing)
+        stored_count = 0
+        for market_sql in market_sql_list:
+            existing = self.market_repository.get_by_code(market_sql.code)
+            if existing:
+                # Update existing market
+                existing.name = market_sql.name
+                existing.country = market_sql.country
+                existing.timezone = market_sql.timezone
+                existing.currency = market_sql.currency
+                existing.premarket_start_time = market_sql.premarket_start_time
+                existing.premarket_end_time = market_sql.premarket_end_time
+                existing.regular_open_time = market_sql.regular_open_time
+                existing.regular_close_time = market_sql.regular_close_time
+                existing.afterhours_start_time = market_sql.afterhours_start_time
+                existing.afterhours_end_time = market_sql.afterhours_end_time
+                existing.is_active = market_sql.is_active
+                self.market_repository.save(existing)
+                stored_count += 1
+            else:
+                # Insert new market
+                self.market_repository.save(market_sql)
+                stored_count += 1
 
         logger.info(f"Bootstrapped {stored_count} markets")
         return stored_count
@@ -278,7 +324,7 @@ class BootstrapService:
         market_code_to_id = {m.code: m.id for m in all_markets}
 
         # Fetch all tickers from API with market mapping
-        raw_assets = self.polygon_provider.fetch_all_tickers(
+        raw_assets = self.reference_provider.fetch_all_tickers(
             market=market, active=active, market_code_to_id=market_code_to_id
         )
 
@@ -443,7 +489,7 @@ class BootstrapService:
                         continue
 
                 # Tier 3: Fetch from API (cache miss or stale, or force=True)
-                ticker_data = self.polygon_provider.fetch_ticker_details_raw(asset_sql.symbol)
+                ticker_data = self.reference_provider.fetch_ticker_details_raw(asset_sql.symbol)
                 if not ticker_data:
                     fetch_errors.append(f"{asset_sql.symbol}: No data from API")
                     stats["errors"] += 1

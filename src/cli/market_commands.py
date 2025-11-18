@@ -224,10 +224,9 @@ def context(app_context):
         last_snapshot_age_str = None
 
         try:
-            # Query metadata using repository
+            # Query metadata using repository (without subtype to get latest regardless of refresh/fetch)
             metadata = data_service.metadata_repository.get_latest_by_operation(
-                operation_type='market_snapshots',
-                operation_subtype='fetch'
+                operation_type='market_snapshots'
             )
 
             if metadata and metadata.completed_at:
