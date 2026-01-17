@@ -301,8 +301,9 @@ class FundamentalsRepository:
         Returns:
             Total count
         """
-        statement = select(FundamentalsSQLModel)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(FundamentalsSQLModel.id))
+        return self.session.exec(statement).one() or 0
 
     def get_last_updated(self) -> Optional["datetime"]:
         """Get the most recent update timestamp across all fundamentals.
@@ -325,10 +326,11 @@ class FundamentalsRepository:
         Returns:
             Count
         """
-        statement = select(FundamentalsSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(FundamentalsSQLModel.id)).where(
             FundamentalsSQLModel.sector == sector
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def count_with_market_cap(self) -> int:
         """Count fundamentals with market cap data available.
@@ -336,11 +338,12 @@ class FundamentalsRepository:
         Returns:
             Count of records with market cap
         """
-        statement = select(FundamentalsSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(FundamentalsSQLModel.id)).where(
             FundamentalsSQLModel.market_cap.is_not(None),  # type: ignore
             FundamentalsSQLModel.market_cap > 0
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def get_stats(self) -> dict:
         """Get fundamentals repository statistics.

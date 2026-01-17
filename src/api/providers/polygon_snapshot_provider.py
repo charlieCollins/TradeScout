@@ -26,7 +26,7 @@ class PolygonSnapshotProvider(BaseAPIProvider):
     # AUTHENTICATION
     # ============================================================================
 
-    def _add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Add Polygon API key to request parameters.
 
         Args:
@@ -38,7 +38,7 @@ class PolygonSnapshotProvider(BaseAPIProvider):
         params["apikey"] = self.api_key
         return params
 
-    def _get_health_endpoint(self) -> str:
+    def get_health_endpoint(self) -> str:
         """Get health check endpoint.
 
         Returns:

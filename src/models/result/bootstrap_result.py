@@ -16,7 +16,7 @@ class BootstrapResult:
     fetch_errors: List[str] = field(default_factory=list)
     insert_errors: List[str] = field(default_factory=list)
     duration_seconds: float = 0.0
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
     from_database: int = 0  # Count of items from database (fresh)
     from_cache: int = 0  # Count of items from file cache
     from_api: int = 0  # Count of items from API

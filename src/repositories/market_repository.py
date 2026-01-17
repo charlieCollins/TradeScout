@@ -233,8 +233,9 @@ class MarketRepository:
         Returns:
             Total market count
         """
-        statement = select(MarketSQLModel)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(MarketSQLModel.id))
+        return self.session.exec(statement).one() or 0
 
     def count_active(self) -> int:
         """Count number of active markets.
@@ -242,8 +243,9 @@ class MarketRepository:
         Returns:
             Active market count
         """
-        statement = select(MarketSQLModel).where(MarketSQLModel.is_active == True)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(MarketSQLModel.id)).where(MarketSQLModel.is_active == True)
+        return self.session.exec(statement).one() or 0
 
     def count_by_country(self, country: str) -> int:
         """Count active markets in a specific country.
@@ -254,8 +256,9 @@ class MarketRepository:
         Returns:
             Count of active markets in the country
         """
-        statement = select(MarketSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(MarketSQLModel.id)).where(
             MarketSQLModel.country == country.upper(),
             MarketSQLModel.is_active == True
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0

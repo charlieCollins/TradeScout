@@ -1,5 +1,6 @@
 """Screener command group for market screening."""
 
+import logging
 import sys
 from pathlib import Path
 
@@ -7,6 +8,8 @@ import click
 from rich.console import Console
 
 from .main import pass_config
+
+logger = logging.getLogger(__name__)
 from .asset_commands import display_market_context
 
 # Add src to path for imports
@@ -95,8 +98,8 @@ def screener(app_context, screener_name: str, list_screeners: bool, reference_da
                 # Add warning if snapshot is older than 30 minutes
                 if age_minutes > 30:
                     snapshot_warning = f"⚠️  Warning: Market data is {age_str} old - results may be stale"
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not fetch market snapshot metadata: {e}")
 
         # Get valid sessions from screener config
         valid_sessions = screener_def.get('valid_sessions', [])

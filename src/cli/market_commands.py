@@ -171,8 +171,8 @@ def update(app_context, date, force):
         total_historical_records = None
         try:
             total_historical_records = data_service.asset_price_repository.count_all()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not get historical records count: {e}")
 
         # Create result and display
         result = MarketUpdateResult(

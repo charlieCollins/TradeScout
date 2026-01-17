@@ -4,6 +4,7 @@ NOTE: These commands are CLI-only utilities, not intended for web/API exposure.
 Commands use CLIDatabaseOutputAdapter for formatted terminal output.
 """
 
+import logging
 import sys
 import json
 from datetime import datetime, date
@@ -11,6 +12,8 @@ from pathlib import Path
 
 import click
 from rich.console import Console
+
+logger = logging.getLogger(__name__)
 from rich.table import Table
 from rich.progress import Progress, TaskID
 from rich.live import Live
@@ -419,9 +422,9 @@ def bootstrap_all(app_context, force):
                 if not click.confirm("Continue with bootstrap?"):
                         console.print("Bootstrap cancelled")
                         return
-        except Exception:
-            # If we can't check, just proceed
-            pass
+        except Exception as e:
+            # If we can't check existing data, log and proceed
+            logger.debug(f"Could not check existing data before bootstrap: {e}")
 
     console.print("[blue]Running complete bootstrap sequence...[/blue]")
 
@@ -674,13 +677,13 @@ def results_restore(app_context, backup_file):
                                                                'news_published_at']:
                         try:
                             data[key] = datetime.fromisoformat(value)
-                        except:
-                            pass
+                        except (ValueError, TypeError):
+                            logger.debug(f"Could not parse datetime for {key}: {value}")
                     elif key in ['trading_date']:
                         try:
                             data[key] = date.fromisoformat(value)
-                        except:
-                            pass
+                        except (ValueError, TypeError):
+                            logger.debug(f"Could not parse date for {key}: {value}")
             return model_class(**data)
 
         # Use transaction for atomic operation
@@ -729,8 +732,7 @@ def results_restore(app_context, backup_file):
         except Exception as e:
             session.rollback()
             console.print(f"[red]❌ Restoration failed, rolled back changes: {e}[/red]")
-            import traceback
-            traceback.print_exc()
+            logger.exception("Database restoration failed")
             sys.exit(1)
 
     except json.JSONDecodeError as e:
@@ -738,8 +740,7 @@ def results_restore(app_context, backup_file):
         sys.exit(1)
     except Exception as e:
         console.print(f"[red]❌ Restore failed: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Database restore failed")
         sys.exit(1)
     finally:
         session.close()

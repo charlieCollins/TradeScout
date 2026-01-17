@@ -121,8 +121,8 @@ class FundamentalsSQLModel(SQLModel, table=True):
     )
 
     last_updated: datetime = Field(
-        default_factory=datetime.now,
-        description="Last update timestamp"
+        default_factory=datetime.utcnow,
+        description="Last update timestamp (UTC)"
     )
 
     # ============================================================================

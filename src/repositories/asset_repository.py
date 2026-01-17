@@ -327,8 +327,9 @@ class AssetRepository:
         Returns:
             Total asset count
         """
-        statement = select(AssetSQLModel)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(AssetSQLModel.id))
+        return self.session.exec(statement).one() or 0
 
     def count_active(self) -> int:
         """Count number of active assets.
@@ -336,8 +337,9 @@ class AssetRepository:
         Returns:
             Active asset count
         """
-        statement = select(AssetSQLModel).where(AssetSQLModel.is_active == True)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(AssetSQLModel.id)).where(AssetSQLModel.is_active == True)
+        return self.session.exec(statement).one() or 0
 
     def count_by_type(self, asset_type: str) -> int:
         """Count active assets of a specific type.
@@ -348,11 +350,12 @@ class AssetRepository:
         Returns:
             Count of active assets of the specified type
         """
-        statement = select(AssetSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(AssetSQLModel.id)).where(
             AssetSQLModel.asset_type == asset_type.lower(),
             AssetSQLModel.is_active == True
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def get_all_symbols(self) -> List[str]:
         """Get list of all asset symbols in database (including inactive).

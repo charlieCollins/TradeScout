@@ -17,7 +17,12 @@ class PolygonSnapshotAdapter:
 
         Args:
             api_key: Polygon API key
+
+        Raises:
+            ValueError: If API key is empty or None
         """
+        if not api_key or not api_key.strip():
+            raise ValueError("Polygon API key is required")
         self._provider = PolygonSnapshotProvider(api_key)
 
     def fetch_bulk_market_snapshot(self) -> Optional[MarketSnapshot]:

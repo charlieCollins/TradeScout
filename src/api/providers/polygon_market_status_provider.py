@@ -32,7 +32,7 @@ class PolygonMarketStatusProvider(BaseAPIProvider):
     # AUTHENTICATION
     # ============================================================================
 
-    def _add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Add Polygon API key to request parameters.
 
         Args:
@@ -44,7 +44,7 @@ class PolygonMarketStatusProvider(BaseAPIProvider):
         params["apikey"] = self.api_key
         return params
 
-    def _get_health_endpoint(self) -> str:
+    def get_health_endpoint(self) -> str:
         """Get health check endpoint.
 
         Returns:
@@ -125,6 +125,10 @@ class PolygonMarketStatusProvider(BaseAPIProvider):
         """
         try:
             data = self._make_request("/v1/marketstatus/upcoming")
+
+            if not data:
+                logger.warning("No data returned from holidays API")
+                return None
 
             # Parse each holiday from the response
             # Note: Polygon returns one holiday per exchange (NYSE, NASDAQ, etc.)

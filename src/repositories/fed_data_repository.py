@@ -213,8 +213,9 @@ class FedDataRepository:
         Returns:
             Total count
         """
-        statement = select(FedDataSQLModel)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(FedDataSQLModel.id))
+        return self.session.exec(statement).one() or 0
 
     def count_by_type(self, data_type: str) -> int:
         """Count observations for a specific data type.
@@ -225,10 +226,11 @@ class FedDataRepository:
         Returns:
             Count of observations
         """
-        statement = select(FedDataSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(FedDataSQLModel.id)).where(
             FedDataSQLModel.data_type == data_type
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def get_stats(self) -> dict:
         """Get FED data repository statistics.

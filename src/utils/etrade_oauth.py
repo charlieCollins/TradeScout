@@ -29,7 +29,8 @@ if not CONSUMER_KEY or not CONSUMER_SECRET:
                     CONSUMER_KEY = line.split('=', 1)[1].strip()
                 elif line.startswith('ETRADE_CONSUMER_SECRET='):
                     CONSUMER_SECRET = line.split('=', 1)[1].strip()
-    except:
+    except (FileNotFoundError, IOError):
+        # .env file not found, will use environment variables
         pass
 
 if not CONSUMER_KEY or not CONSUMER_SECRET:

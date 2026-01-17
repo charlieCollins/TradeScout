@@ -68,8 +68,8 @@ class ProviderSQLModel(SQLModel, table=True):
     # ============================================================================
 
     created_at: datetime = Field(
-        default_factory=datetime.now,
-        description="Record creation timestamp"
+        default_factory=datetime.utcnow,
+        description="Record creation timestamp (UTC)"
     )
 
     # ============================================================================

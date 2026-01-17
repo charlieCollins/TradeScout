@@ -86,8 +86,7 @@ def update(app_context, limit: int):
 
     except Exception as e:
         console.print(f"[red]❌ Failed to update fed data: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Fed data update failed")
         sys.exit(1)
 
 
@@ -148,6 +147,5 @@ def info(app_context, limit: int):
 
     except Exception as e:
         console.print(f"[red]❌ Failed to display fed data: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Fed data display failed")
         sys.exit(1)

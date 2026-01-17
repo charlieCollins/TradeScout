@@ -312,6 +312,5 @@ def news(app_context, symbol: str, limit: int):
 
     except Exception as e:
         console.print(f"[red]❌ Failed to fetch news: {e}[/red]")
-        import traceback
-        traceback.print_exc()
+        logger.exception("News fetch failed")
         sys.exit(1)

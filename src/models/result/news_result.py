@@ -17,7 +17,7 @@ class NewsResult:
     sentiment_events_duplicates: int = 0  # Prevented by unique constraint
     sentiment_events: List[Any] = field(default_factory=list)  # List[SentimentEvent]
     errors: List[str] = field(default_factory=list)
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: datetime = field(default_factory=datetime.utcnow)
 
     @property
     def has_articles(self) -> bool:

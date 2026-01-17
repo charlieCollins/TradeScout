@@ -319,20 +319,15 @@ class BootstrapService:
         # Get all existing symbols before bulk save to calculate deprecations
         existing_symbols_before = set(self.asset_repository.get_all_symbols())
 
-        # Create market_code to market_id mapping
+        # Create market_code to market_id mapping, including provider_id
         all_markets = self.market_repository.get_all(active_only=False)
         market_code_to_id = {m.code: m.id for m in all_markets}
+        market_code_to_id["__provider_id__"] = polygon_provider.id  # Pass provider_id to parser
 
-        # Fetch all tickers from API with market mapping
-        raw_assets = self.reference_provider.fetch_all_tickers(
+        # Fetch all tickers from API with market mapping (includes provider_id)
+        assets = self.reference_provider.fetch_all_tickers(
             market=market, active=active, market_code_to_id=market_code_to_id
         )
-
-        # Fix provider_id for all assets (provider uses placeholder provider_id)
-        assets = [
-            replace(asset, provider_id=polygon_provider.id)
-            for asset in raw_assets
-        ]
 
         if not assets:
             duration = time.time() - start_time
@@ -467,7 +462,7 @@ class BootstrapService:
                 # Tier 1: Check database for fresh data (skip if force=True)
                 if not force:
                     existing = self.fundamentals_repository.get_by_asset_id(asset_sql.id)
-                    if existing:
+                    if existing and existing.last_updated:
                         age_days = (datetime.now() - existing.last_updated).days
                         if age_days < max_age_days:
                             stats["from_database"] += 1
@@ -792,14 +787,8 @@ class BootstrapService:
                 "Cannot bootstrap universes: No assets in database. Run 'bootstrap-tickers' first."
             )
 
-        # Check if this specific universe exists
         # Note: Universe freshness checking removed - use force_refresh=True to always rebuild
-        if not force_refresh:
-            universe_record = self.universe_repository.get_by_name(universe_name)
-            if universe_record:
-                # Universe exists - optionally skip if you want to avoid rebuilding
-                # For now, we'll always rebuild to ensure data is current
-                pass
+        # We always rebuild to ensure data is current
 
         # Fetch all assets with fundamentals and market data
         all_assets = self.universe_repository.get_assets_with_fundamentals()

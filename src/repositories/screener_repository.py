@@ -41,14 +41,16 @@ class ScreenerRepository:
             universe: Universe name to query
             expected_date: Expected data date (for filtering)
             previous_trading_date: Previous trading date (for prevday fallback)
-            filters: List of filter conditions
-            sort: List of sort specifications
+            filters: List of filter conditions (field, operator, value)
+            sort: List of sort specifications (field, direction)
             limit: Maximum number of results
             require_recent_trading: Filter for recent trading activity
 
         Returns:
             List of matching assets with price data
         """
+        from sqlmodel import text
+
         # Build SELECT clause with all available fields (including fallback fields)
         select_fields = [
             "a.symbol",
@@ -66,11 +68,16 @@ class ScreenerRepository:
             "ap.min_timestamp",
         ]
 
-        expected_date_str = expected_date.strftime('%Y-%m-%d')
+        # Use parameterized queries to prevent SQL injection
+        params = {
+            "expected_date": expected_date.strftime('%Y-%m-%d'),
+            "universe": universe,
+            "limit": limit
+        }
 
         # Build query with optional prev_day JOIN for fallback
         if previous_trading_date:
-            previous_date_str = previous_trading_date.strftime('%Y-%m-%d')
+            params["previous_date"] = previous_trading_date.strftime('%Y-%m-%d')
             query = f"""
             WITH latest_prices AS (
                 SELECT
@@ -88,7 +95,7 @@ class ScreenerRepository:
                     trade_date,
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{expected_date_str}'
+                WHERE trade_date = :expected_date
             ),
             prev_day_prices AS (
                 SELECT
@@ -97,7 +104,7 @@ class ScreenerRepository:
                     day_volume,
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{previous_date_str}'
+                WHERE trade_date = :previous_date
             )
             SELECT {', '.join(select_fields)}
             FROM assets a
@@ -105,11 +112,11 @@ class ScreenerRepository:
             JOIN universes u ON um.universe_id = u.id
             JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
             LEFT JOIN prev_day_prices pdp ON a.id = pdp.asset_id AND pdp.rn = 1
-            WHERE u.name = '{universe}'
+            WHERE u.name = :universe
             """
         else:
             # No fallback - original behavior
-            query = f"""
+            query = """
             WITH latest_prices AS (
                 SELECT
                     asset_id,
@@ -126,7 +133,7 @@ class ScreenerRepository:
                     trade_date,
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{expected_date_str}'
+                WHERE trade_date = :expected_date
             )
             SELECT a.symbol, a.name, ap.prevday_close, ap.prevday_volume,
                    ap.day_open, ap.day_close, ap.day_volume,
@@ -135,45 +142,74 @@ class ScreenerRepository:
             JOIN universe_memberships um ON a.id = um.asset_id
             JOIN universes u ON um.universe_id = u.id
             JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
-            WHERE u.name = '{universe}'
+            WHERE u.name = :universe
             """
 
         # Add require_recent_trading filter
         if require_recent_trading:
             query += " AND ap.provider_updated_at > 0"
 
-        # Add custom filters
-        for filter_def in filters:
+        # Add custom filters with parameterized values
+        # SECURITY: Only allow whitelisted field names and operators to prevent SQL injection
+        allowed_fields = {
+            "ap.prevday_close", "ap.prevday_volume", "ap.day_open", "ap.day_close",
+            "ap.day_volume", "ap.min_close", "ap.min_volume", "ap.min_accumulated_volume",
+            "a.symbol", "a.name"
+        }
+        allowed_operators = {"=", "!=", "<", ">", "<=", ">=", "IN", "NOT IN", "IS NULL", "IS NOT NULL"}
+
+        for i, filter_def in enumerate(filters):
             field = filter_def["field"]
-            operator = filter_def["operator"]
+            operator = filter_def["operator"].upper()
             value = filter_def["value"]
 
-            # Add WHERE clause
+            # Validate field and operator to prevent SQL injection
+            if field not in allowed_fields:
+                logger.warning(f"Skipping disallowed filter field: {field}")
+                continue
+            if operator not in allowed_operators:
+                logger.warning(f"Skipping disallowed filter operator: {operator}")
+                continue
+
+            param_name = f"filter_val_{i}"
+
+            # Add WHERE clause with parameterized values
             if isinstance(value, list):
-                value_str = f"({','.join(map(str, value))})"
-                query += f" AND {field} {operator} {value_str}"
-            elif value is None and operator in ["IS NOT NULL", "IS NULL"]:
+                # For IN clauses, create multiple params
+                in_params = []
+                for j, v in enumerate(value):
+                    p_name = f"filter_val_{i}_{j}"
+                    params[p_name] = v
+                    in_params.append(f":{p_name}")
+                query += f" AND {field} {operator} ({', '.join(in_params)})"
+            elif value is None and operator in ("IS NOT NULL", "IS NULL"):
                 query += f" AND {field} {operator}"
             else:
-                query += f" AND {field} {operator} {value}"
+                params[param_name] = value
+                query += f" AND {field} {operator} :{param_name}"
 
-        # Add sorting
+        # Add sorting (field names already validated via allowed_fields)
         if sort:
             order_by_parts = []
             for sort_def in sort:
                 field = sort_def["field"]
                 direction = sort_def.get("direction", "desc").upper()
+                # Validate sort field and direction
+                if field not in allowed_fields:
+                    logger.warning(f"Skipping disallowed sort field: {field}")
+                    continue
+                if direction not in ("ASC", "DESC"):
+                    direction = "DESC"
                 order_by_parts.append(f"{field} {direction}")
 
             if order_by_parts:
                 query += f" ORDER BY {', '.join(order_by_parts)}"
 
         # Add limit
-        query += f" LIMIT {limit}"
+        query += " LIMIT :limit"
 
-        # Execute query (wrap in text() for SQLModel)
-        from sqlmodel import text
-        result = self.session.exec(text(query))
+        # Execute parameterized query
+        result = self.session.exec(text(query), params)
         rows = result.all()
 
         # Convert rows to dictionaries
@@ -279,10 +315,21 @@ class ScreenerRepository:
         Returns:
             Number of assets with non-NULL reference price (from either source)
         """
-        expected_date_str = expected_date.strftime('%Y-%m-%d')
+        from sqlmodel import text
+
+        # Validate reference_field to prevent SQL injection
+        allowed_reference_fields = {"prevday_close", "prevday_volume", "day_open", "day_close", "day_volume"}
+        if reference_field not in allowed_reference_fields:
+            logger.warning(f"Invalid reference_field: {reference_field}, defaulting to prevday_close")
+            reference_field = "prevday_close"
+
+        params = {
+            "expected_date": expected_date.strftime('%Y-%m-%d'),
+            "universe": universe
+        }
 
         if previous_trading_date:
-            previous_date_str = previous_trading_date.strftime('%Y-%m-%d')
+            params["previous_date"] = previous_trading_date.strftime('%Y-%m-%d')
             query = f"""
             WITH latest_prices AS (
                 SELECT
@@ -290,7 +337,7 @@ class ScreenerRepository:
                     {reference_field},
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{expected_date_str}'
+                WHERE trade_date = :expected_date
             ),
             prev_day_prices AS (
                 SELECT
@@ -298,7 +345,7 @@ class ScreenerRepository:
                     day_close,
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{previous_date_str}'
+                WHERE trade_date = :previous_date
             )
             SELECT COUNT(DISTINCT a.id)
             FROM assets a
@@ -306,7 +353,7 @@ class ScreenerRepository:
             JOIN universes u ON um.universe_id = u.id
             JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
             LEFT JOIN prev_day_prices pdp ON a.id = pdp.asset_id AND pdp.rn = 1
-            WHERE u.name = '{universe}'
+            WHERE u.name = :universe
               AND (ap.{reference_field} IS NOT NULL OR pdp.day_close IS NOT NULL)
             """
         else:
@@ -318,19 +365,18 @@ class ScreenerRepository:
                     {reference_field},
                     ROW_NUMBER() OVER (PARTITION BY asset_id ORDER BY updated_at DESC) as rn
                 FROM asset_prices
-                WHERE trade_date = '{expected_date_str}'
+                WHERE trade_date = :expected_date
             )
             SELECT COUNT(DISTINCT a.id)
             FROM assets a
             JOIN universe_memberships um ON a.id = um.asset_id
             JOIN universes u ON um.universe_id = u.id
             JOIN latest_prices ap ON a.id = ap.asset_id AND ap.rn = 1
-            WHERE u.name = '{universe}'
+            WHERE u.name = :universe
               AND ap.{reference_field} IS NOT NULL
             """
 
-        from sqlmodel import text
-        result = self.session.exec(text(query))
+        result = self.session.exec(text(query), params)
         row = result.one()
 
         # Extract scalar value from Row object

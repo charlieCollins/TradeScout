@@ -145,13 +145,13 @@ class AssetSQLModel(SQLModel, table=True):
     )
 
     created_at: datetime = Field(
-        default_factory=datetime.now,
-        description="Record creation timestamp"
+        default_factory=datetime.utcnow,
+        description="Record creation timestamp (UTC)"
     )
 
     updated_at: datetime = Field(
-        default_factory=datetime.now,
-        description="Record last update timestamp"
+        default_factory=datetime.utcnow,
+        description="Record last update timestamp (UTC)"
     )
 
     # ============================================================================

@@ -185,7 +185,8 @@ class DataUpdateMetadataRepository:
         Returns:
             Count of operations with this status
         """
-        statement = select(DataUpdateMetadataSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(DataUpdateMetadataSQLModel.id)).where(
             DataUpdateMetadataSQLModel.status == status
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0

@@ -1211,8 +1211,8 @@ async def update_market_data(
             total_historical_records = None
             try:
                 total_historical_records = data_service.asset_price_repository.count_all()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get asset price count: {e}")
 
             # Build result and use adapter
             result = MarketBackfillResult(
@@ -1255,8 +1255,8 @@ async def update_market_data(
             total_historical_records = None
             try:
                 total_historical_records = data_service.asset_price_repository.count_all()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Could not get asset price count: {e}")
 
             # Build result and use adapter
             result = MarketUpdateResult(

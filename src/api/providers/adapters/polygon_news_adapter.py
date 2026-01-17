@@ -17,7 +17,12 @@ class PolygonNewsAdapter:
 
         Args:
             api_key: Polygon API key
+
+        Raises:
+            ValueError: If API key is empty or None
         """
+        if not api_key or not api_key.strip():
+            raise ValueError("Polygon API key is required")
         self._provider = PolygonNewsProvider(api_key)
 
     def fetch_news_for_ticker(

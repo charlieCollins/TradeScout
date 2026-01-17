@@ -99,10 +99,12 @@ class ProviderRepository:
         Returns:
             Total provider count
         """
-        statement = select(ProviderSQLModel)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(ProviderSQLModel.id))
+        return self.session.exec(statement).one() or 0
 
     def count_active(self) -> int:
         """Count active providers."""
-        statement = select(ProviderSQLModel).where(ProviderSQLModel.is_active == True)
-        return len(list(self.session.exec(statement).all()))
+        from sqlmodel import func
+        statement = select(func.count(ProviderSQLModel.id)).where(ProviderSQLModel.is_active == True)
+        return self.session.exec(statement).one() or 0

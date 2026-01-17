@@ -31,10 +31,9 @@ class ProviderFactory:
         """
         env_var_map = {
             "polygon": "POLYGON_API_KEY",
-            "iex": "IEX_API_KEY",
-            "alpha_vantage": "ALPHA_VANTAGE_API_KEY",
             "finnhub": "FINNHUB_API_KEY",
-            "fred": "FRED_API_KEY"
+            "alpaca_key": "ALPACA_API_KEY",
+            "alpaca_secret": "ALPACA_SECRET_KEY",
         }
 
         env_var = env_var_map.get(provider_name)
@@ -82,10 +81,14 @@ class ProviderFactory:
             logger.debug("Creating PolygonSnapshotAdapter")
             return PolygonSnapshotAdapter(api_key)
 
-        # Future providers:
-        # elif provider_name == "yfinance":
-        #     from api.providers.adapters.yfinance_snapshot_adapter import YFinanceSnapshotAdapter
-        #     return YFinanceSnapshotAdapter()
+        elif provider_name == "alpaca":
+            from api.providers.adapters.alpaca_snapshot_adapter import AlpacaSnapshotAdapter
+            alpaca_key = os.getenv("ALPACA_API_KEY")
+            alpaca_secret = os.getenv("ALPACA_SECRET_KEY")
+            if not alpaca_key or not alpaca_secret:
+                raise ValueError("Alpaca API keys not found in environment (ALPACA_API_KEY, ALPACA_SECRET_KEY)")
+            logger.debug("Creating AlpacaSnapshotAdapter")
+            return AlpacaSnapshotAdapter(alpaca_key, alpaca_secret)
 
         else:
             raise ValueError(f"Unknown snapshot provider: {provider_name}")
@@ -151,6 +154,15 @@ class ProviderFactory:
             logger.debug("Creating PolygonNewsAdapter")
             return PolygonNewsAdapter(api_key)
 
+        elif provider_name == "finnhub":
+            from api.providers.adapters.finnhub_news_adapter import FinnhubNewsAdapter
+            if not api_key:
+                api_key = ProviderFactory._get_api_key("finnhub")
+            if not api_key:
+                raise ValueError("Finnhub API key not found in environment (FINNHUB_API_KEY)")
+            logger.debug("Creating FinnhubNewsAdapter")
+            return FinnhubNewsAdapter(api_key)
+
         else:
             raise ValueError(f"Unknown news provider: {provider_name}")
 
@@ -182,6 +194,11 @@ class ProviderFactory:
                 raise ValueError("Polygon API key not found in environment (POLYGON_API_KEY)")
             logger.debug("Creating PolygonMarketStatusAdapter")
             return PolygonMarketStatusAdapter(api_key)
+
+        elif provider_name == "pandas_market_calendars":
+            from api.providers.adapters.pandas_market_calendar_adapter import PandasMarketCalendarAdapter
+            logger.debug("Creating PandasMarketCalendarAdapter (no API key needed)")
+            return PandasMarketCalendarAdapter()
 
         else:
             raise ValueError(f"Unknown market_status provider: {provider_name}")

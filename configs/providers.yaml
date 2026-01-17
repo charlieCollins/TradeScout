@@ -1,60 +1,56 @@
 # Provider Configuration for TradeScout
-# Allows easy swapping between data providers without code changes
+# Defines which provider to use for each data type
 
 providers:
   # Snapshot data (current prices, OHLCV)
+  # Options: polygon (paid), alpaca (free - single ticker only)
   snapshot:
-    default: "polygon"  # Options: polygon, yfinance (future), iex (future)
-    fallback: []  # Future: automatic failover chains
+    default: "polygon"
+    fallback: []
 
   # Aggregates/bars data (historical, minute-level)
+  # Options: polygon (paid only - no free alternative yet)
   aggregates:
     default: "polygon"
     fallback: []
 
   # News and sentiment
+  # Options: polygon (paid), finnhub (free - 60 req/min)
   news:
-    default: "polygon"
-    fallback: []
+    default: "finnhub"
+    fallback: ["polygon"]
 
   # Market status and holidays
+  # Options: polygon (paid), pandas_market_calendars (free - local, no API calls)
   market_status:
-    default: "polygon"
-    fallback: []
+    default: "pandas_market_calendars"
+    fallback: ["polygon"]
 
-  # Reference data (tickers, exchanges)
+  # Reference data (tickers, exchanges, fundamentals)
+  # Options: polygon (paid only - no free alternative yet)
   reference:
     default: "polygon"
     fallback: []
 
   # Economic data (Fed, inflation, yields)
+  # Options: polygon (paid only - FRED planned but not implemented)
   economic:
     default: "polygon"
     fallback: []
 
 # API keys are read from environment variables:
-# - POLYGON_API_KEY
-# - IEX_API_KEY (future)
-# - ALPHA_VANTAGE_API_KEY (future)
-# - FINNHUB_API_KEY (future)
-# - FRED_API_KEY (future)
+# - POLYGON_API_KEY (required for: snapshot, aggregates, reference, economic)
+# - FINNHUB_API_KEY (required for: news when using finnhub)
+# - ALPACA_API_KEY + ALPACA_SECRET_KEY (optional: snapshot alternative)
 
-# Provider-specific settings
-settings:
-  polygon:
-    # Polygon API base URL
-    base_url: "https://api.polygon.io"
-
-    # Rate limiting (Stocks Basic tier)
-    rate_limit_per_minute: 5
-
-    # Note: These settings are currently managed in api.yaml
-    # Future: consolidate all Polygon settings here
-
-  # Future provider settings
-  # yfinance:
-  #   delay_between_calls_ms: 100  # Be respectful, no official limits
-  #
-  # iex:
-  #   base_url: "https://cloud.iexapis.com"
-  #   rate_limit_per_second: 100  # Launch plan
+# Provider capabilities summary:
+# +----------------------+----------+---------+------------------+
+# | Data Type            | Polygon  | Free    | Notes            |
+# +----------------------+----------+---------+------------------+
+# | Market Status        | Yes      | pandas  | pandas = local   |
+# | News                 | Yes      | finnhub | 60 req/min free  |
+# | Snapshots (bulk)     | Yes      | No      | Alpaca = single  |
+# | Aggregates           | Yes      | No      | No free option   |
+# | Reference/Tickers    | Yes      | No      | No free option   |
+# | Economic/Fed         | Yes      | No      | FRED planned     |
+# +----------------------+----------+---------+------------------+

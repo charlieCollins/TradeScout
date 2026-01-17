@@ -441,10 +441,11 @@ class AssetPriceRepository:
         Returns:
             Count of price records
         """
-        statement = select(AssetPriceSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(AssetPriceSQLModel.id)).where(
             AssetPriceSQLModel.symbol == symbol.upper()
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def count_by_date(self, trade_date: date) -> int:
         """Count price records for a specific date.
@@ -455,10 +456,11 @@ class AssetPriceRepository:
         Returns:
             Count of price records
         """
-        statement = select(AssetPriceSQLModel).where(
+        from sqlmodel import func
+        statement = select(func.count(AssetPriceSQLModel.id)).where(
             AssetPriceSQLModel.trade_date == trade_date
         )
-        return len(list(self.session.exec(statement).all()))
+        return self.session.exec(statement).one() or 0
 
     def count_all(self) -> int:
         """Count total number of price records across all symbols.

@@ -223,9 +223,9 @@ class AssetPriceSQLModel(SQLModel, table=True):
     # ============================================================================
 
     updated_at: datetime = Field(
-        default_factory=datetime.now,
+        default_factory=datetime.utcnow,
         index=True,
-        description="Record update timestamp"
+        description="Record update timestamp (UTC)"
     )
 
     # ============================================================================

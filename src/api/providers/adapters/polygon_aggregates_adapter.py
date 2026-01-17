@@ -17,7 +17,12 @@ class PolygonAggregatesAdapter:
 
         Args:
             api_key: Polygon API key
+
+        Raises:
+            ValueError: If API key is empty or None
         """
+        if not api_key or not api_key.strip():
+            raise ValueError("Polygon API key is required")
         self._provider = PolygonAggregatesProvider(api_key)
 
     def fetch_minute_bars(

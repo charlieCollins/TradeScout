@@ -172,9 +172,14 @@ class DataServiceV2:
             # Fetch from reference provider (returns Asset dataclass)
             # Provider still uses dataclass models - we convert to SQLModel after fetching
 
-            # Build market code-to-ID mapping from database
+            # Build market code-to-ID mapping from database, including provider_id
             markets = self.market_repository.get_all(active_only=False)
-            market_code_to_id = {market.market_code: market.id for market in markets}
+            market_code_to_id = {market.code: market.id for market in markets}
+
+            # Get Polygon provider ID for the mapping
+            polygon_provider = self.provider_repository.get_by_name("polygon")
+            if polygon_provider:
+                market_code_to_id["__provider_id__"] = polygon_provider.id
 
             asset_dataclass = self.reference_provider.fetch_ticker_details(
                 symbol,

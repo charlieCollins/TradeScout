@@ -123,14 +123,8 @@ class ScreenerEngine:
             enhanced_result = self._add_computed_fields(result)
             enhanced_results.append(enhanced_result)
 
-        # Add exclusion metadata to results (stored in a special way that display can access)
-        if hasattr(enhanced_results, '__dict__'):
-            enhanced_results.excluded_count = excluded_count
-        else:
-            # Store it in the first result if we have results
-            if enhanced_results and isinstance(enhanced_results, list):
-                # We'll pass this separately to display instead
-                pass
+        # Note: exclusion metadata (excluded_count) is returned separately to display
+        # Lists don't have __dict__ so we can't attach attributes to them
 
         # Stage 2: Volume validation using Aggregates API (if enabled)
         if screener_def.get('volume_validation', {}).get('enabled', False):

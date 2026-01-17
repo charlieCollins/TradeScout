@@ -246,8 +246,8 @@ class CLIScreenerOutputAdapter:
                 # Evaluate the expression (now only contains numbers and operators)
                 # Note: eval is normally dangerous, but we've sanitized to only numbers/operators
                 return eval(expr)
-        except:
-            pass
+        except (ValueError, TypeError, SyntaxError, NameError) as e:
+            logger.debug(f"Could not evaluate expression '{field}': {e}")
 
         # Fallback: Handle simple subtraction like "min_close - prevday_close"
         if " - " in field:

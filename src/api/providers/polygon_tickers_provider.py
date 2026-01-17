@@ -40,7 +40,7 @@ class PolygonTickersProvider(BaseAPIProvider):
     # AUTHENTICATION
     # ============================================================================
 
-    def _add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Add Polygon API key to request parameters.
 
         Args:
@@ -52,7 +52,7 @@ class PolygonTickersProvider(BaseAPIProvider):
         params["apikey"] = self.api_key
         return params
 
-    def _get_health_endpoint(self) -> str:
+    def get_health_endpoint(self) -> str:
         """Get health check endpoint.
 
         Returns:
@@ -250,6 +250,9 @@ class PolygonTickersProvider(BaseAPIProvider):
         except requests.RequestException as e:
             logger.error(f"Request failed: {e}")
             raise
+        except ValueError as e:
+            logger.error(f"Invalid JSON in paginated response: {e}")
+            raise
 
     def _parse_ticker_to_asset(
         self,
@@ -296,8 +299,14 @@ class PolygonTickersProvider(BaseAPIProvider):
                     f"Run 'bootstrap-markets' to add missing exchanges."
                 )
 
-            # Provider ID for Polygon (hardcoded for now, will be fixed by bootstrap)
-            provider_id = 1
+            # Provider ID - get from mapping if available, otherwise raise error
+            provider_id = market_code_to_id.get("__provider_id__")
+            if not provider_id:
+                # Fallback: caller should provide provider_id in the mapping
+                raise ValueError(
+                    f"No provider_id found in market_code_to_id mapping. "
+                    f"Include '__provider_id__' key with the Polygon provider ID."
+                )
 
             return Asset(
                 id=0,  # Will be assigned by database

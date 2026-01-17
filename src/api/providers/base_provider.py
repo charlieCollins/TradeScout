@@ -66,33 +66,45 @@ class BaseAPIProvider(ABC):
             params = {}
 
         # Add API key to request
-        params = self._add_authentication(params)
+        params = self.add_authentication(params)
 
         url = f"{self.base_url}{endpoint}"
         logger.debug(f"Making {method} request to {endpoint}")
 
-        try:
-            response = requests.request(method, url, params=params)
+        max_retries = 3
 
-            # Handle rate limiting
-            if response.status_code == 429:
-                logger.warning("Rate limit hit, waiting before retry...")
-                self._handle_rate_limit(response)
-                # Retry request after waiting
+        for attempt in range(1, max_retries + 1):
+            try:
                 response = requests.request(method, url, params=params)
 
-            # Handle errors
-            if response.status_code != 200:
-                self._handle_error_response(response)
+                # Handle rate limiting with exponential backoff
+                if response.status_code == 429:
+                    if attempt < max_retries:
+                        self._handle_rate_limit(response, attempt)
+                        continue  # Retry
+                    else:
+                        logger.error(f"Rate limit exceeded after {max_retries} retries")
+                        raise Exception(f"Rate limit exceeded after {max_retries} retries")
 
-            return response.json()
+                # Handle errors
+                if response.status_code != 200:
+                    self._handle_error_response(response)
 
-        except requests.RequestException as e:
-            logger.error(f"Request failed for {endpoint}: {e}")
-            raise Exception(f"API request failed: {e}")
+                return response.json()
+
+            except requests.RequestException as e:
+                if attempt < max_retries:
+                    logger.warning(f"Request failed (attempt {attempt}): {e}, retrying...")
+                    time.sleep(2 ** attempt)  # Exponential backoff for network errors
+                    continue
+                logger.error(f"Request failed for {endpoint} after {max_retries} attempts: {e}")
+                raise Exception(f"API request failed: {e}")
+
+        # Should not reach here, but just in case
+        raise Exception(f"API request failed after {max_retries} retries")
 
     @abstractmethod
-    def _add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Add authentication to request parameters.
 
         Each provider implements their own authentication method
@@ -106,17 +118,22 @@ class BaseAPIProvider(ABC):
         """
         pass
 
-    def _handle_rate_limit(self, response: requests.Response) -> None:
-        """Handle rate limit response.
+    def _handle_rate_limit(self, response: requests.Response, attempt: int = 1) -> None:
+        """Handle rate limit response with exponential backoff.
 
-        Waits configured seconds from api.yaml. Override for provider-specific behavior.
+        Uses exponential backoff: base_wait * 2^(attempt-1), capped at max_wait.
 
         Args:
             response: HTTP response with 429 status
+            attempt: Current retry attempt number (1-based)
         """
         config = ConfigLoader().load_yaml("api.yaml")
-        wait_seconds = config["api"]["polygon"]["rate_limiting"]["default_wait_seconds"]
-        logger.warning(f"Rate limited, waiting {wait_seconds} seconds...")
+        base_wait = config["api"]["polygon"]["rate_limiting"]["default_wait_seconds"]
+        max_wait = config["api"]["polygon"]["rate_limiting"].get("max_wait_seconds", 60)
+
+        # Exponential backoff: base_wait * 2^(attempt-1)
+        wait_seconds = min(base_wait * (2 ** (attempt - 1)), max_wait)
+        logger.warning(f"Rate limited (attempt {attempt}), waiting {wait_seconds} seconds...")
         time.sleep(wait_seconds)
 
     def _handle_error_response(self, response: requests.Response) -> None:
@@ -136,7 +153,8 @@ class BaseAPIProvider(ABC):
                 error_message += f" - {error_data['error']}"
             elif "message" in error_data:
                 error_message += f" - {error_data['message']}"
-        except Exception:
+        except (ValueError, KeyError) as e:
+            logger.debug(f"Could not parse error response as JSON: {e}")
             error_message += f" - {response.text}"
 
         logger.error(error_message)
@@ -153,14 +171,14 @@ class BaseAPIProvider(ABC):
             True if API is healthy, False otherwise
         """
         try:
-            self._make_request(self._get_health_endpoint())
+            self._make_request(self.get_health_endpoint())
             return True
         except Exception as e:
             logger.error(f"Health check failed: {e}")
             return False
 
     @abstractmethod
-    def _get_health_endpoint(self) -> str:
+    def get_health_endpoint(self) -> str:
         """Get endpoint for health check.
 
         Returns:

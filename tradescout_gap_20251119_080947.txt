@@ -1,0 +1,65 @@
+================================================================================
+TRADESCOUT GAP ANALYSIS REPORT
+================================================================================
+
+Generated: 2025-11-19 08:09:47
+Session: premarket
+Market: Nasdaq
+Date: 2025-11-19
+Universe: default_universe
+
+Analysis Parameters:
+--------------------------------------------------------------------------------
+  Minimum Gap: 2.0%
+  Minimum Market Cap: $1.0B
+  Minimum Volume Ratio: 1.5x
+
+Summary Statistics:
+--------------------------------------------------------------------------------
+  Total Candidates (Gap + Market Cap): 50
+  Volume Validated (≥1.5x): 1
+  Final Candidates (After Exhaustion Filter): 1
+
+
+================================================================================
+VIABLE CANDIDATES
+================================================================================
+
+1. SEMR - SEMrush Holdings, Inc.
+--------------------------------------------------------------------------------
+  Current Price: $11.43
+  Reference Price: $6.76
+  Gap: +69.08% (up)
+  Significance: major
+  Market Cap: $1.07B
+
+  Volume Analysis:
+    Extended Hours Volume: 1,409,323 shares
+    Previous Day Volume: 1,453,719 shares
+    Volume Ratio: 1.52x
+    Volume Status: ✓ ADEQUATE (≥1.5x)
+
+  News & Sentiment:
+    Catalyst Score: 60/100
+    Catalyst Quality: ✓ MODERATE
+
+  Overall Quality:
+    Quality Score: 52/100
+    Risk Level: HIGH
+    Rating: ✗ WEAK (Consider Skipping)
+
+
+================================================================================
+QUALITY TIER SUMMARY
+================================================================================
+
+  Excellent (85-100): 0 candidates
+
+  Good (70-84): 0 candidates
+
+  Fair (60-69): 0 candidates
+
+
+================================================================================
+END OF REPORT
+================================================================================

@@ -27,7 +27,7 @@ class PolygonFedProvider(BaseAPIProvider):
         """
         super().__init__(api_key, "https://api.polygon.io")
 
-    def _add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def add_authentication(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Add Polygon API key to request parameters.
 
         Args:
@@ -39,7 +39,7 @@ class PolygonFedProvider(BaseAPIProvider):
         params["apikey"] = self.api_key
         return params
 
-    def _get_health_endpoint(self) -> str:
+    def get_health_endpoint(self) -> str:
         """Get health check endpoint.
 
         Returns:
