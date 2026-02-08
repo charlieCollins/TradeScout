@@ -1,56 +1,73 @@
 # Provider Configuration for TradeScout
 # Defines which provider to use for each data type
+# All defaults are now FREE providers - $0/month operation
 
 providers:
   # Snapshot data (current prices, OHLCV)
-  # Options: polygon (paid), alpaca (free - single ticker only)
+  # Options: yfinance (free - bulk supported), polygon (paid), alpaca (free - single ticker only)
   snapshot:
-    default: "polygon"
-    fallback: []
+    default: "yfinance"
+    fallback: ["polygon", "alpaca"]
 
   # Aggregates/bars data (historical, minute-level)
-  # Options: polygon (paid only - no free alternative yet)
+  # Options: yfinance (free - daily + limited intraday), polygon (paid - full intraday)
   aggregates:
-    default: "polygon"
-    fallback: []
+    default: "yfinance"
+    fallback: ["polygon"]
 
   # News and sentiment
-  # Options: polygon (paid), finnhub (free - 60 req/min)
+  # Options: finnhub (free - 60 req/min), polygon (paid)
   news:
     default: "finnhub"
     fallback: ["polygon"]
 
   # Market status and holidays
-  # Options: polygon (paid), pandas_market_calendars (free - local, no API calls)
+  # Options: pandas_market_calendars (free - local, no API calls), polygon (paid)
   market_status:
     default: "pandas_market_calendars"
     fallback: ["polygon"]
 
-  # Reference data (tickers, exchanges, fundamentals)
-  # Options: polygon (paid only - no free alternative yet)
+  # Reference data (tickers, exchanges, single-ticker details)
+  # Options: yfinance (free - single ticker details), polygon (paid - bulk ticker listing)
+  # Note: Bulk tickers come from NASDAQ Trader (bootstrap). Bulk fundamentals from SEC EDGAR (bootstrap).
   reference:
-    default: "polygon"
-    fallback: []
+    default: "yfinance"
+    fallback: ["polygon"]
+
+  # Fundamentals (bulk company data: SIC codes, shares outstanding, market cap)
+  # SEC EDGAR bulk downloads (free, no API key, 10 req/sec rate limit)
+  # Used by bootstrap-fundamentals, not via provider factory
+  fundamentals:
+    default: "edgar"
 
   # Economic data (Fed, inflation, yields)
-  # Options: polygon (paid only - FRED planned but not implemented)
+  # Options: fred (free - requires FRED_API_KEY), polygon (paid)
   economic:
-    default: "polygon"
-    fallback: []
+    default: "fred"
+    fallback: ["polygon"]
 
 # API keys are read from environment variables:
-# - POLYGON_API_KEY (required for: snapshot, aggregates, reference, economic)
-# - FINNHUB_API_KEY (required for: news when using finnhub)
-# - ALPACA_API_KEY + ALPACA_SECRET_KEY (optional: snapshot alternative)
+# FREE:
+# - FINNHUB_API_KEY (news - free tier: 60 req/min)
+# - FRED_API_KEY (economic - free at https://fred.stlouisfed.org/docs/api/api_key.html)
+# NO KEY NEEDED:
+# - yfinance (snapshot, aggregates, reference - unofficial, no key)
+# - pandas_market_calendars (market status - local computation)
+# PAID (optional fallback):
+# - POLYGON_API_KEY (all data types - paid tiers)
+# - ALPACA_API_KEY + ALPACA_SECRET_KEY (snapshot alternative)
 
-# Provider capabilities summary:
-# +----------------------+----------+---------+------------------+
-# | Data Type            | Polygon  | Free    | Notes            |
-# +----------------------+----------+---------+------------------+
-# | Market Status        | Yes      | pandas  | pandas = local   |
-# | News                 | Yes      | finnhub | 60 req/min free  |
-# | Snapshots (bulk)     | Yes      | No      | Alpaca = single  |
-# | Aggregates           | Yes      | No      | No free option   |
-# | Reference/Tickers    | Yes      | No      | No free option   |
-# | Economic/Fed         | Yes      | No      | FRED planned     |
-# +----------------------+----------+---------+------------------+
+# Provider capabilities:
+# +----------------------+-----------+-------------+-----------+------------------------------+
+# | Data Type            | Polygon   | Free        | Free Key? | Notes                        |
+# +----------------------+-----------+-------------+-----------+------------------------------+
+# | Snapshots (bulk)     | Yes       | yfinance    | No        | Unofficial but free          |
+# | Aggregates (daily)   | Yes       | yfinance    | No        | Full daily history           |
+# | Aggregates (minute)  | Yes       | yfinance    | No        | Last 30 days only            |
+# | News                 | Yes       | finnhub     | Yes       | 60 req/min free              |
+# | Market Status        | Yes       | pandas      | No        | Local computation            |
+# | Reference (single)   | Yes       | yfinance    | No        | Ticker details               |
+# | Reference (bulk)     | Yes       | NASDAQ Tdr  | No        | Bootstrap tickers            |
+# | Fundamentals (bulk)  | N/A       | SEC EDGAR   | No        | SIC, shares, market cap      |
+# | Economic/Fed         | Yes       | fred        | Yes       | Free FRED API key            |
+# +----------------------+-----------+-------------+-----------+------------------------------+

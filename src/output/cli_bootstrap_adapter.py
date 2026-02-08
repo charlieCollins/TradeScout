@@ -64,7 +64,7 @@ class CLIBootstrapOutputAdapter:
             self.console.print(f"\n[cyan]Data Sources:[/cyan]")
             self.console.print(f"  • From database (fresh): {result.from_database:,}")
             self.console.print(f"  • From cache files: {result.from_cache:,}")
-            self.console.print(f"  • From Polygon API: {result.from_api:,}")
+            self.console.print(f"  • From provider API: {result.from_api:,}")
             self.console.print(f"  • Cache hit rate: {result.cache_hit_rate:.1f}%")
 
         # Display fetch errors if any

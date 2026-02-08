@@ -1,4 +1,4 @@
-#!/home/ccollins/projects/TradeScout/venv/bin/python
+#!/home/ccollins/projects/TradeScout/.venv/bin/python
 """TradeScout CLI executable."""
 
 import sys

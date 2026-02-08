@@ -43,7 +43,7 @@ class AssetPriceRepository:
 
         Business query: Used by gap analysis to get current snapshot.
 
-        Orders by provider_updated_at (when Polygon says data is from) first,
+        Orders by provider_updated_at (when provider says data is from) first,
         then updated_at (when we inserted it) as tiebreaker.
 
         Args:

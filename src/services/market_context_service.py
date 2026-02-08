@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class MarketContextService:
     """
-    Service to determine market context using Polygon APIs.
+    Service to determine market context using market status provider.
 
     Combines existing Market model with current status to provide:
     1. Is today a trading day?
@@ -28,7 +28,7 @@ class MarketContextService:
         Initialize service with data provider.
 
         Args:
-            data_provider: Data provider instance (Polygon or Emulation)
+            data_provider: Data provider instance (market status provider)
         """
         self.data_provider = data_provider
 
@@ -37,7 +37,7 @@ class MarketContextService:
         Get current market context for a specific market.
 
         Computes market context on-demand from markets table, holidays cache,
-        and current Polygon API status. No derived caching - the data records
+        and current market status. No derived caching - the data records
         (markets, market_holidays) are the cache.
 
         Args:
@@ -187,11 +187,11 @@ class MarketContextService:
         return self.data_provider.get_market_by_code(market_code)
 
     def _determine_day_type(self, market_status: "MarketStatusSnapshot", today: date) -> TradingDayType:
-        """Determine what type of day today is using Polygon holiday API."""
+        """Determine what type of day today is using holiday calendar."""
         return self._determine_day_type_for_date(today)
 
     def _determine_day_type_for_date(self, check_date: date) -> TradingDayType:
-        """Determine what type of day a specific date is using Polygon holiday API.
+        """Determine what type of day a specific date is using holiday calendar.
 
         This version doesn't require market_status, useful for historical dates.
 
@@ -205,7 +205,7 @@ class MarketContextService:
         if check_date.weekday() >= 5:  # Saturday = 5, Sunday = 6
             return TradingDayType.CLOSED_WEEKEND
 
-        # Check against Polygon's official holiday calendar (cached)
+        # Check against official holiday calendar (cached)
         holidays = self.data_provider.get_market_holidays()
         date_str = check_date.strftime('%Y-%m-%d')
 
@@ -220,7 +220,7 @@ class MarketContextService:
         return TradingDayType.REGULAR_TRADING
 
     def _find_previous_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> date:
-        """Find the most recent trading day before today using Polygon holiday API."""
+        """Find the most recent trading day before today using holiday calendar."""
         return self._find_previous_trading_day_from_date(today)
 
     def _find_previous_trading_day_from_date(self, from_date: date) -> date:
@@ -257,8 +257,8 @@ class MarketContextService:
                           is_trading_day: bool,
                           current_time: datetime) -> MarketSession:
         """
-        Determine session using Polygon API market status.
-        Raises exception if API data is not available.
+        Determine session using market status provider.
+        Raises exception if status data is not available.
         """
         # Require API market status - no fallbacks
         if not market_status or not market_status.market:
@@ -278,7 +278,7 @@ class MarketContextService:
                 return MarketSession.AFTERHOURS
             else:
                 # API says extended hours but didn't specify which - this is an API error
-                raise RuntimeError(f"Polygon API returned extended-hours without earlyHours or afterHours flags: {market_status}")
+                raise RuntimeError(f"Market status returned extended-hours without earlyHours or afterHours flags: {market_status}")
         elif api_market == 'closed':
             # Market is closed - the API has determined this
             # We'll return CLOSED_POST as the general closed state
@@ -286,10 +286,10 @@ class MarketContextService:
             # when the API already tells us the market is closed
             return MarketSession.CLOSED_POST
         else:
-            raise RuntimeError(f"Unknown market status from Polygon API: {api_market}")
+            raise RuntimeError(f"Unknown market status from provider: {api_market}")
 
     def _find_next_trading_day(self, today: date, market_status: "MarketStatusSnapshot") -> Optional[date]:
-        """Find the next trading day after today using Polygon holiday API.
+        """Find the next trading day after today using holiday calendar.
 
         Delegates to _find_next_trading_day_from_date which handles weekend and holiday logic.
         """

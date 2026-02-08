@@ -47,7 +47,7 @@ class AlpacaSnapshotAdapter(SnapshotProvider):
     def fetch_bulk_market_snapshot(self) -> Optional[MarketSnapshot]:
         """Fetch snapshots for ALL tickers in one call.
 
-        Note: Alpaca's snapshot API doesn't support bulk "all tickers" like Polygon.
+        Note: Alpaca's snapshot API doesn't support bulk "all tickers".
         This method will raise NotImplementedError. Use fetch_single_ticker_snapshot
         for individual symbols, or provide a list of symbols.
 

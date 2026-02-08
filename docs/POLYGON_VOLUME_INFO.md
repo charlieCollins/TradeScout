@@ -1,5 +1,7 @@
 # Polygon Volume Data - Complete Reference
 
+> **LEGACY REFERENCE**: This documents Polygon.io volume field behavior. Polygon is now a fallback provider. Primary data comes from yfinance.
+
 **Purpose:** Understand Polygon volume fields, trade eligibility rules, and proper usage for gap trading
 **Last Updated:** 2025-10-10
 

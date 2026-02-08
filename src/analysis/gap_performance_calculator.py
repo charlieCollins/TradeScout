@@ -2,7 +2,7 @@
 
 Calculates actual intraday performance for gap candidates by:
 1. Determining correct trading date (premarket vs afterhours)
-2. Fetching daily and minute bars from Polygon
+2. Fetching daily and minute bars from data provider
 3. Detecting gap fill events
 4. Calculating performance metrics
 """

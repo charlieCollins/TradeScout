@@ -76,7 +76,7 @@ def screener(app_context, screener_name):
 │           AppContext (Application State)        │
 ├─────────────────────────────────────────────────┤
 │ • Database connections                          │
-│ • API clients (Polygon)                         │
+│ • API clients (via ProviderFactory)              │
 │ • Services (DataServiceV2, MarketContextService)│
 │ • Active universe                               │
 │                                                 │

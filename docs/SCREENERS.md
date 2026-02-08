@@ -280,8 +280,8 @@ Screeners query the `asset_prices` table with these key fields:
 
 ### Universe Filtering
 
-- **Total assets**: ~15,000 from Polygon API
-- **Trading universe**: ~7,500 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
+- **Total assets**: ~12,000 from NASDAQ Trader bulk file
+- **Trading universe**: ~11,700 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
 - **Recent trading filter**: Only symbols with `provider_updated_at > 0`
 
 ## Performance
@@ -295,7 +295,7 @@ Screeners query the `asset_prices` table with these key fields:
 
 ### Typical Performance
 
-- **Query time**: 50-200ms for ~7,500 symbol universe
+- **Query time**: 50-200ms for ~11,700 symbol universe
 - **Display time**: <100ms for Rich table rendering
 - **Memory usage**: <50MB for largest result sets
 

@@ -103,13 +103,13 @@ class WebAssetOutputAdapter:
         # Convert provider_updated_at from int (nanoseconds) to datetime if present
         provider_updated_dt = None
         if price.provider_updated_at:
-            # Polygon uses nanoseconds, convert to datetime
+            # Provider uses nanoseconds, convert to datetime
             provider_updated_dt = datetime.fromtimestamp(price.provider_updated_at / 1_000_000_000)
 
         # Convert min_timestamp from int (milliseconds) to datetime if present
         min_timestamp_dt = None
         if price.min_timestamp:
-            # Polygon uses milliseconds for minute timestamp
+            # Provider uses milliseconds for minute timestamp
             min_timestamp_dt = datetime.fromtimestamp(price.min_timestamp / 1000)
 
         return {

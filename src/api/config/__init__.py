@@ -1,5 +1,5 @@
-"""API configuration."""
+"""API configuration - loads .env file on import."""
 
-from .api_keys import POLYGON_API_KEY
+from .api_keys import ensure_env_loaded
 
-__all__ = ["POLYGON_API_KEY"]
+__all__ = ["ensure_env_loaded"]

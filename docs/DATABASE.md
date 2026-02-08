@@ -1,6 +1,6 @@
 # TradeScout Database Architecture
 
-**Last Updated**: 2025-10-12
+**Last Updated**: 2026-02-08
 **Database**: SQLite
 **Location**: `data/tradescout.db`
 **Schema Version**: 004
@@ -30,25 +30,25 @@ All data uses **dual model system**:
 |----------------------------|---------|------------|----------|--------|
 | **Reference Data**         |||||
 | `providers`                | API provider configuration | ✅ ProviderRepository | - | ✅ Active |
-| `markets`                  | Exchange information | ✅ MarketRepository | ✅ PolygonMarketsProvider | ✅ Active |
-| `assets`                   | Stock ticker universe | ✅ AssetRepository | ✅ PolygonTickersProvider | ✅ Active |
-| `asset_fundamentals`       | Company fundamentals | ✅ FundamentalsRepository | ✅ PolygonTickersProvider | ✅ Active |
+| `markets`                  | Exchange information | ✅ MarketRepository | ✅ Hardcoded US exchanges | ✅ Active |
+| `assets`                   | Stock ticker universe | ✅ AssetRepository | ✅ FreeReferenceAdapter (NASDAQ Trader) | ✅ Active |
+| `asset_fundamentals`       | Company fundamentals | ✅ FundamentalsRepository | ✅ EdgarFundamentalsAdapter | ✅ Active |
 | **Price Data**             |||||
-| `asset_prices`             | Historical/live prices | ✅ AssetPriceRepository | ✅ PolygonSnapshotProvider<br>✅ PolygonAggregatesProvider | ✅ Active |
+| `asset_prices`             | Historical/live prices | ✅ AssetPriceRepository | ✅ YFinanceSnapshotAdapter<br>✅ YFinanceAggregatesAdapter | ✅ Active |
 | **Universe Management**    |||||
 | `universes`                | Asset groupings | ✅ UniverseRepository | - | ✅ Active |
 | `universe_memberships`     | Membership tracking | ✅ UniverseRepository | - | ✅ Active |
 | **Sentiment**              |||||
 | `sentiment_types`          | Event type definitions | ✅ SentimentTypeRepository | - | ✅ Active |
-| `sentiment_events`         | Detected events | ✅ SentimentEventRepository | ✅ PolygonNewsProvider | ✅ Active |
+| `sentiment_events`         | Detected events | ✅ SentimentEventRepository | ✅ FinnhubNewsAdapter | ✅ Active |
 | **Gap Analysis**           |||||
 | `gap_candidate`              | Gap candidate results | ✅ GapCandidateRepository | - | ✅ Active |
-| `gap_candidate_result` | Gap performance metrics | ✅ GapCandidateResultRepository | ✅ PolygonAggregatesProvider | ✅ Active |
-| `gap_result_news`          | Gap-related news | ✅ GapResultNewsRepository | ✅ PolygonNewsProvider | ✅ Active |
+| `gap_candidate_result` | Gap performance metrics | ✅ GapCandidateResultRepository | ✅ YFinanceAggregatesAdapter | ✅ Active |
+| `gap_result_news`          | Gap-related news | ✅ GapResultNewsRepository | ✅ FinnhubNewsAdapter | ✅ Active |
 | **Economic Data**          |||||
-| `fed_data`                 | Federal Reserve data | ✅ FedDataRepository | ✅ PolygonFedProvider | ✅ Active |
+| `fed_data`                 | Federal Reserve data | ✅ FedDataRepository | ✅ FREDEconomicAdapter | ✅ Active |
 | **Market Status**          |||||
-| `market_holidays`          | Holiday calendar | ✅ MarketHolidayRepository | ✅ PolygonMarketStatusProvider | ✅ Active |
+| `market_holidays`          | Holiday calendar | ✅ MarketHolidayRepository | ✅ PandasMarketCalendarAdapter | ✅ Active |
 | **Metadata**               |||||
 | `data_update_metadata`     | Operation tracking | ✅ DataUpdateMetadataRepository | - | ✅ Active |
 | **System**                 |||||
@@ -111,7 +111,7 @@ repository = AssetRepository(session)
 cached_asset = repository.get_by_symbol("AAPL")
 
 # Provider handles API:
-provider = PolygonTickersProvider(api_key)
+provider = ProviderFactory.create_reference_provider()
 fresh_asset = provider.fetch_ticker_details("AAPL")  # Returns Asset domain model
 ```
 
@@ -155,11 +155,11 @@ CREATE TABLE providers (
 
 **Key Methods**:
 - `get_by_name(name: str)` - Get provider by identifier
-- `get_active_provider()` - Get first active provider (typically Polygon)
+- `get_active_provider()` - Get first active provider
 - `save(provider: ProviderSQLModel)` - Persist provider
 
 **Current Providers**:
-- `polygon` - Polygon.io (primary provider)
+- `nasdaq_trader` - NASDAQ Trader (free bulk ticker data, no API key)
 
 ---
 
@@ -193,7 +193,7 @@ CREATE TABLE markets (
 **Domain Model**: `Market` (dataclass)
 **SQLModel**: `MarketSQLModel`
 **Repository**: `MarketRepository`
-**Provider**: `PolygonMarketsProvider`
+**Provider**: Hardcoded US exchanges (XNYS, XNAS)
 
 **Key Methods**:
 - `get_by_code(code: str)` - Get market by MIC code (e.g., 'XNAS')
@@ -254,7 +254,7 @@ CREATE INDEX idx_assets_active ON assets(is_active);
 **Domain Model**: `Asset` (dataclass)
 **SQLModel**: `AssetSQLModel`
 **Repository**: `AssetRepository`
-**Provider**: `PolygonTickersProvider`
+**Provider**: `FreeReferenceAdapter` (NASDAQ Trader bulk file)
 
 **Key Methods**:
 - `get_by_id(id: int)` - Get asset by database ID
@@ -266,7 +266,7 @@ CREATE INDEX idx_assets_active ON assets(is_active);
 - `get_stats()` - Get asset statistics (by type, etc.)
 
 **Bootstrap**: `./tradescout database bootstrap-assets`
-**Typical Count**: ~11,000 active US stocks/ETFs
+**Typical Count**: ~12,000 active US stocks/ETFs
 
 ---
 
@@ -312,7 +312,7 @@ CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
 **Domain Model**: `AssetFundamentals` (dataclass)
 **SQLModel**: `FundamentalsSQLModel`
 **Repository**: `FundamentalsRepository`
-**Provider**: `PolygonTickersProvider` (from ticker details endpoint)
+**Provider**: `YFinanceReferenceAdapter` (ticker details)
 
 **Key Methods**:
 - `get_by_asset_id(asset_id: int)` - Get fundamentals for asset
@@ -321,7 +321,7 @@ CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
 - `count_total()` - Count total fundamentals records
 
 **Bootstrap**: `./tradescout database bootstrap-fundamentals`
-**Typical Count**: ~7,000 (not all assets have fundamentals)
+**Typical Count**: ~6,900 (ETFs, foreign listings, warrants have no SEC CIK match)
 
 ---
 
@@ -329,7 +329,7 @@ CREATE INDEX idx_fundamentals_market_cap ON asset_fundamentals(market_cap);
 
 #### `asset_prices`
 
-Historical and real-time price snapshots from Polygon.
+Historical and real-time price snapshots.
 
 ```sql
 CREATE TABLE asset_prices (
@@ -390,7 +390,7 @@ CREATE INDEX idx_asset_prices_updated ON asset_prices(updated_at);
 **Domain Model**: `AssetPrice` (dataclass)
 **SQLModel**: `AssetPriceSQLModel`
 **Repository**: `AssetPriceRepository`
-**Provider**: `PolygonSnapshotProvider`, `PolygonAggregatesProvider`
+**Provider**: `YFinanceSnapshotAdapter`, `YFinanceAggregatesAdapter`
 
 **Key Methods**:
 - `get_latest_by_asset_id(asset_id: int)` - Get most recent price
@@ -523,7 +523,7 @@ CREATE UNIQUE INDEX idx_sentiment_events_unique_external
 **Domain Models**: `SentimentType`, `SentimentEvent` (dataclasses)
 **SQLModel**: `SentimentTypeSQLModel`, `SentimentEventSQLModel`
 **Repositories**: `SentimentTypeRepository`, `SentimentEventRepository`
-**Provider**: `PolygonNewsProvider`
+**Provider**: `FinnhubNewsAdapter`
 
 ---
 
@@ -594,7 +594,7 @@ CREATE TABLE gap_candidate (
     catalyst_description TEXT,
 
     -- Metadata
-    min_timestamp BIGINT,                  -- Polygon min.t
+    min_timestamp BIGINT,                  -- Last minute bar timestamp
     data_freshness_hours REAL,
     academic_gap_type TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -665,7 +665,7 @@ CREATE INDEX idx_gap_candidate_result_outcome ON gap_candidate_result(outcome);
 **Domain Model**: `GapPerformance` (dataclass)
 **SQLModel**: `GapPerformanceTrackingSQLModel`
 **Repository**: `GapCandidateResultRepository`
-**Provider**: `PolygonAggregatesProvider` (for performance data)
+**Provider**: `YFinanceAggregatesAdapter` (for performance data)
 
 ---
 
@@ -691,7 +691,7 @@ CREATE INDEX idx_gap_result_news_gap_candidate_id ON gap_result_news(gap_candida
 
 **SQLModel**: `GapResultNewsSQLModel`
 **Repository**: `GapResultNewsRepository`
-**Provider**: `PolygonNewsProvider`
+**Provider**: `FinnhubNewsAdapter`
 
 ---
 
@@ -723,7 +723,7 @@ CREATE INDEX idx_fed_data_type_date ON fed_data(data_type, observation_date DESC
 **Domain Model**: `FedData` (dataclass)
 **SQLModel**: `FedDataSQLModel`
 **Repository**: `FedDataRepository`
-**Provider**: `PolygonFedProvider`
+**Provider**: `FREDEconomicAdapter`
 
 **Key Methods**:
 - `get_latest_by_type(data_type: str)` - Get most recent observation
@@ -754,7 +754,7 @@ CREATE INDEX idx_market_holidays_date ON market_holidays(date);
 **Domain Model**: `MarketHoliday` (dataclass)
 **SQLModel**: `MarketHolidaySQLModel`
 **Repository**: `MarketHolidayRepository`
-**Provider**: `PolygonMarketStatusProvider`
+**Provider**: `PandasMarketCalendarAdapter`
 
 **Key Methods**:
 - `find_upcoming(limit: int)` - Get upcoming holidays
@@ -846,7 +846,7 @@ gap_candidate (1) ──< (many) gap_result_news
 
 2. **DataServiceV2.analyze_gaps()**:
    - Get active universe assets: `UniverseRepository.get_memberships()`
-   - Fetch market snapshots: `PolygonSnapshotProvider.fetch_market_snapshot()`
+   - Fetch market snapshots: `SnapshotProvider.fetch_bulk_market_snapshot()`
    - Store prices: `AssetPriceRepository.bulk_save()`
 
 3. **GapAnalyzer**:
@@ -951,7 +951,7 @@ Shows:
 **Architecture**: Repository + SQLModel + Cache-Aside Pattern
 **Tables**: 16 tables covering reference, price, sentiment, gap analysis, and metadata
 **Repositories**: 16 repositories with business-focused queries
-**Providers**: 7 Polygon API providers
+**Providers**: 6 free provider adapters (yfinance, NASDAQ Trader, Finnhub, FRED, pandas_market_calendars)
 **Domain Models**: Dual model system (dataclass + SQLModel)
 **Caching**: TTL-based cache-aside pattern
 **Migration**: Incremental schema evolution with versioning

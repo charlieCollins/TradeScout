@@ -23,7 +23,7 @@ class AssetPrice:
 
     # Provider tracking
     provider_id: int
-    provider_updated_at: int  # Provider's 'updated' field (nanoseconds for Polygon)
+    provider_updated_at: int  # Provider's 'updated' field (nanoseconds)
     trade_date: date          # Date in market timezone
 
     # Metadata (required field)

@@ -150,21 +150,29 @@ class ScreenerRepository:
             query += " AND ap.provider_updated_at > 0"
 
         # Add custom filters with parameterized values
-        # SECURITY: Only allow whitelisted field names and operators to prevent SQL injection
-        allowed_fields = {
+        # SECURITY: Validate expressions only reference allowed columns and safe operators
+        allowed_columns = {
             "ap.prevday_close", "ap.prevday_volume", "ap.day_open", "ap.day_close",
             "ap.day_volume", "ap.min_close", "ap.min_volume", "ap.min_accumulated_volume",
             "a.symbol", "a.name"
         }
         allowed_operators = {"=", "!=", "<", ">", "<=", ">=", "IN", "NOT IN", "IS NULL", "IS NOT NULL"}
 
+        def _is_safe_field_expr(expr: str) -> bool:
+            """Validate a field expression only uses allowed columns and arithmetic."""
+            if expr in allowed_columns:
+                return True
+            import re
+            # Strip parens, spaces, arithmetic, and numbers - remaining tokens must be allowed columns
+            tokens = re.findall(r'[a-z_]+\.[a-z_]+', expr)
+            return all(t in allowed_columns for t in tokens) and len(tokens) > 0
+
         for i, filter_def in enumerate(filters):
             field = filter_def["field"]
             operator = filter_def["operator"].upper()
             value = filter_def["value"]
 
-            # Validate field and operator to prevent SQL injection
-            if field not in allowed_fields:
+            if not _is_safe_field_expr(field):
                 logger.warning(f"Skipping disallowed filter field: {field}")
                 continue
             if operator not in allowed_operators:
@@ -194,8 +202,7 @@ class ScreenerRepository:
             for sort_def in sort:
                 field = sort_def["field"]
                 direction = sort_def.get("direction", "desc").upper()
-                # Validate sort field and direction
-                if field not in allowed_fields:
+                if not _is_safe_field_expr(field):
                     logger.warning(f"Skipping disallowed sort field: {field}")
                     continue
                 if direction not in ("ASC", "DESC"):
@@ -209,7 +216,7 @@ class ScreenerRepository:
         query += " LIMIT :limit"
 
         # Execute parameterized query
-        result = self.session.exec(text(query), params)
+        result = self.session.exec(text(query).bindparams(**params))
         rows = result.all()
 
         # Convert rows to dictionaries
@@ -376,7 +383,7 @@ class ScreenerRepository:
               AND ap.{reference_field} IS NOT NULL
             """
 
-        result = self.session.exec(text(query), params)
+        result = self.session.exec(text(query).bindparams(**params))
         row = result.one()
 
         # Extract scalar value from Row object

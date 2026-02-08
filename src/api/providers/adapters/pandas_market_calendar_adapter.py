@@ -9,6 +9,8 @@ from typing import Optional, List
 from datetime import datetime, date, time
 from zoneinfo import ZoneInfo
 
+import numpy as np
+import pandas as pd
 import pandas_market_calendars as mcal
 
 from models.dataclass.market_status import MarketStatusSnapshot
@@ -165,13 +167,18 @@ class PandasMarketCalendarAdapter(MarketStatusProvider):
             # Filter holidays
             upcoming_holidays = []
             for holiday_date in holiday_dates:
-                # Convert to date if it's a Timestamp
-                if hasattr(holiday_date, 'date'):
+                # Convert numpy.datetime64 or Timestamp to date
+                if isinstance(holiday_date, np.datetime64):
+                    # Convert numpy.datetime64 to python date
+                    holiday_date = pd.Timestamp(holiday_date).date()
+                elif hasattr(holiday_date, 'date'):
                     holiday_date = holiday_date.date()
                 elif isinstance(holiday_date, tuple):
                     # Sometimes holidays are returned as tuples (date, name)
                     holiday_date = holiday_date[0]
-                    if hasattr(holiday_date, 'date'):
+                    if isinstance(holiday_date, np.datetime64):
+                        holiday_date = pd.Timestamp(holiday_date).date()
+                    elif hasattr(holiday_date, 'date'):
                         holiday_date = holiday_date.date()
 
                 # Skip if not in range

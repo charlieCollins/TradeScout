@@ -10,7 +10,7 @@ TradeScout provides real-time market screening across different trading sessions
 
 - **Market Screeners**: Find gainers, losers, high volume, and momentum stocks
 - **Session-Aware Analysis**: Premarket, regular, and afterhours screening
-- **Real-Time Data**: Live market data via Polygon.io Premium API
+- **Free Data Providers**: Live market data via yfinance, SEC EDGAR, Finnhub, FRED (no paid APIs required)
 - **SQLite Database**: Local caching and historical data storage
 
 ## Current Features
@@ -74,8 +74,8 @@ All screeners use a template-based system that automatically selects appropriate
 
 ### Data Management
 - **Database**: SQLite with 13 tables (location: `data/tradescout.db`)
-- **Universe**: ~7,500 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
-- **Data Source**: Polygon.io Premium subscription (15-minute delayed, extended hours support)
+- **Universe**: ~11,750 filtered stocks (XNYS/XNAS exchanges, active, 1-5 char symbols)
+- **Data Sources**: yfinance (snapshots/aggregates), NASDAQ Trader (ticker listing), SEC EDGAR (fundamentals), Finnhub (news), FRED (economic data)
 - **Caching**: TTL-based caching with automatic refresh logic
 
 ### Session Awareness
@@ -90,14 +90,12 @@ All screeners use a template-based system that automatically selects appropriate
    pip install -r requirements.txt
    ```
 
-2. **Configure API Keys**:
+2. **Configure API Keys** (free):
    ```bash
-   export POLYGON_API_KEY="your_polygon_api_key_here"
-   ```
-   Or copy the example environment file and edit it:
-   ```bash
+   # Create .env file with free API keys
    cp .env.example .env
-   # Edit .env and add your Polygon.io API key
+   # Add: FINNHUB_API_KEY=your_key (free at finnhub.io)
+   # Add: FRED_API_KEY=your_key (free at fred.stlouisfed.org)
    ```
 
 3. **Initialize Database**:
@@ -146,7 +144,7 @@ TradeScout uses a **layered repository architecture** with clean separation of c
 - **Presentation Layer**: Output adapters (CLI with Rich formatting, Web with JSON)
 - **Service Layer**: Business logic orchestration (DataServiceV2, MarketContextService)
 - **Repository Layer**: Type-safe data access with SQLModel
-- **Provider Layer**: External API integration (Polygon.io)
+- **Provider Layer**: External API integration (yfinance, NASDAQ Trader, SEC EDGAR, Finnhub, FRED)
 - **Database**: SQLite with dual model system (domain dataclasses + ORM SQLModels)
 
 ### Key Patterns
@@ -168,9 +166,9 @@ TradeScout uses a **layered repository architecture** with clean separation of c
 ## Requirements
 
 - **Python 3.8+**
-- **Polygon.io Premium API** ($50/month - provides extended hours data)
 - **SQLite** (included with Python)
 - **Linux/Ubuntu/WSL2** (primary development platform)
+- **Free API keys**: Finnhub (news), FRED (economic data) - optional but recommended
 
 ## Documentation
 
@@ -190,10 +188,10 @@ TradeScout uses a **layered repository architecture** with clean separation of c
 - **[Gap Backtest](docs/GAP_BACKTEST.md)** - Historical gap analysis
 - **[Sentiment](docs/SENTIMENT.md)** - News sentiment analysis
 
-### Data Sources
-- **[Polygon.io Integration](docs/POLYGON.md)** - API integration guide
-- **[Polygon Implementation](docs/POLYGON_IMPLEMENTATION.md)** - Implementation details
-- **[Volume Fields Reference](docs/POLYGON_VOLUME_INFO.md)** - Volume data guide
+### Data Sources (Legacy Reference)
+- **[Polygon.io Integration](docs/POLYGON.md)** - Legacy Polygon API reference (fallback provider)
+- **[Polygon Implementation](docs/POLYGON_IMPLEMENTATION.md)** - Legacy implementation details
+- **[Volume Fields Reference](docs/POLYGON_VOLUME_INFO.md)** - Volume data reference
 
 ### Project Management
 - **[Lessons Learned](CLAUDE_LESSONS_LEARNED.md)** - Development insights and anti-patterns

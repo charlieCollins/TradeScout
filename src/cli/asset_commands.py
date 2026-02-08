@@ -245,7 +245,7 @@ def news(app_context, symbol: str, limit: int):
     """
     Fetch recent news and sentiment analysis for a symbol.
 
-    Retrieves news articles from Polygon API, extracts sentiment data,
+    Retrieves news articles from news provider, extracts sentiment data,
     and stores sentiment events in the database for gap trading analysis.
 
     Example:

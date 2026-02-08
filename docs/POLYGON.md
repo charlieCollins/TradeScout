@@ -1,8 +1,9 @@
 # Polygon.io (Massive) API Integration
 
+> **LEGACY DOCUMENTATION**: As of February 2026, TradeScout has migrated to free providers (yfinance, NASDAQ Trader, Finnhub, FRED, pandas_market_calendars). Polygon adapter code is retained as a fallback option. For current architecture, see `configs/providers.yaml`.
+
 **Last Updated:** November 18, 2025
-**Current Status:** Stocks Starter plan (active until Dec 2, 2025)
-**Future Plan:** Stocks Basic (free tier, starting Dec 2, 2025)
+**Status:** Fallback provider only - no longer required for core functionality
 
 > **Note:** Polygon.io has rebranded to Massive.com, but APIs and integrations continue to work without interruption.
 

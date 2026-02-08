@@ -21,7 +21,7 @@ class SentimentType:
     category: str  # 'news', 'analyst', 'earnings', 'regulatory', 'social'
 
     # Detection configuration (JSON)
-    parameters: Dict[str, Any]  # {"min_confidence": 0.7, "sources": ["polygon"]}
+    parameters: Dict[str, Any]  # {"min_confidence": 0.7, "sources": ["finnhub"]}
 
     # Status and timestamps
     created_at: datetime

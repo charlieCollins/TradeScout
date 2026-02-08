@@ -20,7 +20,6 @@ class AppContext:
 
     This is NOT a config file - it's a runtime object that provides:
     - Database connections (SQLModel engine)
-    - API clients (Polygon API key)
     - Cached services (market context, data service)
     - Active universe tracking
 
@@ -41,23 +40,14 @@ class AppContext:
         self._market_context = None
         self._market_context_service = None
         self._active_universe = None
-        self._polygon_api_key = None
         self._sqlmodel_engine = None
         self._data_service_v2 = None
-
-    @property
-    def polygon_api_key(self):
-        """Get Polygon API key."""
-        if self._polygon_api_key is None:
-            from api.config.api_keys import POLYGON_API_KEY
-            self._polygon_api_key = POLYGON_API_KEY
-        return self._polygon_api_key
 
     @property
     def market_context(self):
         """Get current market context (lazy-loaded and cached).
 
-        Makes a live API call to Polygon to get real-time market status.
+        Makes a live API call to get real-time market status.
         Results are cached for the lifetime of this AppContext instance.
 
         The market code is determined by the active universe's primary market.
@@ -116,8 +106,6 @@ class AppContext:
         if self._data_service_v2 is None:
             from sqlmodel import Session
             from services.data_service_v2 import DataServiceV2
-            from api.config.api_keys import POLYGON_API_KEY
-
             # Create engine if needed
             engine = self.get_sqlmodel_engine()
 
@@ -128,7 +116,6 @@ class AppContext:
             # Create DataServiceV2
             self._data_service_v2 = DataServiceV2(
                 session=session,
-                polygon_api_key=POLYGON_API_KEY,
                 db_path=self.db_path
             )
 

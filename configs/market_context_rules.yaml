@@ -6,7 +6,7 @@
 # Key Principles:
 # 1. Always have a fallback when preferred data is NULL
 # 2. Be explicit about what each field means in each context
-# 3. Document assumptions about Polygon API behavior
+# 3. Document assumptions about provider API behavior
 
 # Field mapping rules for different market sessions
 # Each entry is a list of fields in priority order (first non-NULL wins)

@@ -50,7 +50,7 @@ class CLIMarketOutputAdapter:
             return
 
         # Show summary
-        console.print(f"[green]✅ Received {result.total_tickers:,} tickers from Polygon[/green]")
+        console.print(f"[green]✅ Received {result.total_tickers:,} tickers from API[/green]")
         console.print("")
 
         if result.saved > 0:
@@ -72,7 +72,7 @@ class CLIMarketOutputAdapter:
         table.add_column("Metric", style="dim")
         table.add_column("Value", justify="right")
 
-        table.add_row("Tickers from Polygon", f"{result.total_tickers:,}")
+        table.add_row("Tickers from API", f"{result.total_tickers:,}")
         table.add_row("Matched to our assets", f"{result.matched_symbols:,}")
         table.add_row("Unmatched symbols", f"{result.unmatched_symbols:,}")
         table.add_row("Successfully transformed", f"{result.transformed:,}")
@@ -104,7 +104,7 @@ class CLIMarketOutputAdapter:
             return
 
         # Show summary
-        console.print(f"[green]✅ Received {result.total_tickers:,} tickers from Polygon for {result.target_date}[/green]")
+        console.print(f"[green]✅ Received {result.total_tickers:,} tickers from API for {result.target_date}[/green]")
         console.print("")
 
         if result.force_refresh:
@@ -129,7 +129,7 @@ class CLIMarketOutputAdapter:
         table.add_column("Metric", style="dim")
         table.add_column("Value", justify="right")
 
-        table.add_row("Tickers from Polygon", f"{result.total_tickers:,}")
+        table.add_row("Tickers from API", f"{result.total_tickers:,}")
         table.add_row("Matched to our assets", f"{result.matched_symbols:,}")
         table.add_row("Unmatched symbols", f"{result.unmatched_symbols:,}")
         table.add_row("Successfully transformed", f"{result.transformed:,}")

@@ -28,7 +28,7 @@ def update(app_context, limit: int):
     """
     Fetch and store latest Federal Reserve economic data.
 
-    Retrieves data from Polygon API for:
+    Retrieves data from economic provider (FRED) for:
     - Inflation (CPI, PCE, etc.)
     - Inflation expectations
     - Treasury yields (various maturities)
@@ -51,16 +51,10 @@ def update(app_context, limit: int):
         console.print(f"[cyan]📊 Fetching Federal Reserve economic data (limit={limit})...[/cyan]")
         console.print()
 
-        # Fetch all fed data
+        # Fetch all fed data using the configured economic provider
         start_time = datetime.now()
 
-        # Get the polygon fed provider
-        from api.providers.polygon_fed_provider import PolygonFedProvider
-        api_key = app_context.polygon_api_key
-        fed_provider = PolygonFedProvider(api_key)
-
-        # Fetch all data types
-        all_data = fed_provider.fetch_all_fed_data(limit=limit)
+        all_data = data_service.economic_provider.fetch_all_fed_data(limit=limit)
 
         # Store to database
         total_stored = 0

@@ -5,6 +5,9 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+# Load .env file before anything else
+import api.config  # noqa: F401
+
 import click
 from rich.console import Console
 from rich.panel import Panel

@@ -48,16 +48,16 @@ All supported exchanges follow the same trading schedule:
 
 ### What is MarketContext?
 
-`MarketContext` is a runtime object that provides definitive information about the current market state based on **Polygon's authoritative market calendar and real-time status**. It answers three critical questions:
+`MarketContext` is a runtime object that provides definitive information about the current market state based on **pandas_market_calendars and rule-based session detection**. It answers three critical questions:
 
-1. **Is today a trading day?** - Checks against Polygon's official holiday calendar
+1. **Is today a trading day?** - Checks against market holiday calendar
 2. **What was the previous trading day?** - Skips weekends and holidays correctly
 3. **What is the current market session?** - Premarket, regular, afterhours, or closed
 
 #### Key Properties
 
 ```python
-# Dates (from Polygon holiday calendar)
+# Dates (from market holiday calendar)
 market_context.current_date              # Today's date
 market_context.previous_trading_date     # Last trading day (skips weekends/holidays)
 market_context.next_trading_date         # Next trading day
@@ -67,7 +67,7 @@ market_context.expected_data_date        # What date should price data be from?
 market_context.is_trading_day            # True if today is a trading day
 market_context.day_type                  # REGULAR_TRADING, EARLY_CLOSE, CLOSED_HOLIDAY, CLOSED_WEEKEND
 
-# Session Information (from Polygon market status API)
+# Session Information (from market context rules)
 market_context.current_session           # PREMARKET, REGULAR, AFTERHOURS, CLOSED_PRE, CLOSED_POST
 market_context.session_name              # Simplified: 'premarket', 'regular', 'afterhours', 'closed'
 market_context.is_market_open            # True if any trading is happening
@@ -77,12 +77,11 @@ market_context.is_extended_hours         # True if premarket or afterhours
 
 #### How MarketContext Works
 
-MarketContext uses **two Polygon APIs** as the source of truth:
+MarketContext uses **pandas_market_calendars + rule-based logic** as the source of truth:
 
-1. **`/v1/marketstatus/now`** - Real-time market status
-   - Returns: `open`, `closed`, or `extended-hours`
-   - Includes `earlyHours` and `afterHours` flags
-   - Respects early-close days automatically (e.g., 1:00 PM close)
+1. **pandas_market_calendars** - Market calendar and holidays
+   - Determines trading days, early close days, holidays
+   - Used to bootstrap `market_holidays` table
 
 2. **`/v1/marketstatus/upcoming`** - Official holiday calendar
    - Provides all NYSE/NASDAQ holidays
@@ -102,7 +101,7 @@ market_context.current_session        # CLOSED_POST
 ```python
 market_context.current_date           # 2025-11-26
 market_context.day_type               # EARLY_CLOSE
-market_context.current_session        # CLOSED_POST (Polygon says closed at 1:05 PM)
+market_context.current_session        # CLOSED_POST (market closed at 1:05 PM)
 ```
 
 ### Primary Market Concept
@@ -129,7 +128,7 @@ universe: "default_universe"
 
 The primary market is used for:
 - Getting MarketContext (session times, trading days, holidays)
-- Polygon API calls (market status)
+- Market status checks (pandas_market_calendars + rules)
 - All screeners and commands operating on this universe
 
 You'll see this in logs:
@@ -260,10 +259,10 @@ The `MarketsManager` class provides:
 - Requirements checking
 
 ### Data Source Integration
-- **Primary Provider**: Tiingo Commercial API
-- **Coverage**: All NASDAQ and NYSE securities
-- **Real-Time**: Extended hours support
-- **Rate Limits**: Commercial tier (high frequency)
+- **Primary Providers**: yfinance (snapshots/aggregates), NASDAQ Trader (reference), Finnhub (news), FRED (economic), pandas_market_calendars (market status)
+- **Coverage**: All NASDAQ and NYSE securities (~12,000)
+- **Real-Time**: Extended hours support via yfinance
+- **Cost**: Free (no paid subscriptions required)
 
 ## Key Principles
 

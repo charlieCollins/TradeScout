@@ -13,7 +13,7 @@ class ProviderSQLModel(SQLModel, table=True):
     """SQLModel representation of Provider - serves as both ORM model and schema.
 
     This model maps to the existing 'providers' table in the database.
-    Providers represent API data sources (Polygon, YFinance, etc.).
+    Providers represent API data sources (NASDAQ Trader, YFinance, Finnhub, etc.).
     """
 
     __tablename__ = "providers"
@@ -32,11 +32,11 @@ class ProviderSQLModel(SQLModel, table=True):
         index=True,
         unique=True,
         max_length=50,
-        description="Provider identifier (e.g., 'polygon', 'yfinance')"
+        description="Provider identifier (e.g., 'nasdaq_trader', 'yfinance')"
     )
 
     display_name: str = Field(
-        description="Human-readable name (e.g., 'Polygon.io', 'Yahoo Finance')"
+        description="Human-readable name (e.g., 'NASDAQ Trader', 'Yahoo Finance')"
     )
 
     # ============================================================================
@@ -95,10 +95,10 @@ class ProviderSQLModel(SQLModel, table=True):
         json_schema_extra = {
             "example": {
                 "id": 1,
-                "name": "polygon",
-                "display_name": "Polygon.io",
-                "base_url": "https://api.polygon.io",
-                "api_key_required": True,
+                "name": "nasdaq_trader",
+                "display_name": "NASDAQ Trader",
+                "base_url": "https://www.nasdaqtrader.com",
+                "api_key_required": False,
                 "is_active": True
             }
         }

@@ -1,4 +1,4 @@
-"""Fundamentals Cache Utility - File-based cache for Polygon ticker details.
+"""Fundamentals Cache Utility - File-based cache for ticker details.
 
 Works with existing cache structure at data/cache/fundamentals/
 """
@@ -58,7 +58,7 @@ class FundamentalsCacheHelper:
 
         Args:
             symbol: Stock symbol
-            data: Raw Polygon API response
+            data: Raw API response
 
         Returns:
             True if saved successfully

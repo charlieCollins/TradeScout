@@ -11,7 +11,7 @@ class Provider:
 
     # Primary identification
     id: int
-    name: str  # 'polygon', 'yfinance', 'alphavantage'
+    name: str  # 'nasdaq_trader', 'yfinance', 'finnhub'
     display_name: str  # Human-readable name
 
     # Configuration

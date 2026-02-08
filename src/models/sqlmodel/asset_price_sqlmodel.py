@@ -3,7 +3,7 @@
 This file contains the SQLModel version for the new architecture.
 AssetPrice stores market snapshot data (price, volume, VWAP) for gap trading analysis.
 
-The data comes from Polygon snapshot API and is stored for:
+The data comes from market snapshot providers (yfinance, etc.) and is stored for:
 1. Gap analysis (comparing prev_close to current prices)
 2. Historical tracking
 3. Performance validation
@@ -57,12 +57,12 @@ class AssetPriceSQLModel(SQLModel, table=True):
 
     provider_id: int = Field(
         foreign_key="providers.id",
-        description="Data provider (Polygon, YFinance, etc.)"
+        description="Data provider (yfinance, nasdaq_trader, etc.)"
     )
 
     provider_updated_at: Optional[int] = Field(
         default=None,
-        description="Provider's update timestamp (nanoseconds for Polygon)"
+        description="Provider's update timestamp (nanoseconds/milliseconds)"
     )
 
     trade_date: date = Field(
@@ -71,7 +71,7 @@ class AssetPriceSQLModel(SQLModel, table=True):
     )
 
     # ============================================================================
-    # PREVIOUS DAY DATA (prevDay.* from Polygon snapshot)
+    # PREVIOUS DAY DATA (previous day OHLCV)
     # ============================================================================
 
     prevday_open: Optional[Decimal] = Field(
@@ -115,7 +115,7 @@ class AssetPriceSQLModel(SQLModel, table=True):
     )
 
     # ============================================================================
-    # CURRENT DAY REGULAR SESSION (day.* from Polygon snapshot)
+    # CURRENT DAY REGULAR SESSION (regular hours OHLCV)
     # ============================================================================
 
     day_open: Optional[Decimal] = Field(
@@ -159,7 +159,7 @@ class AssetPriceSQLModel(SQLModel, table=True):
     )
 
     # ============================================================================
-    # LAST MINUTE BAR DATA (min.* from Polygon snapshot)
+    # LAST MINUTE BAR DATA (latest minute bar)
     # Includes premarket and afterhours data
     # ============================================================================
 

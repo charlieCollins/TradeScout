@@ -56,18 +56,17 @@ class DataServiceV2:
     It orchestrates:
     - Repository (business queries)
     - CacheService (cache-aside pattern)
-    - APIProvider (Polygon API calls)
+    - APIProvider (external API calls via adapters)
 
     During migration, this coexists with the old DataService.
     Callers can choose which version to use (strangler fig pattern).
     """
 
-    def __init__(self, session: Session, polygon_api_key: str, db_path: str = "data/tradescout.db"):
+    def __init__(self, session: Session, db_path: str = "data/tradescout.db", **kwargs):
         """Initialize DataService V2 with all layers.
 
         Args:
             session: SQLModel session for database operations
-            polygon_api_key: Polygon API key for data fetching
             db_path: Path to SQLite database (for metadata manager)
         """
         # Store session for direct queries
@@ -93,19 +92,18 @@ class DataServiceV2:
         self.sentiment_event_repository = SentimentEventRepository(session)
 
         # Initialize API providers via factory (provider-agnostic)
-        # All providers now use abstraction layer - easy to swap via config
-        self.snapshot_provider = ProviderFactory.create_snapshot_provider(api_key=polygon_api_key)
-        self.aggregates_provider = ProviderFactory.create_aggregates_provider(api_key=polygon_api_key)
-        self.news_provider = ProviderFactory.create_news_provider(api_key=polygon_api_key)
-        self.market_status_provider = ProviderFactory.create_market_status_provider(api_key=polygon_api_key)
-        self.reference_provider = ProviderFactory.create_reference_provider(api_key=polygon_api_key)
-        self.economic_provider = ProviderFactory.create_economic_provider(api_key=polygon_api_key)
+        # Factory resolves the correct API key for each provider from environment
+        self.snapshot_provider = ProviderFactory.create_snapshot_provider()
+        self.aggregates_provider = ProviderFactory.create_aggregates_provider()
+        self.news_provider = ProviderFactory.create_news_provider()
+        self.market_status_provider = ProviderFactory.create_market_status_provider()
+        self.reference_provider = ProviderFactory.create_reference_provider()
+        self.economic_provider = ProviderFactory.create_economic_provider()
 
-        # Legacy names for backward compatibility (deprecated - use new names above)
-        self.polygon_snapshot_provider = self.snapshot_provider
-        self.polygon_aggregates_provider = self.aggregates_provider
-        self.polygon_news_provider = self.news_provider
-        self.polygon_market_status_provider = self.market_status_provider
+        # Configure symbol provider for adapters that need it (e.g., yfinance)
+        if hasattr(self.snapshot_provider, 'set_symbol_provider'):
+            self.snapshot_provider.set_symbol_provider(self._get_snapshot_symbols)
+
 
         # Initialize cache services (cache-aside pattern)
         self.asset_cache = CacheService[AssetSQLModel](
@@ -157,7 +155,7 @@ class DataServiceV2:
         return convert_asset_sqlmodel_to_dataclass(asset_sqlmodel)
 
     def _fetch_asset_from_api(self, symbol: str) -> Optional[AssetSQLModel]:
-        """Fetch asset from Polygon API and convert to SQLModel.
+        """Fetch asset from reference provider and convert to SQLModel.
 
         This is the fetch_fn callback used by cache service.
         It handles the conversion from provider response to SQLModel.
@@ -176,10 +174,10 @@ class DataServiceV2:
             markets = self.market_repository.get_all(active_only=False)
             market_code_to_id = {market.code: market.id for market in markets}
 
-            # Get Polygon provider ID for the mapping
-            polygon_provider = self.provider_repository.get_by_name("polygon")
-            if polygon_provider:
-                market_code_to_id["__provider_id__"] = polygon_provider.id
+            # Get provider ID for the mapping
+            provider = self.provider_repository.get_by_name("nasdaq_trader")
+            if provider:
+                market_code_to_id["__provider_id__"] = provider.id
 
             asset_dataclass = self.reference_provider.fetch_ticker_details(
                 symbol,
@@ -472,7 +470,7 @@ class DataServiceV2:
         """Get provider by name.
 
         Args:
-            name: Provider name (e.g., 'polygon', 'yfinance')
+            name: Provider name (e.g., 'nasdaq_trader', 'yfinance')
 
         Returns:
             Provider dataclass if found, None otherwise
@@ -652,6 +650,27 @@ class DataServiceV2:
         """
         return self.universe_repository.get_active_universe_symbols()
 
+    def _get_snapshot_symbols(self) -> List[str]:
+        """Get symbols for bulk snapshot fetching.
+
+        Used by snapshot providers (e.g., yfinance) that need a list of symbols.
+        Tries active universe first, falls back to all stock assets.
+
+        Returns:
+            List of symbol strings
+        """
+        # First try active universe
+        symbols = self.universe_repository.get_active_universe_symbols()
+        if symbols:
+            logger.debug(f"Using {len(symbols)} symbols from active universe")
+            return symbols
+
+        # Fall back to all stock assets
+        assets = self.asset_repository.find_by_type("stock")
+        symbols = [a.symbol for a in assets if a.symbol]
+        logger.debug(f"Using {len(symbols)} symbols from all stock assets")
+        return symbols
+
     def add_universe_memberships(
         self, universe_name: str, asset_ids: List[int]
     ) -> int:
@@ -768,11 +787,11 @@ class DataServiceV2:
     # BULK UPDATE METHODS
     # ============================================================================
 
-    def update_market_snapshot(self, force_refresh: bool = False):
+    def update_market_snapshot(self, force_refresh: bool = False, market_context=None):
         """Update asset prices from bulk market snapshot with TTL caching.
 
         Checks if data is fresh based on TTL. If fresh and not forced, returns stats
-        showing data was fresh. If stale or forced, fetches from Polygon API and saves
+        showing data was fresh. If stale or forced, fetches from snapshot provider and saves
         new records to database.
 
         Only saves new tuples of (asset_id, provider_id, provider_updated_at) that
@@ -812,7 +831,7 @@ class DataServiceV2:
 
         # Data is stale or force_refresh=True, fetch from API
         start_time = datetime.now()
-        market_snapshot = self.polygon_snapshot_provider.fetch_bulk_market_snapshot()
+        market_snapshot = self.snapshot_provider.fetch_bulk_market_snapshot()
 
         if not market_snapshot or not market_snapshot.tickers:
             logger.warning("No market snapshot data received from API")
@@ -861,10 +880,12 @@ class DataServiceV2:
                     continue
 
             # Transform to AssetPrice
+            trade_date = market_context.expected_data_date if market_context else None
             asset_price = self.transform_ticker_snapshot_to_asset_price(
                 symbol=symbol,
                 asset_id=asset.id,
-                ticker_snapshot=ticker_snapshot
+                ticker_snapshot=ticker_snapshot,
+                trade_date_override=trade_date
             )
 
             if asset_price and isinstance(asset_price, object) and not isinstance(asset_price, str):
@@ -940,7 +961,7 @@ class DataServiceV2:
         logger.info(f"Backfilling market data for {target_date}")
 
         # Fetch grouped daily bars for the target date
-        bars_dict = self.polygon_aggregates_provider.fetch_grouped_daily_bars(target_date)
+        bars_dict = self.aggregates_provider.fetch_grouped_daily_bars(target_date)
 
         if not bars_dict:
             logger.warning(f"No grouped bars data received from API for {target_date}")
@@ -972,7 +993,7 @@ class DataServiceV2:
 
             stats_matched += 1
 
-            # Polygon grouped bars timestamp is market close (4PM ET)
+            # Grouped bars timestamp is market close (4PM ET)
             # For backfill, use afterhours close (8PM ET) as the "latest" data for that day
             # Add 4 hours (14400000 ms) to the timestamp to represent afterhours close
             bar_timestamp_ms = bar.timestamp_ms
@@ -984,7 +1005,7 @@ class DataServiceV2:
 
             asset_price = AssetPriceSQLModel(
                 asset_id=asset.id,
-                provider_id=1,  # Polygon provider
+                provider_id=1,
                 symbol=symbol,
                 trade_date=target_date,
                 provider_updated_at=provider_updated_at_ns,
@@ -1078,7 +1099,7 @@ class DataServiceV2:
             )
 
         # Fetch articles from API
-        articles = self.polygon_news_provider.fetch_news_for_ticker(
+        articles = self.news_provider.fetch_news_for_ticker(
             ticker=symbol,
             limit=limit
         )
@@ -1244,7 +1265,7 @@ class DataServiceV2:
         """Get active provider using repository pattern.
 
         Returns:
-            Active provider (typically 'polygon'), or None if no active provider exists
+            Active provider (typically 'nasdaq_trader'), or None if no active provider exists
         """
         return self.provider_repository.get_active_provider()
 
@@ -1338,9 +1359,9 @@ class DataServiceV2:
             symbol: Stock symbol
 
         Returns:
-            TickerSnapshot from PolygonSnapshotProvider
+            TickerSnapshot from snapshot provider
         """
-        return self.polygon_snapshot_provider.fetch_single_ticker_snapshot(symbol)
+        return self.snapshot_provider.fetch_single_ticker_snapshot(symbol)
 
     def batch_save_asset_prices(self, prices):
         """Batch save asset prices using new architecture.
@@ -1390,7 +1411,7 @@ class DataServiceV2:
 
         return self.asset_price_repository.bulk_save(sql_models)
 
-    def transform_ticker_snapshot_to_asset_price(self, symbol: str, asset_id: int, ticker_snapshot):
+    def transform_ticker_snapshot_to_asset_price(self, symbol: str, asset_id: int, ticker_snapshot, trade_date_override: date = None):
         """Transform TickerSnapshot to AssetPrice using new architecture.
 
         Args:
@@ -1404,18 +1425,21 @@ class DataServiceV2:
         try:
             from models.dataclass.price import AssetPrice
 
-            # Get provider ID (default to 1 = Polygon)
+            # Get provider ID (default to 1)
             provider_id = 1
 
-            # Use Polygon's updated timestamp - REQUIRED, reject if missing
+            # Use provider's updated timestamp - REQUIRED, reject if missing
             provider_updated_at = ticker_snapshot.updated_ns
             if not provider_updated_at or provider_updated_at == 0:
                 logger.debug(f"Rejecting {symbol} - provider_updated_at is 0 or None")
                 return "NO_TIMESTAMP"  # Special marker to track this specific failure
 
-            # Determine trade date
-            updated_seconds = provider_updated_at // 1_000_000_000
-            trade_date = datetime.fromtimestamp(updated_seconds).date()
+            # Determine trade date - use override if provided, otherwise derive from timestamp
+            if trade_date_override:
+                trade_date = trade_date_override
+            else:
+                updated_seconds = provider_updated_at // 1_000_000_000
+                trade_date = datetime.fromtimestamp(updated_seconds).date()
 
             return AssetPrice(
                 id=0,  # Will be set by database auto-increment
@@ -1637,7 +1661,7 @@ class DataServiceV2:
     # ============================================================================
 
     def fetch_minute_bars(self, symbol: str, from_datetime, to_datetime):
-        """Fetch minute bars from Polygon using new architecture.
+        """Fetch minute bars from aggregates provider.
 
         Args:
             symbol: Stock symbol
@@ -1645,9 +1669,9 @@ class DataServiceV2:
             to_datetime: End datetime
 
         Returns:
-            List of minute bar data from PolygonAggregatesProvider
+            List of minute bar data from aggregates provider
         """
-        return self.polygon_aggregates_provider.fetch_minute_bars(
+        return self.aggregates_provider.fetch_minute_bars(
             symbol=symbol,
             from_datetime=from_datetime,
             to_datetime=to_datetime
@@ -1664,7 +1688,7 @@ class DataServiceV2:
         Returns:
             Total volume for the session, or None if error
         """
-        return self.polygon_aggregates_provider.calculate_extended_hours_volume(
+        return self.aggregates_provider.calculate_extended_hours_volume(
             symbol=symbol,
             trading_date=trading_date,
             session=session
@@ -1679,9 +1703,9 @@ class DataServiceV2:
             to_date: End date
 
         Returns:
-            List of daily bar data from PolygonAggregatesProvider
+            List of daily bar data from aggregates provider
         """
-        return self.polygon_aggregates_provider.get_daily_aggregates(
+        return self.aggregates_provider.get_daily_aggregates(
             symbol=symbol,
             from_date=from_date,
             to_date=to_date
@@ -1697,9 +1721,9 @@ class DataServiceV2:
             multiplier: Multiplier for timespan
 
         Returns:
-            List of intraday bar data from PolygonAggregatesProvider
+            List of intraday bar data from aggregates provider
         """
-        return self.polygon_aggregates_provider.get_intraday_aggregates(
+        return self.aggregates_provider.get_intraday_aggregates(
             symbol=symbol,
             date=date,
             timespan=timespan,
@@ -1861,7 +1885,7 @@ class DataServiceV2:
     # ============================================================================
 
     def get_market_status(self) -> Optional[dict]:
-        """Get current market status from Polygon API.
+        """Get current market status from market status provider.
 
         Returns:
             Dictionary with market status data including:
@@ -1870,7 +1894,7 @@ class DataServiceV2:
             - exchanges: Status of different exchanges
         """
         try:
-            return self.polygon_market_status_provider.fetch_market_status()
+            return self.market_status_provider.fetch_market_status()
         except Exception as e:
             logger.error(f"Error fetching market status: {e}")
             return None
@@ -1912,7 +1936,7 @@ class DataServiceV2:
     def get_market_holidays(self, force_refresh: bool = False) -> List['MarketHoliday']:
         """Get market holidays with cache/refresh logic.
 
-        Holidays are fetched from Polygon's /v1/marketstatus/upcoming endpoint.
+        Holidays are fetched from the market status provider.
         Uses repository for persistence.
 
         Args:
@@ -1929,8 +1953,8 @@ class DataServiceV2:
             logger.debug("Fetching fresh holidays from API")
             start_time = datetime.now()
 
-            # Fetch from Polygon API
-            holidays_data = self.polygon_market_status_provider.fetch_upcoming_holidays()
+            # Fetch from market status provider
+            holidays_data = self.market_status_provider.fetch_upcoming_holidays()
 
             if holidays_data:
                 # Convert to SQLModel and store

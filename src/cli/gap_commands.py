@@ -69,7 +69,7 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
     """
     # Suppress verbose logging during gap analysis for cleaner output
     logging.getLogger('analysis.gap_analyzer').setLevel(logging.ERROR)
-    logging.getLogger('api.providers.polygon_aggregates_provider').setLevel(logging.ERROR)
+    logging.getLogger('api.providers').setLevel(logging.ERROR)
 
     try:
         # Step 1: Get market context and validate session
@@ -96,7 +96,10 @@ def analyze(app_context, min_gap, min_market_cap, min_volume_ratio, limit):
         data_service = app_context.get_data_service_v2()
 
         # Force refresh market snapshot (always gets latest data)
-        stats = data_service.update_market_snapshot(force_refresh=True)
+        stats = data_service.update_market_snapshot(
+            force_refresh=True,
+            market_context=app_context.market_context
+        )
 
         if stats and stats.total_tickers > 0:
             if stats.saved > 0:

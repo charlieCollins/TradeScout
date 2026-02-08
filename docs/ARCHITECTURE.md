@@ -34,7 +34,7 @@ TradeScout uses a **layered repository architecture** with clean separation of c
            │                     │
    ┌───────▼──────┐      ┌──────▼──────────┐
    │ SQLModel ORM │      │ External APIs   │
-   │ (models/     │      │ (polygon.io)    │
+   │ (models/     │      │ (yfinance, etc) │
    │ sqlmodel/)   │      │                 │
    │              │      │                 │
    │ Table defs   │      │                 │
@@ -161,17 +161,16 @@ class BaseAPIProvider(ABC):
         """Make HTTP request with retry logic, rate limiting"""
 ```
 
-**Existing Providers:**
+**Active Providers (Free by Default):**
 
 | Provider | Purpose | Returns |
 |----------|---------|---------|
-| `PolygonTickersProvider` | Ticker metadata | `Asset` domain models |
-| `PolygonSnapshotProvider` | Real-time snapshots | `TickerSnapshot` domain models |
-| `PolygonAggregatesProvider` | Historical OHLC | `AssetPrice` domain models |
-| `PolygonNewsProvider` | News/sentiment | `SentimentEvent` domain models |
-| `PolygonMarketStatusProvider` | Market status | `MarketHoliday` domain models |
-| `PolygonMarketsProvider` | Exchange data | `Market` domain models |
-| `PolygonFedProvider` | Economic data | `FedData` domain models |
+| `YFinanceSnapshotAdapter` | Real-time snapshots | `TickerSnapshot` domain models |
+| `YFinanceAggregatesAdapter` | Historical OHLC | `AssetPrice` domain models |
+| `FreeReferenceAdapter` | Ticker listing + details | `Asset` domain models |
+| `FinnhubNewsAdapter` | News/sentiment | `SentimentEvent` domain models |
+| `PandasMarketCalendarAdapter` | Market status/holidays | `MarketHoliday` domain models |
+| `FREDEconomicAdapter` | Economic data | `FedData` domain models |
 
 **Provider Responsibilities:**
 - ✅ HTTP communication with external APIs
@@ -535,7 +534,7 @@ market_holidays_ttl_days: 30
 class DataServiceV2:
     """Main orchestration service using repository pattern."""
 
-    def __init__(self, session: Session, api_key: str):
+    def __init__(self, session: Session):
         # Initialize repositories
         self.asset_repository = AssetRepository(session)
         self.market_repository = MarketRepository(session)
@@ -543,9 +542,9 @@ class DataServiceV2:
         self.metadata_repository = DataUpdateMetadataRepository(session)
         # ... more repositories
 
-        # Initialize providers
-        self.polygon_tickers_provider = PolygonTickersProvider(api_key)
-        self.polygon_snapshot_provider = PolygonSnapshotProvider(api_key)
+        # Initialize providers via factory (reads configs/providers.yaml)
+        self.snapshot_provider = ProviderFactory.create_snapshot_provider()
+        self.aggregates_provider = ProviderFactory.create_aggregates_provider()
         # ... more providers
 
         # Initialize caches
@@ -590,7 +589,7 @@ def get_asset(self, symbol: str, force_refresh: bool = False) -> Optional[Asset]
 def _fetch_and_convert_asset(self, symbol: str) -> Optional[AssetSQLModel]:
     """Fetch from provider, convert to SQLModel."""
     # Provider returns domain model
-    asset_domain = self.polygon_tickers_provider.fetch_ticker_details(symbol)
+    asset_domain = self.reference_provider.fetch_ticker_details(symbol)
     if not asset_domain:
         return None
 
@@ -640,9 +639,9 @@ def _fetch_and_convert_asset(self, symbol: str) -> Optional[AssetSQLModel]:
      d. AssetRepository.save(asset_sql)
      e. MetadataRepository.record_update("tickers")
 
-5. PolygonTickersProvider (if fetched):
-   - HTTP GET: /v3/reference/tickers/AAPL
-   - Parse JSON → Asset domain model
+5. ReferenceDataProvider (if fetched):
+   - Fetch ticker details via yfinance
+   - Parse response → Asset domain model
    - Return to CacheService
 
 6. DataServiceV2:
@@ -667,10 +666,10 @@ def _fetch_and_convert_asset(self, symbol: str) -> Optional[AssetSQLModel]:
    - Build market_code_to_id mapping
    - Call provider for all tickers
 
-4. PolygonTickersProvider:
-   - HTTP GET: /v3/reference/tickers?market=stocks&active=true
-   - Paginate through results (next_url)
-   - Parse each ticker → Asset domain model
+4. FreeReferenceAdapter:
+   - Download NASDAQ Trader bulk ticker file
+   - Parse pipe-delimited data (~12,000 securities)
+   - Map each ticker → Asset domain model
    - Return List[Asset]
 
 5. DataServiceV2:
@@ -719,7 +718,7 @@ def count_active(self) -> int
 **Responsibilities:**
 - ✅ Orchestration (call multiple repositories)
 - ✅ Business rules (if this then that)
-- ✅ API calls (fetch from Polygon)
+- ✅ API calls (fetch from providers)
 - ✅ Data transformation (API response → database model)
 - ✅ Caching decisions (when to refresh)
 - ✅ Error handling & retries
@@ -1111,12 +1110,16 @@ src/
 ├── api/
 │   └── providers/          # External API clients
 │       ├── base_provider.py
-│       ├── polygon_tickers_provider.py
-│       ├── polygon_snapshot_provider.py
-│       ├── polygon_aggregates_provider.py
-│       ├── polygon_news_provider.py
-│       ├── polygon_fed_provider.py
-│       └── ...
+│       ├── protocols/           # Provider interfaces
+│       ├── adapters/            # Provider implementations
+│       │   ├── yfinance_snapshot_adapter.py
+│       │   ├── yfinance_aggregates_adapter.py
+│       │   ├── free_reference_adapter.py
+│       │   ├── finnhub_news_adapter.py
+│       │   ├── pandas_market_calendar_adapter.py
+│       │   ├── fred_economic_adapter.py
+│       │   └── ...
+│       └── provider_factory.py
 │
 ├── services/
 │   ├── data_service_v2.py            # Main orchestration

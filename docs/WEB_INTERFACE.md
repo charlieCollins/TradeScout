@@ -93,7 +93,9 @@ JavaScript renders sortable table
 
 ### Environment Variables
 ```bash
-export POLYGON_API_KEY="your_polygon_api_key"
+# Optional API keys (free signups)
+export FINNHUB_API_KEY="your_finnhub_api_key"       # News data
+export FRED_API_KEY="your_fred_api_key"             # Economic data
 export TRADESCOUT_DB_PATH="/path/to/tradescout.db"  # Optional
 ```
 

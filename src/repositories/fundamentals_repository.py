@@ -302,7 +302,7 @@ class FundamentalsRepository:
             Total count
         """
         from sqlmodel import func
-        statement = select(func.count(FundamentalsSQLModel.id))
+        statement = select(func.count(FundamentalsSQLModel.asset_id))
         return self.session.exec(statement).one() or 0
 
     def get_last_updated(self) -> Optional["datetime"]:
@@ -327,7 +327,7 @@ class FundamentalsRepository:
             Count
         """
         from sqlmodel import func
-        statement = select(func.count(FundamentalsSQLModel.id)).where(
+        statement = select(func.count(FundamentalsSQLModel.asset_id)).where(
             FundamentalsSQLModel.sector == sector
         )
         return self.session.exec(statement).one() or 0
@@ -339,7 +339,7 @@ class FundamentalsRepository:
             Count of records with market cap
         """
         from sqlmodel import func
-        statement = select(func.count(FundamentalsSQLModel.id)).where(
+        statement = select(func.count(FundamentalsSQLModel.asset_id)).where(
             FundamentalsSQLModel.market_cap.is_not(None),  # type: ignore
             FundamentalsSQLModel.market_cap > 0
         )

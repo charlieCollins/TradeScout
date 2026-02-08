@@ -17,6 +17,7 @@ alpaca-py>=0.25.0  # Alpaca market data API
 tiingo>=0.16.1  # Tiingo market data API
 finnhub-python>=2.4.0  # Finnhub news/sentiment API
 pandas-market-calendars>=4.3.0  # Market hours and holidays
+yfinance>=0.2.0  # Yahoo Finance unofficial API
 
 # Development dependencies
 pytest>=7.0.0

@@ -7,18 +7,20 @@
 ## Prerequisites
 
 - **Python 3.8+** installed
-- **Polygon.io Premium subscription** ($50/month - provides extended hours data)
 - **Linux/Ubuntu/WSL2** environment (primary development platform)
+- **Free API keys** (optional but recommended):
+  - Finnhub (news) - free at [finnhub.io](https://finnhub.io/)
+  - FRED (economic data) - free at [fred.stlouisfed.org](https://fred.stlouisfed.org/docs/api/api_key.html)
 
-### Why Polygon.io Premium?
+### Data Providers (All Free)
 
-TradeScout requires Polygon.io Premium for:
-- Extended hours data (premarket 4-9:30 AM, after-hours 4-8 PM ET)
-- Real-time snapshot data (all tickers in one API call)
-- Market status and holiday calendar
-- Minute-level aggregates for volume analysis
-
-**Note**: The free tier does NOT provide these features.
+TradeScout uses free data providers for all core functionality:
+- **yfinance** — Market snapshots, daily/intraday aggregates, ticker details (no key needed)
+- **NASDAQ Trader** — Bulk ticker listing for universe building (no key needed)
+- **SEC EDGAR** — Bulk company fundamentals: SIC codes, shares outstanding, market cap (no key needed)
+- **pandas_market_calendars** — Market status and trading calendar (no key needed, local)
+- **Finnhub** — News data (free API key, 60 req/min)
+- **FRED** — Federal Reserve economic data (free API key)
 
 ---
 
@@ -30,27 +32,26 @@ TradeScout requires Polygon.io Premium for:
 git clone https://github.com/charlieCollins/TradeScout.git
 cd TradeScout
 
-# Create virtual environment (recommended)
-python3 -m venv venv
-source venv/bin/activate
+# Create virtual environment with uv
+uv venv .venv
+source .venv/bin/activate
 
 # Install dependencies
-pip install -r requirements.txt
+uv pip install -r requirements.txt
 ```
 
-### 2. Configure API Key
+### 2. Configure API Keys (Free)
 
-Create a `.env` file with your Polygon.io API key:
+Create a `.env` file with your free API keys:
 
 ```bash
 cp .env.example .env
-nano .env  # Add: POLYGON_API_KEY=your_polygon_api_key_here
+nano .env
+# Add: FINNHUB_API_KEY=your_key_here (free at finnhub.io)
+# Add: FRED_API_KEY=your_key_here (free at fred.stlouisfed.org)
 ```
 
-Get your API key:
-1. Sign up at [https://polygon.io/](https://polygon.io/)
-2. Subscribe to Stocks Starter plan ($50/month)
-3. Copy API key from dashboard
+Both keys are free - no paid subscriptions required. yfinance, NASDAQ Trader, SEC EDGAR, and pandas_market_calendars need no API keys at all.
 
 ### 3. Verify Installation
 
@@ -78,12 +79,15 @@ Creates `data/tradescout.db` with all required tables.
 ./tradescout database bootstrap-all
 ```
 
-**This populates** (takes 10-30 minutes):
-1. Providers (1 record) - Polygon.io configuration
-2. Markets (~10 records) - US stock exchanges
-3. Assets (~10,000 records) - All active stocks
-4. Fundamentals (~10,000 records) - Market cap, sector, etc.
-5. Universes (1 record) - Default trading universe
+**This populates** (takes ~2 minutes without fundamentals, ~15 minutes with):
+1. Providers (6 records) — nasdaq_trader, yfinance, finnhub, fred, pandas_market_calendars, edgar
+2. Markets (2 records) — NYSE and NASDAQ
+3. Tickers (~12,000 records) — All active US-listed securities from NASDAQ Trader
+4. Fundamentals (~6,900 records) — SEC EDGAR bulk data (prompted — optional but recommended)
+5. Universes (4 records) — default, tech, large_cap, small_cap
+6. Sentiment Types (4 records)
+
+**Note**: Fundamentals bootstrap fetches company data (sector, SIC code, market cap, shares outstanding) from SEC EDGAR in bulk. It's optional but required for tech/large_cap/small_cap universes to have members.
 
 **Alternative** - Bootstrap individually:
 
@@ -139,7 +143,7 @@ NVDA    NVIDIA Corporation  $523.45    $511.11     +2.41%     1.2M
 AAPL    Apple Inc.          $178.92    $175.47     +1.97%     850K
 ...
 
-📊 Showing 50 results from 7,513 symbols
+📊 Showing 50 results from 11,758 symbols
 ```
 
 Screeners are **context-aware**: They automatically adjust calculations based on current session (premarket/regular/after-hours).
@@ -384,11 +388,11 @@ TradeScout warns when data is stale:
 
 ## Troubleshooting
 
-### "POLYGON_API_KEY not found"
+### "FINNHUB_API_KEY not found" or "FRED_API_KEY not found"
 
 ```bash
 cp .env.example .env
-nano .env  # Add: POLYGON_API_KEY=your_key_here
+nano .env  # Add your free API keys
 ```
 
 ### "Database not found"
@@ -426,10 +430,9 @@ The `gap analyze` command only runs during extended hours sessions when gaps can
 - `docs/GAP_TRADING_STRATEGY_RULES.md` - Detailed trading rules
 - `docs/GAP_IMPLEMENTATION_COVERAGE.md` - Implementation status
 
-**Data Sources:**
-- `docs/POLYGON.md` - Polygon.io API overview
-- `docs/POLYGON_IMPLEMENTATION.md` - Implementation details
-- `docs/POLYGON_VOLUME_INFO.md` - Volume field reference
+**Data Sources (Legacy Reference):**
+- `docs/POLYGON.md` - Polygon.io API reference (legacy/fallback provider)
+- `docs/POLYGON_VOLUME_INFO.md` - Volume field reference (legacy)
 
 **Other Features:**
 - `docs/SENTIMENT.md` - News sentiment analysis

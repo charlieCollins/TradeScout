@@ -148,9 +148,9 @@ def bootstrap_providers(app_context):
 
     if count > 0:
         console.print("[green]✅ Provider initialization completed[/green]")
-        console.print(f"  Providers stored: {count}")
+        console.print(f"  Providers created: {count}")
     else:
-        console.print("[yellow]ℹ️  Provider already exists - skipping[/yellow]")
+        console.print("[yellow]ℹ️  All providers already exist - skipping[/yellow]")
 
     # Show active provider
     active_provider = data_service.get_active_provider()
@@ -225,10 +225,10 @@ def bootstrap_markets(app_context):
 @click.option('--force', '-f', is_flag=True, help='Force refresh even if data is fresh')
 @pass_config
 def bootstrap_tickers(app_context, limit, force):
-    """Initialize/update ticker data from Polygon API."""
+    """Initialize/update ticker data from NASDAQ Trader."""
     from output.cli_progress_reporter import CLIProgressReporter
 
-    console.print("[blue]Initializing tickers from Polygon...[/blue]")
+    console.print("[blue]Initializing tickers from NASDAQ Trader...[/blue]")
 
     if limit:
         console.print(f"[yellow]Note: --limit not supported by bootstrap_tickers, will fetch all tickers[/yellow]")
@@ -348,7 +348,7 @@ def bootstrap_universes(app_context, force):
 @click.option('--limit', type=int, help='Limit number of symbols to process (for testing)')
 @pass_config
 def bootstrap_fundamentals(app_context, symbol, force, limit):
-    """Bootstrap fundamentals data from Polygon API ticker overview."""
+    """Bootstrap fundamentals data from provider API."""
     from output.cli_progress_reporter import CLIProgressReporter
 
     if symbol:
@@ -470,7 +470,7 @@ def bootstrap_all(app_context, force):
         # Continue anyway as markets might be created by ticker bootstrap
 
     # 4. Tickers
-    console.print("\n[bold]Step 4: Tickers from Polygon[/bold]")
+    console.print("\n[bold]Step 4: Tickers from NASDAQ Trader[/bold]")
     try:
         result = bootstrap_service.bootstrap_assets(market="stocks", active=True)
         console.print(
@@ -481,8 +481,26 @@ def bootstrap_all(app_context, force):
         console.print(f"[red]Ticker bootstrap failed: {e}[/red]")
         sys.exit(1)
 
-    # 5. Universes (all from config)
-    console.print("\n[bold]Step 5: Asset Universes[/bold]")
+    # 5. Fundamentals (SEC EDGAR bulk + batched yfinance prices, ~13 min)
+    console.print("\n[bold]Step 5: Fundamentals[/bold]")
+    if not click.confirm("Also bootstrap fundamentals? (SEC EDGAR bulk data, ~13 minutes)"):
+        console.print("[yellow]⏭️  Skipped. Run 'database bootstrap-fundamentals' later to populate sector/market_cap data.[/yellow]")
+    else:
+        console.print("[blue]Fetching fundamentals...[/blue]")
+        try:
+            from output.cli_progress_reporter import CLIProgressReporter
+            progress_reporter = CLIProgressReporter(console=console)
+            result = bootstrap_service.bootstrap_fundamentals(progress=progress_reporter)
+            console.print(
+                f"[green]✅ Fundamentals: {result.successful:,} stored "
+                f"({result.new_items:,} new, {result.updated_items:,} updated)[/green]"
+            )
+        except Exception as e:
+            console.print(f"[red]❌ Fundamentals bootstrap failed: {e}[/red]")
+            console.print("[yellow]You can retry with 'database bootstrap-fundamentals' later.[/yellow]")
+
+    # 6. Universes (all from config)
+    console.print("\n[bold]Step 6: Asset Universes[/bold]")
     try:
         from utils.config_loader import get_config_loader
 
@@ -494,7 +512,7 @@ def bootstrap_all(app_context, force):
             stats = bootstrap_service.bootstrap_universes(universe_name=universe_name, force_refresh=force)
             members = stats.get('filtered_assets', 0)
             if members == 0:
-                console.print(f"[yellow]⚠️  {universe_name}: {members:,} members - Universe is empty! This may indicate missing fundamentals data.[/yellow]")
+                console.print(f"[yellow]⚠️  {universe_name}: {members:,} members[/yellow]")
             else:
                 console.print(f"[green]✅ {universe_name}: {members:,} members[/green]")
 
@@ -505,8 +523,8 @@ def bootstrap_all(app_context, force):
         console.print(f"[red]Universe bootstrap failed: {e}[/red]")
         sys.exit(1)
 
-    # 6. Sentiment Types
-    console.print("\n[bold]Step 6: Sentiment Types[/bold]")
+    # 7. Sentiment Types
+    console.print("\n[bold]Step 7: Sentiment Types[/bold]")
     try:
         count = bootstrap_service.bootstrap_sentiment_types()
         if count > 0:

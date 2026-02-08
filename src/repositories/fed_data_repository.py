@@ -25,7 +25,7 @@ class FedDataRepository:
 
     Does NOT:
     - Handle caching (that's CacheService)
-    - Make API calls (that's PolygonFedProvider)
+    - Make API calls (that's the economic data provider)
     - Manage TTL (that's CacheService)
     """
 

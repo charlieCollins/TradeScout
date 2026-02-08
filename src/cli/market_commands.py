@@ -136,7 +136,10 @@ def update(app_context, date, force):
             ) as progress:
                 update_task = progress.add_task("Processing market data...", total=None)
 
-                stats = data_service.update_market_snapshot(force_refresh=force)
+                stats = data_service.update_market_snapshot(
+                    force_refresh=force,
+                    market_context=app_context.market_context
+                )
 
                 progress.update(update_task, completed=True)
 

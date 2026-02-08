@@ -50,7 +50,7 @@ class TickerSnapshot:
     # Minute bar data (includes premarket/afterhours)
     min_bar: Optional[MinuteBar]
 
-    # Polygon's internal update timestamp (nanoseconds)
+    # Provider's internal update timestamp (nanoseconds)
     updated_ns: Optional[int]
 
     # Market status

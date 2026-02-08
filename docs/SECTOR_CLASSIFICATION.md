@@ -9,7 +9,7 @@ TradeScout uses SIC (Standard Industrial Classification) codes to classify compa
 ### Classification System: SIC Codes
 
 We use **SIC codes** (not GICS or NAICS) because:
-- Available in Polygon API ticker overview endpoint
+- Available in yfinance ticker details
 - Official U.S. government classification system established in 1937
 - Simple hierarchical structure enables quick implementation
 - Gets universe sector filtering operational immediately
@@ -56,9 +56,9 @@ Our current sector classifications:
 
 ## Data Source
 
-**Polygon API Integration:**
-- Endpoint: `/v3/reference/tickers/{symbol}` (ticker overview)
-- Fields used: `sic_code`, `sic_description`, `market_cap`, `name`
+**yfinance Integration:**
+- Source: yfinance ticker details (via `YFinanceReferenceAdapter`)
+- Fields used: `sic_code`, `sector`, `industry`, `market_cap`, `name`
 - Bootstrap command: `./tradescout database bootstrap-fundamentals`
 
 ## Limitations & Known Issues
@@ -68,7 +68,7 @@ Our current sector classifications:
 1. **Granularity**: SIC major groups are broader than modern GICS sectors
 2. **Age**: SIC system last updated in 1987, doesn't reflect modern tech/services
 3. **Manual Mapping**: Our 2-digit mapping may miss industry nuances
-4. **Missing Data**: Some companies may lack SIC codes in Polygon data
+4. **Missing Data**: Some companies may lack SIC codes in yfinance data
 
 ### Specific Classification Issues
 
@@ -138,7 +138,7 @@ Our current sector classifications:
 
 - [SEC SIC Code List](https://www.sec.gov/search-filings/standard-industrial-classification-sic-code-list)
 - [OSHA SIC Manual](https://www.osha.gov/data/sic-manual)
-- [Polygon Ticker Overview API](https://polygon.io/docs/rest/stocks/tickers/ticker-overview)
+- [yfinance Documentation](https://github.com/ranaroussi/yfinance)
 
 ---
 

@@ -1,11 +1,11 @@
 # TradeScout Bootstrapping Guide
 
-**Last Updated**: 2025-10-18
+**Last Updated**: 2026-02-08
 **Architecture Version**: Repository + BootstrapService + SQLModel
 
 ## Overview
 
-Bootstrapping populates TradeScout's database with reference data from external sources (primarily Polygon.io). This guide covers the bootstrap sequence, dependencies, and current implementation.
+Bootstrapping populates TradeScout's database with reference data from free external sources (NASDAQ Trader, SEC EDGAR, yfinance, pandas_market_calendars). This guide covers the bootstrap sequence, dependencies, and current implementation.
 
 ## Bootstrap Dependency Chain
 
@@ -33,19 +33,25 @@ The bootstrap process follows this strict dependency order:
 
 ### 1. Providers Bootstrap
 
-**Purpose**: Initialize data provider configuration (Polygon.io)
+**Purpose**: Initialize data provider configuration
 
 **Command**: `./tradescout database bootstrap-providers`
 
 **What It Does**:
-- Creates Polygon.io provider record in `providers` table
-- Sets provider as active
+- Creates provider records for all 6 active providers:
+  - **nasdaq_trader** — Bulk ticker listing (no API key)
+  - **yfinance** — Market snapshots, aggregates, reference data (no API key)
+  - **finnhub** — News and sentiment (free API key)
+  - **fred** — Federal Reserve economic data (free API key)
+  - **pandas_market_calendars** — Market status and holidays (local, no API)
+  - **edgar** — SEC EDGAR bulk fundamentals (no API key)
+- Sets all providers as active
 - Records metadata timestamp
 
 **Dependencies**: None
 
 **Database Tables Updated**:
-- `providers`: Polygon configuration
+- `providers`: All 6 provider configurations
 - `data_update_metadata`: Operation timestamp
 
 ---
@@ -57,15 +63,14 @@ The bootstrap process follows this strict dependency order:
 **Command**: `./tradescout database bootstrap-markets`
 
 **What It Does**:
-- Fetches exchanges from Polygon `/v3/reference/exchanges` API
-- Filters by asset_class="stocks" and locale="us"
+- Creates hardcoded US exchange records (XNYS/NYSE, XNAS/NASDAQ)
 - Stores to `markets` table with trading hours and metadata
 - Records timestamp
 
-**Dependencies**: None (API-driven)
+**Dependencies**: None
 
 **Database Tables Updated**:
-- `markets`: Exchange records (XNYS, XNAS, ARCX, BATS, etc.)
+- `markets`: Exchange records (XNYS, XNAS)
 - `data_update_metadata`: Operation timestamp
 
 **TTL**: 1 year (markets rarely change)
@@ -79,10 +84,10 @@ The bootstrap process follows this strict dependency order:
 **Command**: `./tradescout database bootstrap-tickers`
 
 **What It Does**:
-- Fetches ALL tickers from Polygon `/v3/reference/tickers` API (paginated)
-- Maps ticker data to Asset model
-- Looks up market_id from primary_exchange → `markets` table
-- Stores to `assets` table (~15,000 active stocks)
+- Downloads NASDAQ Trader bulk ticker file (nasdaqtraded.txt, ~12,000 securities)
+- Parses pipe-delimited data, maps exchange codes to MIC codes (Q/G/S→XNAS, N/A/P/Z→XNYS)
+- Maps ETF flag to asset type (stock/etf)
+- Stores to `assets` table (~12,000 active stocks/ETFs)
 - Records timestamp
 
 **Dependencies**:
@@ -104,22 +109,26 @@ The bootstrap process follows this strict dependency order:
 **Command**: `./tradescout database bootstrap-fundamentals`
 
 **What It Does**:
-- Iterates through all assets in `assets` table
-- For each asset, calls `/v3/reference/tickers/{symbol}` API
-- Extracts: market_cap, sector, industry, shares_outstanding, beta, pe_ratio, etc.
-- Stores to `fundamentals` table
-- Records timestamp
+- Downloads bulk data from SEC EDGAR (free government data, no API key):
+  1. **Ticker→CIK mapping** — Maps ~10K tickers to SEC CIK numbers (1 bulk download)
+  2. **SIC codes** — Fetches SIC code + description per company from SEC submissions (parallel, 10 req/sec rate limit)
+  3. **Shares outstanding** — Downloads from XBRL Frames API (1 bulk download per quarter, ~5K records)
+  4. **Market cap** — Calculated as shares_outstanding × last_price (prices via yfinance bulk download in batches of 500)
+- Stores to `asset_fundamentals` table with: company_name, sector (from SIC mapping), industry, sic_code, market_cap, shares_outstanding
+- Skips assets with fresh data (< 30 days old)
 
 **Dependencies**:
 - **Tickers**: Need asset_id for each ticker to fetch fundamentals
 
 **Database Tables Updated**:
-- `fundamentals`: Company data linked to asset_id
+- `asset_fundamentals`: Company data linked to asset_id
 - `data_update_metadata`: FUNDAMENTALS operation timestamp
 
-**TTL**: 1 week (fundamentals change infrequently)
+**TTL**: 30 days (fundamentals change infrequently)
 
-**Performance Note**: Makes thousands of API calls (one per asset). Can take 30-60 minutes for full bootstrap.
+**Coverage**: ~6,900 of ~11,700 tickers (59%). ETFs, foreign listings, warrants, and units have no SEC CIK match and are skipped.
+
+**Performance**: ~13 minutes for full bootstrap (bulk downloads + parallel SIC fetch at 10 req/sec + batched price downloads).
 
 ---
 
@@ -158,7 +167,7 @@ The bootstrap process follows this strict dependency order:
   - Volume thresholds
 - Excludes unwanted assets (preferred stocks, warrants, special characters)
 - Creates/updates `universes` table record
-- Populates `universe_memberships` table (~7,500 assets in default universe)
+- Populates `universe_memberships` table (~11,700 assets in default universe)
 - Records timestamp
 
 **Dependencies**:
@@ -194,9 +203,9 @@ Bootstrap is an **orchestration operation** requiring coordination between compo
 
 ```python
 def bootstrap_X(self, ...):
-    """Bootstrap X from Polygon API."""
+    """Bootstrap X from external data source."""
     # Step 1: Fetch from API provider
-    data = self.polygon_X_provider.fetch_all_X(...)
+    data = self.X_provider.fetch_all_X(...)
 
     # Step 2: Store via repository
     for item in data:
@@ -240,10 +249,10 @@ Each bootstrap operation records a timestamp in `data_update_metadata` table. Fu
 # Fetch market/exchange data
 ./tradescout database bootstrap-markets
 
-# Fetch all tickers (~15,000 stocks)
+# Fetch all tickers (~12,000 stocks/ETFs via NASDAQ Trader)
 ./tradescout database bootstrap-tickers
 
-# Fetch fundamentals for all assets (30-60 minutes)
+# Fetch fundamentals via SEC EDGAR bulk (~13 minutes)
 ./tradescout database bootstrap-fundamentals
 
 # Initialize sentiment types
@@ -261,14 +270,15 @@ Each bootstrap operation records a timestamp in `data_update_metadata` table. Fu
 ```
 
 This command automatically:
-1. Bootstraps providers
-2. Bootstraps markets
-3. Bootstraps tickers
-4. Bootstraps fundamentals
-5. Bootstraps sentiment types
-6. Bootstraps universes
+1. Schema initialization
+2. Providers (6 providers)
+3. Markets (NYSE, NASDAQ)
+4. Tickers (~12K from NASDAQ Trader)
+5. Fundamentals (SEC EDGAR bulk — prompts for confirmation)
+6. Universes (default, tech, large_cap, small_cap)
+7. Sentiment Types
 
-**Initial Setup Time**: 30-60 minutes (fundamentals takes longest)
+**Initial Setup Time**: ~15 minutes with fundamentals, ~2 minutes without
 
 ---
 
@@ -285,12 +295,12 @@ This command automatically:
 ./tradescout database info
 
 # Expected output:
-# Providers: 1
-# Markets: ~10
-# Assets: ~15,000
-# Fundamentals: ~15,000
-# Universes: ~5
-# Universe Memberships: ~7,500 (default_universe)
+# Providers: 6 (nasdaq_trader, yfinance, finnhub, fred, pandas_market_calendars, edgar)
+# Markets: 2 (XNYS, XNAS)
+# Assets: ~12,000
+# Fundamentals: ~6,900 (after bootstrap-fundamentals via SEC EDGAR)
+# Universes: 4 (default_universe, tech, large_cap, small_cap)
+# Universe Memberships: ~11,700 (default_universe)
 ```
 
 ---
@@ -363,7 +373,7 @@ Ensure prerequisites are met:
 
 ### "API rate limit exceeded"
 
-Polygon has rate limits. If bootstrap fails:
+If bootstrap fails due to rate limits:
 1. Wait a few minutes
 2. Re-run the command (will resume from where it left off via TTL)
 3. Consider splitting fundamentals bootstrap into batches
@@ -372,10 +382,10 @@ Polygon has rate limits. If bootstrap fails:
 
 ## Performance Tips
 
-1. **First Bootstrap**: Expect 30-60 minutes for full bootstrap
-2. **Fundamentals**: Longest operation (~15,000 API calls)
-3. **Subsequent Updates**: Much faster due to TTL checks
-4. **API Key**: Premium subscription required for extended hours data
+1. **First Bootstrap**: ~15 minutes with fundamentals, ~2 minutes without
+2. **Fundamentals**: Longest operation (~13 min via SEC EDGAR bulk + batched yfinance prices)
+3. **Subsequent Updates**: Much faster due to TTL checks (30-day freshness for fundamentals)
+4. **API Keys**: Only Finnhub (news) and FRED (economic data) require free API keys. SEC EDGAR and yfinance need no keys.
 
 ---
 

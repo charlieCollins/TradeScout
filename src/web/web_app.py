@@ -51,7 +51,7 @@ app = FastAPI(
     - Repository + DAO + Cache-Aside pattern
     - SQLModel for type-safe database operations
     - Automatic caching with TTL management
-    - On-demand fetching from Polygon API
+    - On-demand fetching from data providers (yfinance, Finnhub, FRED)
 
     **Documentation:**
     - Interactive docs: `/docs` (Swagger UI)
@@ -100,38 +100,15 @@ def get_session():
         yield session
 
 
-def get_polygon_api_key() -> str:
-    """Dependency: Get Polygon API key from environment.
-
-    Raises:
-        HTTPException: If API key not configured
-    """
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="POLYGON_API_KEY not configured in environment"
-        )
-    return api_key
-
-
 def get_data_service(
     session: Session = Depends(get_session),
-    polygon_api_key: str = Depends(get_polygon_api_key)
 ) -> DataServiceV2:
     """Dependency: Provide DataServiceV2 with all layers wired.
 
-    This demonstrates dependency injection in action:
-    - Session injected (database connection)
-    - API key injected (from environment)
-    - Returns fully configured DataServiceV2
-
-    The service has:
-    - Repository (business queries)
-    - CacheService (cache-aside pattern)
-    - APIProvider (Polygon API)
+    Session is injected via dependency injection.
+    Provider configuration is resolved from configs/providers.yaml.
     """
-    return DataServiceV2(session, polygon_api_key, db_path=DB_PATH)
+    return DataServiceV2(session, db_path=DB_PATH)
 
 
 def get_app_context() -> AppContext:
@@ -243,7 +220,7 @@ async def health_check(app_context: AppContext = Depends(get_app_context)):
 
     **Flow:**
     1. Check local database first (cache)
-    2. If missing or stale (3-day TTL) → fetch from Polygon API
+    2. If missing or stale (3-day TTL) → fetch from provider API
     3. Update local database
     4. Return asset
 
@@ -590,7 +567,7 @@ async def get_fundamentals(
     response_model=List[ProviderSQLModel],
     summary="Get all active providers",
     description="""
-    Get list of all active data providers (Polygon, YFinance, etc.).
+    Get list of all active data providers (NASDAQ Trader, YFinance, Finnhub, FRED, etc.).
 
     **Example:**
     ```
@@ -624,12 +601,11 @@ async def get_all_providers(
     Get specific provider details by provider name.
 
     **Parameters:**
-    - `name`: Provider name (e.g., polygon, yfinance)
+    - `name`: Provider name (e.g., nasdaq_trader)
 
     **Example:**
     ```
-    GET /api/providers/polygon
-    GET /api/providers/yfinance
+    GET /api/providers/nasdaq_trader
     ```
     """
 )
@@ -1325,13 +1301,18 @@ async def startup_event():
     else:
         logger.info(f"✓ Database found: {DB_PATH}")
 
-    # Check API key configured
-    api_key = os.getenv("POLYGON_API_KEY")
-    if not api_key or len(api_key) < 10:
-        logger.error("❌ POLYGON_API_KEY not configured")
-        logger.error("   Set environment variable: export POLYGON_API_KEY='your_key'")
+    # Check API keys configured
+    finnhub_key = os.getenv("FINNHUB_API_KEY")
+    if finnhub_key:
+        logger.info("✓ Finnhub API key configured (news)")
     else:
-        logger.info(f"✓ Polygon API key configured ({api_key[:4]}...{api_key[-4:]})")
+        logger.warning("⚠️ FINNHUB_API_KEY not configured (news features unavailable)")
+
+    fred_key = os.getenv("FRED_API_KEY")
+    if fred_key:
+        logger.info("✓ FRED API key configured (economic data)")
+    else:
+        logger.warning("⚠️ FRED_API_KEY not configured (economic features unavailable)")
 
     logger.info("✅ TradeScout Web Interface ready")
     logger.info(f"🌐 Web Interface: http://localhost:8000")

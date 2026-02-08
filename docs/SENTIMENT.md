@@ -40,7 +40,7 @@
 - ✓ `sentiment_types` table with predefined categories
 - ✓ `sentiment_events` table for storing detected events
 - ✓ Bootstrap command: `./tradescout database bootstrap-sentiment-types`
-- ✓ News sentiment detection via Polygon news API
+- ✓ News sentiment detection via Finnhub news API
 - ✓ Asset news display: `./tradescout asset info <symbol>` shows recent news with sentiment
 - ✓ Repository pattern: `SentimentEventRepository`, `SentimentTypeRepository`
 
@@ -52,9 +52,9 @@
 # Output includes:
 # Recent News (3):
 # 1. [POSITIVE] Apple Announces New Product Line
-#    Score: 0.85 | 2 hours ago | polygon.io
+#    Score: 0.85 | 2 hours ago | finnhub
 # 2. [NEUTRAL] Apple Files Quarterly Report
-#    Score: 0.50 | 1 day ago | polygon.io
+#    Score: 0.50 | 1 day ago | finnhub
 ```
 
 ### ⏳ Planned Features (Future Phases)
@@ -147,7 +147,7 @@ CREATE TABLE sentiment_types (
     name TEXT NOT NULL UNIQUE,           -- 'news_positive', 'analyst_upgrade'
     description TEXT,
     category TEXT,                        -- 'news', 'analyst', 'earnings', 'regulatory', 'social'
-    parameters TEXT,                      -- JSON: {"min_confidence": 0.7, "sources": ["polygon", "finnhub"]}
+    parameters TEXT,                      -- JSON: {"min_confidence": 0.7, "sources": ["finnhub"]}
     is_active BOOLEAN DEFAULT TRUE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -267,13 +267,13 @@ class SentimentEvent:
 
 **Pattern**: API providers fetch external data
 
-#### PolygonNewsProvider
-**File**: `src/api/provider/polygon_news_provider.py`
-**API Endpoint**: `/v2/reference/news`
+#### FinnhubNewsAdapter
+**File**: `src/api/providers/adapters/finnhub_news_adapter.py`
+**Implements**: `NewsProvider` protocol
 **Responsibilities**:
-- Fetch news articles with sentiment analysis
-- Parse Polygon news API responses
-- Handle pagination, rate limiting
+- Fetch news articles with sentiment analysis from Finnhub
+- Parse Finnhub news API responses
+- Handle rate limiting (60 req/min free tier)
 
 **Methods**:
 - `fetch_news_for_symbol(symbol, published_after, published_before, limit) -> List[Dict]`
@@ -282,16 +282,12 @@ class SentimentEvent:
 **API Response Example**:
 ```json
 {
-  "title": "Apple Announces New Product",
-  "published_utc": "2025-01-15T14:30:00Z",
-  "tickers": ["AAPL"],
-  "insights": [
-    {
-      "ticker": "AAPL",
-      "sentiment": "positive",
-      "sentiment_reasoning": "Product launch announcement typically drives positive sentiment"
-    }
-  ]
+  "headline": "Apple Announces New Product",
+  "datetime": 1705312200,
+  "source": "CNBC",
+  "url": "https://...",
+  "summary": "...",
+  "related": "AAPL"
 }
 ```
 
@@ -307,7 +303,7 @@ The detection service is an orchestration layer that combines multiple component
 
 **Workflow**:
 ```
-1. Fetch news from PolygonNewsProvider (API calls)
+1. Fetch news from FinnhubNewsAdapter (API calls)
    ↓
 2. Parse sentiment from API responses (business logic)
    ↓
@@ -366,9 +362,9 @@ def get_sentiment_events(
 2. SentimentDetectionService.detect_news_sentiment("AAPL", 7)
    ├─ Get asset_id from symbol via AssetManager
    ├─ Get sentiment_type_id for "news_positive" via SentimentTypesManager
-   └─ Call PolygonNewsProvider.fetch_news_for_symbol("AAPL", ...)
+   └─ Call FinnhubNewsAdapter.fetch_news_for_symbol("AAPL", ...)
 
-3. PolygonNewsProvider fetches from Polygon API
+3. FinnhubNewsAdapter fetches from Finnhub API
    └─ Returns List[Dict] of news articles with sentiment
 
 4. SentimentDetectionService processes articles
@@ -440,7 +436,7 @@ SENTIMENT_TYPES = [
 ```json
 {
   "min_confidence": 0.7,
-  "sources": ["polygon", "finnhub"],
+  "sources": ["finnhub"],
   "magnitude_thresholds": {
     "small": [0.0, 0.5],
     "medium": [0.5, 0.8],
@@ -479,7 +475,7 @@ def classify_news_magnitude(sentiment_score: float, source: str) -> str:
 
     Args:
         sentiment_score: 0.0 to 1.0 (confidence in sentiment)
-        source: 'polygon', 'finnhub', etc.
+        source: 'finnhub', etc.
     """
     # Source reliability multiplier
     reliability = SOURCE_WEIGHTS.get(source, 0.5)
@@ -501,7 +497,7 @@ def classify_news_magnitude(sentiment_score: float, source: str) -> str:
 
 ### Phase 2: Analyst Ratings
 
-**Data Source**: Finnhub, Polygon (if available)
+**Data Source**: Finnhub
 **New Types**: `analyst_upgrade`, `analyst_downgrade`, `price_target_increase`, `price_target_decrease`
 
 **Use Case**:
@@ -511,7 +507,7 @@ def classify_news_magnitude(sentiment_score: float, source: str) -> str:
 
 ### Phase 3: Earnings Events
 
-**Data Source**: Polygon earnings API, Finnhub
+**Data Source**: Finnhub
 **New Types**: `earnings_beat`, `earnings_miss`, `guidance_raised`, `guidance_lowered`
 
 **Use Case**:
@@ -576,7 +572,7 @@ tradescout gaps analyze --date 2025-01-15 --with-sentiment
 - `tests/test_sentiment_events_manager.py` (20+ tests)
 
 **Provider Tests**:
-- `tests/test_polygon_news_provider.py` (10+ tests, mocked API)
+- `tests/test_finnhub_news_adapter.py` (10+ tests, mocked API)
 
 **Detection Service Tests**:
 - `tests/test_sentiment_detection_service.py` (15+ tests)

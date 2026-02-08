@@ -76,7 +76,7 @@ class GapCandidateSQLModel(SQLModel, table=True):
     catalyst_description: Optional[str] = None
 
     # Metadata
-    min_timestamp: Optional[int] = None  # Original Polygon min.t
+    min_timestamp: Optional[int] = None  # Last minute bar timestamp
     data_freshness_hours: Optional[float] = None
     created_at: Optional[datetime] = None
     academic_gap_type: Optional[str] = None

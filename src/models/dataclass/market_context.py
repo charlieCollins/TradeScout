@@ -99,7 +99,7 @@ class MarketContext:
         - During closed on non-trading day (weekend/holiday): previous trading date
 
         This provides the definitive answer for "what date should the data be?"
-        based on Polygon's trading calendar and market sessions.
+        based on the trading calendar and market session rules.
 
         Returns:
             Date that market data is expected to be from

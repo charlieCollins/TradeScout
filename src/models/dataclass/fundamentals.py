@@ -104,3 +104,30 @@ class AssetFundamentals:
             provider_id=provider_id,
             last_updated=datetime.now()
         )
+
+    @classmethod
+    def from_edgar_data(cls, asset_id: int, provider_id: int, edgar_data: dict) -> 'AssetFundamentals':
+        """Create AssetFundamentals from SEC EDGAR bulk data.
+
+        Args:
+            asset_id: Database asset ID
+            provider_id: Database provider ID for EDGAR
+            edgar_data: Dict with keys: name, sic_code, sic_description,
+                       market_cap, shares_outstanding
+        """
+        from utils.config_loader import get_sector_from_sic
+
+        sic_code = edgar_data.get("sic_code", "")
+        sector = get_sector_from_sic(sic_code) if sic_code else None
+
+        return cls(
+            asset_id=asset_id,
+            company_name=edgar_data.get("name"),
+            sector=sector,
+            industry=edgar_data.get("sic_description"),
+            sic_code=sic_code or None,
+            market_cap=edgar_data.get("market_cap"),
+            shares_outstanding=edgar_data.get("shares_outstanding"),
+            provider_id=provider_id,
+            last_updated=datetime.now()
+        )

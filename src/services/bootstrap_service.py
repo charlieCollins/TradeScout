@@ -1,7 +1,7 @@
 """Bootstrap Service - Handles all database initialization and seeding operations.
 
 This service is responsible for bootstrapping/seeding the database with initial data:
-- Providers (Polygon, etc.)
+- Providers (NASDAQ Trader, etc.)
 - Markets/Exchanges
 - Assets/Tickers
 - Fundamentals
@@ -129,47 +129,86 @@ class BootstrapService:
         return created_count
 
     def bootstrap_providers(self) -> int:
-        """Bootstrap data providers into database using new architecture.
+        """Bootstrap all active data providers into database.
 
-        Currently stores the hardcoded Polygon provider to the database.
-        In the future, this could be expanded to support multiple providers
-        (YFinance, Alpha Vantage, Finnhub, etc.).
+        Registers each provider used by the system so the providers table
+        reflects the actual runtime configuration.
 
         Returns:
             Number of providers stored successfully
         """
-        logger.info("Bootstrapping providers")
-
-        # Check if Polygon provider already exists
-        existing = self.provider_repository.get_by_name("polygon")
-        if existing:
-            logger.info("Provider 'polygon' already exists - skipping")
-            return 0
-
-        # Create Polygon provider
         from datetime import datetime
 
-        provider_sql = ProviderSQLModel(
-            id=1,
-            name="polygon",
-            display_name="Polygon.io",
-            base_url="https://api.polygon.io",
-            api_key_required=True,
-            is_active=True,
-            created_at=datetime.now()
-        )
+        logger.info("Bootstrapping providers")
 
-        # Save to database using repository
-        self.provider_repository.save(provider_sql)
+        providers = [
+            ProviderSQLModel(
+                name="nasdaq_trader",
+                display_name="NASDAQ Trader",
+                base_url="https://www.nasdaqtrader.com",
+                api_key_required=False,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+            ProviderSQLModel(
+                name="yfinance",
+                display_name="Yahoo Finance",
+                base_url="https://finance.yahoo.com",
+                api_key_required=False,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+            ProviderSQLModel(
+                name="finnhub",
+                display_name="Finnhub",
+                base_url="https://finnhub.io",
+                api_key_required=True,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+            ProviderSQLModel(
+                name="fred",
+                display_name="Federal Reserve (FRED)",
+                base_url="https://api.stlouisfed.org",
+                api_key_required=True,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+            ProviderSQLModel(
+                name="pandas_market_calendars",
+                display_name="Pandas Market Calendars",
+                base_url=None,
+                api_key_required=False,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+            ProviderSQLModel(
+                name="edgar",
+                display_name="SEC EDGAR",
+                base_url="https://data.sec.gov",
+                api_key_required=False,
+                is_active=True,
+                created_at=datetime.now(),
+            ),
+        ]
 
-        logger.info("Bootstrapped 1 provider (Polygon)")
-        return 1
+        created_count = 0
+        for provider in providers:
+            existing = self.provider_repository.get_by_name(provider.name)
+            if existing:
+                logger.debug(f"Provider '{provider.name}' already exists - skipping")
+                continue
+            self.provider_repository.save(provider)
+            created_count += 1
+            logger.debug(f"Created provider: {provider.name}")
+
+        logger.info(f"Bootstrapped {created_count} providers")
+        return created_count
 
     def bootstrap_markets(self, asset_class: str = "stocks", locale: str = "us") -> int:
-        """Bootstrap markets/exchanges from Polygon API using new architecture.
+        """Bootstrap markets/exchanges into database.
 
-        Fetches all exchanges from Polygon /v3/reference/exchanges endpoint
-        and stores them to the markets table.
+        Fetches exchange data from the reference provider and stores to the markets table.
 
         Args:
             asset_class: Asset class to filter (default: "stocks")
@@ -182,7 +221,7 @@ class BootstrapService:
             RuntimeError: If prerequisites (providers) are not met
         """
         logger.info(
-            f"Bootstrapping markets from Polygon (asset_class={asset_class}, locale={locale})"
+            f"Bootstrapping markets (asset_class={asset_class}, locale={locale})"
         )
 
         # Check prerequisites
@@ -192,13 +231,13 @@ class BootstrapService:
                 "Cannot bootstrap markets: No providers in database. Run 'bootstrap-providers' first."
             )
 
-        # Fetch all markets from Polygon API
+        # Fetch all markets from reference provider
         markets = self.reference_provider.fetch_all_exchanges(
             asset_class=asset_class, locale=locale
         )
 
         if not markets:
-            logger.warning("No markets fetched from Polygon")
+            logger.warning("No markets fetched from reference provider")
             return 0
 
         # Convert Market dataclass → MarketSQLModel with extended hours
@@ -271,10 +310,10 @@ class BootstrapService:
         active: bool = True,
         progress=None
     ):
-        """Bootstrap all tickers from Polygon tickers API using new architecture.
+        """Bootstrap all tickers from reference provider.
 
-        Fetches all tickers from Polygon and stores them as assets in database.
-        This is a bulk operation that should be run periodically (every 3 days per TTL).
+        Fetches all tickers and stores them as assets in database.
+        This is a bulk operation that should be run periodically.
 
         Args:
             market: Market type (default: "stocks")
@@ -293,7 +332,7 @@ class BootstrapService:
 
         start_time = time.time()
         logger.info(
-            f"Bootstrapping tickers from Polygon (market={market}, active={active})"
+            f"Bootstrapping tickers (market={market}, active={active})"
         )
 
         # Check prerequisites
@@ -309,11 +348,12 @@ class BootstrapService:
                 "Cannot bootstrap tickers: No markets in database. Run 'bootstrap-markets' first."
             )
 
-        # Get Polygon provider ID
-        polygon_provider = self.provider_repository.get_by_name("polygon")
-        if not polygon_provider:
+        # Get provider ID for asset FK
+        provider = self.provider_repository.get_by_name("nasdaq_trader")
+        if not provider:
             raise RuntimeError(
-                "Cannot bootstrap tickers: Polygon provider not found in database."
+                "Cannot bootstrap tickers: nasdaq_trader provider not found in database. "
+                "Run 'bootstrap-providers' first."
             )
 
         # Get all existing symbols before bulk save to calculate deprecations
@@ -322,7 +362,7 @@ class BootstrapService:
         # Create market_code to market_id mapping, including provider_id
         all_markets = self.market_repository.get_all(active_only=False)
         market_code_to_id = {m.code: m.id for m in all_markets}
-        market_code_to_id["__provider_id__"] = polygon_provider.id  # Pass provider_id to parser
+        market_code_to_id["__provider_id__"] = provider.id
 
         # Fetch all tickers from API with market mapping (includes provider_id)
         assets = self.reference_provider.fetch_all_tickers(
@@ -361,7 +401,7 @@ class BootstrapService:
         # Bulk save using repository (returns inserted, updated, total)
         inserted_count, updated_count, total_processed = self.asset_repository.bulk_save(asset_sql_list)
 
-        # Calculate deprecated tickers (in DB but not in Polygon's response)
+        # Calculate deprecated tickers (in DB but not in latest response)
         deprecated_symbols = existing_symbols_before - incoming_symbols
         deprecated_count = len(deprecated_symbols)
 
@@ -395,18 +435,19 @@ class BootstrapService:
         )
 
     def bootstrap_fundamentals(self, limit: Optional[int] = None, force: bool = False, progress=None):
-        """Bootstrap fundamentals for all assets in active universe using cache-aware approach.
+        """Bootstrap fundamentals for all assets in active universe via SEC EDGAR bulk data.
 
-        This is a bulk operation that uses 3-tier checking:
-        1. Database check - If fundamentals exist and are fresh (< 30 days), skip
-        2. File cache check - If cache exists and is fresh, load from file
-        3. API fetch - Only fetch from API if needed (cache miss or stale)
+        Uses SEC EDGAR for bulk fundamentals:
+        1. company_tickers_exchange.json for ticker→CIK mapping (1 call)
+        2. XBRL Frames for shares outstanding (1 call)
+        3. submissions/CIK{cik}.json for SIC codes (~10K calls at 10/sec)
+        4. yfinance bulk download for last prices → market cap calculation
 
-        This approach dramatically reduces API calls by leveraging existing cache files.
+        Falls back to per-ticker yfinance if EDGAR fails.
 
         Args:
             limit: Optional limit on number of assets to process
-            force: If True, bypass DB and cache checks and always fetch from API
+            force: If True, bypass DB freshness checks
             progress: Optional progress reporter for operation tracking
 
         Returns:
@@ -420,112 +461,106 @@ class BootstrapService:
         from models.result.bootstrap_result import BootstrapResult
         from models.dataclass.fundamentals import AssetFundamentals
         from models.sqlmodel.fundamentals_sqlmodel import FundamentalsSQLModel
-        from utils.fundamentals_cache import FundamentalsCacheHelper
         from utils.config_loader import ConfigLoader
 
         start_time = time.time()
         logger.info(f"Bootstrapping fundamentals (limit={limit})")
 
-        # Initialize cache helper and load config
-        cache_helper = FundamentalsCacheHelper()
         config_loader = ConfigLoader()
         config = config_loader.load_database_ttl_config()
         max_age_days = config["max_fundamentals_age_days"]  # 30 days
 
-        # Get assets from active universe (scoped to tradable assets)
+        # Get assets from active universe
         assets = self.universe_repository.get_active_universe_assets(limit=limit)
 
         if not assets:
             raise RuntimeError(
                 "Cannot bootstrap fundamentals: No assets in active universe. "
-                "Run 'bootstrap-tickers' and 'bootstrap-universe' first."
+                "Run 'bootstrap-tickers' and 'bootstrap-universes' first."
             )
 
         total_assets = len(assets)
-        logger.info(f"Fetching fundamentals for {total_assets} assets in active universe")
+        logger.info(f"Processing fundamentals for {total_assets} assets in active universe")
 
-        # Phase 1: Fetch fundamentals using 3-tier approach
-        fundamentals_data = {}  # {asset_id: AssetFundamentals object}
-        fetch_errors = []
-        stats = {
-            "from_database": 0,
-            "from_cache": 0,
-            "from_api": 0,
-            "errors": 0
-        }
+        # Build symbol→asset_id mapping
+        symbol_to_asset = {asset.symbol: asset for asset in assets}
 
-        if progress:
-            progress.start_operation("Fetching fundamentals", total_assets)
+        # Phase 1: Check DB for fresh data (skip already-fresh records)
+        symbols_needing_data = []
+        from_database = 0
 
-        for i, asset_sql in enumerate(assets, start=1):
-            try:
-                # Tier 1: Check database for fresh data (skip if force=True)
-                if not force:
-                    existing = self.fundamentals_repository.get_by_asset_id(asset_sql.id)
-                    if existing and existing.last_updated:
-                        age_days = (datetime.now() - existing.last_updated).days
-                        if age_days < max_age_days:
-                            stats["from_database"] += 1
-                            logger.debug(f"Using fresh DB data for {asset_sql.symbol} (age: {age_days}d)")
-                            continue
-
-                # Tier 2: Check file cache (skip if force=True)
-                if not force and cache_helper.is_cache_fresh(asset_sql.symbol, max_age_days):
-                    cached_data = cache_helper.load_from_cache(asset_sql.symbol)
-                    if cached_data:
-                        fundamentals = AssetFundamentals.from_polygon_data(
-                            asset_id=asset_sql.id,
-                            provider_id=1,
-                            polygon_data=cached_data["results"]
-                        )
-                        fundamentals_data[asset_sql.id] = fundamentals
-                        stats["from_cache"] += 1
-                        logger.debug(f"Loaded from cache: {asset_sql.symbol}")
+        if not force:
+            for asset in assets:
+                existing = self.fundamentals_repository.get_by_asset_id(asset.id)
+                if existing and existing.last_updated:
+                    age_days = (datetime.now() - existing.last_updated).days
+                    if age_days < max_age_days:
+                        from_database += 1
                         continue
+                symbols_needing_data.append(asset.symbol)
 
-                # Tier 3: Fetch from API (cache miss or stale, or force=True)
-                ticker_data = self.reference_provider.fetch_ticker_details_raw(asset_sql.symbol)
-                if not ticker_data:
-                    fetch_errors.append(f"{asset_sql.symbol}: No data from API")
-                    stats["errors"] += 1
-                    continue
+            if from_database:
+                logger.info(f"Skipping {from_database} assets with fresh DB data (<{max_age_days} days)")
+        else:
+            symbols_needing_data = [asset.symbol for asset in assets]
 
-                # Save to cache for future use
-                cache_helper.save_to_cache(
-                    asset_sql.symbol,
-                    {"status": "OK", "results": ticker_data}
+        if not symbols_needing_data:
+            logger.info("All fundamentals are fresh — nothing to fetch")
+            duration = time.time() - start_time
+            return BootstrapResult(
+                operation="fundamentals",
+                total_items=total_assets,
+                successful=from_database,
+                failed=0,
+                duration_seconds=duration,
+                from_database=from_database,
+                from_cache=0,
+                from_api=0,
+            )
+
+        # Phase 2: Fetch bulk data from SEC EDGAR
+        logger.info(f"Fetching fundamentals for {len(symbols_needing_data)} symbols via SEC EDGAR...")
+
+        # Look up edgar provider_id
+        edgar_provider = self.provider_repository.get_by_name("edgar")
+        provider_id = edgar_provider.id if edgar_provider else 1
+
+        from api.providers.adapters.edgar_fundamentals_adapter import EdgarFundamentalsAdapter
+        edgar_adapter = EdgarFundamentalsAdapter()
+        edgar_data = edgar_adapter.fetch_bulk_fundamentals(symbols_needing_data, progress=progress)
+
+        # Phase 3: Build AssetFundamentals objects
+        fundamentals_data = {}
+        fetch_errors = []
+        from_api = 0
+
+        for symbol in symbols_needing_data:
+            asset = symbol_to_asset[symbol]
+            data = edgar_data.get(symbol)
+
+            if not data:
+                fetch_errors.append(f"{symbol}: No EDGAR data (no CIK match)")
+                continue
+
+            try:
+                fundamentals = AssetFundamentals.from_edgar_data(
+                    asset_id=asset.id,
+                    provider_id=provider_id,
+                    edgar_data=data,
                 )
-
-                # Convert to AssetFundamentals
-                fundamentals = AssetFundamentals.from_polygon_data(
-                    asset_id=asset_sql.id,
-                    provider_id=1,
-                    polygon_data=ticker_data,
-                )
-                fundamentals_data[asset_sql.id] = fundamentals
-                stats["from_api"] += 1
-                logger.debug(f"Fetched from API: {asset_sql.symbol}")
-
+                fundamentals_data[asset.id] = fundamentals
+                from_api += 1
             except Exception as e:
-                fetch_errors.append(f"{asset_sql.symbol}: {str(e)}")
-                stats["errors"] += 1
-                logger.error(f"Error processing {asset_sql.symbol}: {e}")
+                fetch_errors.append(f"{symbol}: {str(e)}")
+                logger.error(f"Error building fundamentals for {symbol}: {e}")
 
-            if progress and i % 10 == 0:
-                progress.update_progress(i, total_assets)
-
-        if progress:
-            progress.complete_operation(success=True)
-
-        # Log cache statistics
         logger.info(
-            f"Data sources: {stats['from_database']} from DB (fresh), "
-            f"{stats['from_cache']} from cache, "
-            f"{stats['from_api']} from API, "
-            f"{stats['errors']} errors"
+            f"Data sources: {from_database} from DB (fresh), "
+            f"{from_api} from EDGAR, "
+            f"{len(fetch_errors)} errors"
         )
 
-        # Phase 2: Bulk save all fundamentals (single database transaction)
+        # Phase 4: Bulk save all fundamentals (single database transaction)
         insert_errors = []
         successful_count = 0
 
@@ -535,7 +570,6 @@ class BootstrapService:
             if progress:
                 progress.start_operation("Saving to database", len(fundamentals_data))
 
-            # Convert to SQLModel
             fundamentals_sql_list = []
             for asset_id, fundamentals in fundamentals_data.items():
                 try:
@@ -558,7 +592,6 @@ class BootstrapService:
                 except Exception as e:
                     insert_errors.append(f"asset_id {asset_id}: {str(e)}")
 
-            # Bulk save using repository
             if fundamentals_sql_list:
                 successful_count = self.fundamentals_repository.bulk_save(fundamentals_sql_list)
 
@@ -566,20 +599,14 @@ class BootstrapService:
                 progress.complete_operation(success=True)
 
         duration = time.time() - start_time
-
-        # Calculate true success/failure counts
-        # Success = items saved to DB + items already fresh in DB
-        # Failed = only actual errors
-        total_successful = successful_count + stats["from_database"]
-        total_failed = stats["errors"]
+        total_successful = successful_count + from_database
+        total_failed = len(fetch_errors)
 
         logger.info(
             f"Bootstrapped {total_successful}/{total_assets} fundamentals in {duration:.1f}s "
-            f"({successful_count} updated, {stats['from_database']} already fresh)"
+            f"({successful_count} updated, {from_database} already fresh)"
         )
 
-        # Record metadata for bulk fundamentals operation
-        from datetime import datetime
         self.data_service.record_bulk_operation_metadata(
             operation_type=DataUpdateMetadataType.FUNDAMENTALS,
             operation_subtype="bootstrap",
@@ -587,7 +614,7 @@ class BootstrapService:
             total_items=total_assets,
             processed_items=total_successful,
             failed_items=total_failed,
-            api_calls_made=stats["from_api"]  # Only count actual API calls
+            api_calls_made=from_api
         )
 
         return BootstrapResult(
@@ -598,9 +625,9 @@ class BootstrapService:
             fetch_errors=fetch_errors,
             insert_errors=insert_errors,
             duration_seconds=duration,
-            from_database=stats["from_database"],
-            from_cache=stats["from_cache"],
-            from_api=stats["from_api"]
+            from_database=from_database,
+            from_cache=0,
+            from_api=from_api
         )
 
     # ============================================================================

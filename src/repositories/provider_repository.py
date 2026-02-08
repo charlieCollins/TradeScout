@@ -31,7 +31,7 @@ class ProviderRepository:
         """Get provider by name.
 
         Args:
-            name: Provider name (e.g., 'polygon', 'yfinance')
+            name: Provider name (e.g., 'nasdaq_trader')
 
         Returns:
             Provider if found, None otherwise
@@ -58,7 +58,7 @@ class ProviderRepository:
         return list(self.session.exec(statement).all())
 
     def get_active_provider(self) -> Optional[ProviderSQLModel]:
-        """Get the active provider (typically 'polygon').
+        """Get the active provider.
 
         Returns the first active provider, or None if no active providers exist.
         In practice, there should always be one active provider.
